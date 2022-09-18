@@ -1,0 +1,44 @@
+4		17 Sep 2022
+	+ 36_all_msgfmt-libstdc++-link.patch
+        + 37_all_glibc_236.patch
+
+3		05 July 2021
+	+ 35_all_remove-cyclades.patch
+
+2		08 Jun 2021
+	+ 33_all_ctor-union-PR100489.patch
+	+ 34_all_ICE-tsubst-PR100102.patch
+
+1		08 Apr 2021
+	+ 01_all_default-fortify-source.patch
+	+ 02_all_default-warn-format-security.patch
+	+ 03_all_default-warn-trampolines.patch
+	+ 04_all_nossp-on-nostdlib.patch
+	+ 05_all_alpha-mieee-default.patch
+	+ 06_all_ia64_note.GNU-stack.patch
+	+ 07_all_i386_libgcc_note.GNU-stack.patch
+	+ 08_all_libiberty-asprintf.patch
+	+ 09_all_libiberty-pic.patch
+	+ 10_all_nopie-all-flags.patch
+	+ 11_all_sh-drop-sysroot-suffix.patch
+	+ 12_all_ia64-TEXTREL.patch
+	+ 13_all_disable-systemtap-switch.patch
+	+ 14_all_m68k-textrel-on-libgcc.patch
+	+ 15_all_respect-build-cxxflags.patch
+	+ 16_all_libgfortran-Werror.patch
+	+ 17_all_libgomp-Werror.patch
+	+ 18_all_libitm-Werror.patch
+	+ 19_all_libatomic-Werror.patch
+	+ 20_all_libbacktrace-Werror.patch
+	+ 21_all_libsanitizer-Werror.patch
+	+ 22_all_libstdcxx-no-vtv.patch
+	+ 23_all_disable-riscv32-ABIs.patch
+	+ 24_all_default_ssp-buffer-size.patch
+	+ 25_all_hppa-faster-synth_mult.patch
+	+ 26_all_libcpp-ar.patch
+	+ 27_all_EXTRA_OPTIONS-z-now.patch
+	+ 28_all_EXTRA_OPTIONS-fstack-clash-protection.patch
+	+ 29_all_lto-intl-workaround-PR95194.patch
+	+ 30_all_plugin-objdump.patch
+	+ 31_all_fno-delayed-branch.patch
+	+ 32_all_vtv-slibtool.patch
