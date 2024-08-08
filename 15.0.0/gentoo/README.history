@@ -1,6 +1,7 @@
 ?	????
 
 	- 78_all_gcc_don-t-enable-fext-dce-with-O2-for-now.patch
+	+ 09_all_esysroot.patch
 
 8	5 August 2024
 
