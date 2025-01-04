@@ -1,6 +1,7 @@
 36	????
 
 	- 73_all_PR117629-c-special-case-some-bool-errors-with-C23.patch
+	U 09_all_esysroot.patch
 
 35	30 December 2024
 
@@ -75,7 +76,7 @@
 
 21	1 November 2024
 
-	+ 31_all_time64.patch	
+	+ 31_all_time64.patch
 
 20	28 October 2024
 
