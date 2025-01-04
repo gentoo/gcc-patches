@@ -1,0 +1,35 @@
+From 886520dcf2a59105cc78573f4c5a5cb34ad05579 Mon Sep 17 00:00:00 2001
+From: James Le Cuirot <chewi@gentoo.org>
+Date: Thu, 2 Jan 2025 12:46:55 +0000
+Subject: [PATCH 2/3] Do not search for tools relative to the driver when
+ cross-compiling
+
+On Gentoo, this location is /usr/${CHOST}/bin. Native toolchains put
+symlinks to the binutils tools here. Cross toolchains only put
+non-native binaries here. The binutils symlinks live under
+/usr/libexec/gcc/${CHOST} instead, and that location is already
+searched.
+
+It would be better to fail to find a given tool than inadvertently try
+to execute a non-native build of it via QEMU.
+
+Signed-off-by: James Le Cuirot <chewi@gentoo.org>
+---
+ gcc/gcc.cc | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/gcc/gcc.cc b/gcc/gcc.cc
+index bef473939..20044bc3a 100644
+--- a/gcc/gcc.cc
++++ b/gcc/gcc.cc
+@@ -5493,6 +5493,7 @@ process_command (unsigned int decoded_options_count,
+ 	      accel_dir_suffix, dir_separator_str, tooldir_prefix2, NULL);
+   free (tooldir_prefix2);
+ 
++  if (*cross_compile == '0')
+   add_prefix (&exec_prefixes,
+ 	      concat (tooldir_prefix, "bin", dir_separator_str, NULL),
+ 	      "BINUTILS", PREFIX_PRIORITY_LAST, 0, 0);
+-- 
+2.47.1
+

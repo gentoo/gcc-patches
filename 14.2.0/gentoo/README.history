@@ -1,3 +1,8 @@
+8	????
+
+	+ 12_all_tooldir_prefix_lib.patch
+	+ 13_all_tooldir_prefix_bin.patch
+
 7	24 Dec 2024
 
 	U 70_all_PR117854-config-nvptx-fix-bashisms-with-gen-copyright.sh-use.patch

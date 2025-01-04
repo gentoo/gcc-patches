@@ -1,0 +1,44 @@
+From 018edcc1c4649cccc86d9cb248efbc5ec9357293 Mon Sep 17 00:00:00 2001
+From: James Le Cuirot <chewi@gentoo.org>
+Date: Thu, 2 Jan 2025 12:54:41 +0000
+Subject: [PATCH 1/3] Do not search for libs relative to the driver when
+ sysroot is changed
+
+When specifying a sysroot, the intention is to link against libraries in
+that sysroot rather than the toolchain's default sysroot. Having the
+toolchain default take priority is problematic, as libraries there may
+not be ABI compatible or may even have different sonames altogether.
+The desired sysroot is also not applied to ld scripts.
+
+Gentoo previously got away with this because only the toolchain's /lib
+was searched rather than /usr/lib, and the former did not contain many
+*.so files. Now that Gentoo is migrating cross environments to a
+merged-usr layout, these directories are the same, triggering the above
+issues much more frequently.
+
+In particular, the toolchain's /usr/lib/libc.so ld script is found
+before the sysroot's. This includes a reference to /lib/libc.so.6. The
+sysroot is only applied to this when the ld script itself is within that
+sysroot, so /lib/libc.so.6 is taken literally, causing the build
+machine's libc to be used instead, which immediately breaks any linking.
+
+Signed-off-by: James Le Cuirot <chewi@gentoo.org>
+---
+ gcc/gcc.cc | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/gcc/gcc.cc b/gcc/gcc.cc
+index 728332b81..bef473939 100644
+--- a/gcc/gcc.cc
++++ b/gcc/gcc.cc
+@@ -5496,6 +5496,7 @@ process_command (unsigned int decoded_options_count,
+   add_prefix (&exec_prefixes,
+ 	      concat (tooldir_prefix, "bin", dir_separator_str, NULL),
+ 	      "BINUTILS", PREFIX_PRIORITY_LAST, 0, 0);
++  if (!target_system_root_changed)
+   add_prefix (&startfile_prefixes,
+ 	      concat (tooldir_prefix, "lib", dir_separator_str, NULL),
+ 	      "BINUTILS", PREFIX_PRIORITY_LAST, 0, 1);
+-- 
+2.47.1
+
