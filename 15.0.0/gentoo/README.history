@@ -1,6 +1,8 @@
 36	????
 
 	- 73_all_PR117629-c-special-case-some-bool-errors-with-C23.patch
+	+ 12_all_tooldir_prefix_lib.patch
+	+ 13_all_tooldir_prefix_bin.patch
 
 35	30 December 2024
 
