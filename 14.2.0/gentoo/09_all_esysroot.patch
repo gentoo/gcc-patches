@@ -1,20 +1,25 @@
-From a2e98f3928a4bef1f9a027f8af22b019beff9600 Mon Sep 17 00:00:00 2001
+From 55f0825fc17d07a5e6d0ab5ae363f91f834946fa Mon Sep 17 00:00:00 2001
 From: James Le Cuirot <chewi@gentoo.org>
-Date: Sun, 4 Aug 2024 17:02:06 +0100
-Subject: [PATCH] Allow setting target sysroot with ESYSROOT env var for
+Date: Mon, 23 Dec 2024 16:50:25 +0000
+Subject: [PATCH 3/3] Allow setting target sysroot with ESYSROOT env var for
  cross-compilers
 
-The variable is ignored for native compilers. The --sysroot command line
-option takes precedence.
+The variable is ignored for native compilers, when it matches BROOT, and
+when the target machine does not match CHOST (if set). The --sysroot
+command line option takes precedence.
+
+The CHOST check is necessary for a Canadian Cross. In that case, two
+cross-compilers are invoked, but only the one matching CHOST should have
+its sysroot set by ESYSROOT.
 
 Signed-off-by: James Le Cuirot <chewi@gentoo.org>
 ---
- gcc/doc/invoke.texi | 10 ++++++++++
- gcc/gcc.cc          | 10 ++++++++++
- 2 files changed, 20 insertions(+)
+ gcc/doc/invoke.texi | 11 +++++++++++
+ gcc/gcc.cc          | 29 +++++++++++++++++++++++++++++
+ 2 files changed, 40 insertions(+)
 
 diff --git a/gcc/doc/invoke.texi b/gcc/doc/invoke.texi
-index f82f7d281..2f03b080d 100644
+index f82f7d281..8136aa661 100644
 --- a/gcc/doc/invoke.texi
 +++ b/gcc/doc/invoke.texi
 @@ -19027,6 +19027,10 @@ for this option.  If your linker does not support this option, the
@@ -22,46 +27,66 @@ index f82f7d281..2f03b080d 100644
  library aspect does not.
  
 +On Gentoo Linux, this option can also be set for cross-compilers using the
-+@env{ESYSROOT} environmnent variable.  The variable is ignored for native
-+compilers.  The command line option takes precedence.
++@env{ESYSROOT} environmnent variable.  The command line option takes
++precedence.
 +
  @opindex no-sysroot-suffix
  @item --no-sysroot-suffix
  For some targets, a suffix is added to the root directory specified
-@@ -37409,6 +37413,12 @@ using GCC also uses these directories when searching for ordinary
+@@ -37409,6 +37413,13 @@ using GCC also uses these directories when searching for ordinary
  libraries for the @option{-l} option (but directories specified with
  @option{-L} come first).
  
 +@vindex ESYSROOT
 +@item ESYSROOT
 +On Gentoo Linux, this variable sets the logical root directory for headers and
-+libraries for cross-compilers.  It is ignored for native compilers.  The
-+@option{--sysroot} option takes precedence.
++libraries for cross-compilers.  It is ignored for native compilers, when it
++matches @env{BROOT}, and when the target machine does not match @env{CHOST}
++(if set).  The @option{--sysroot} option takes precedence.
 +
  @vindex LANG
  @cindex locale definition
  @item LANG
 diff --git a/gcc/gcc.cc b/gcc/gcc.cc
-index 728332b81..06d8c469b 100644
+index 20044bc3a..823067267 100644
 --- a/gcc/gcc.cc
 +++ b/gcc/gcc.cc
-@@ -5501,6 +5501,16 @@ process_command (unsigned int decoded_options_count,
- 	      "BINUTILS", PREFIX_PRIORITY_LAST, 0, 1);
-   free (tooldir_prefix);
+@@ -5460,6 +5460,35 @@ process_command (unsigned int decoded_options_count,
+       gcc_assert (!compare_debug_opt);
+     }
  
 +  if (*cross_compile == '1' && !target_system_root_changed)
 +    {
 +      const char *esysroot = env.get("ESYSROOT");
-+      if (esysroot && esysroot[0] != '\0' && strcmp(esysroot, "/") != 0 && (!target_system_root || strcmp(esysroot, target_system_root) != 0))
++      const char *chost = env.get("CHOST");
++      if (esysroot && (!chost || strcmp(chost, spec_machine) == 0))
 +	{
-+	  target_system_root = esysroot;
-+	  target_system_root_changed = 1;
++	  char *my_esysroot = lrealpath(esysroot);
++	  if (my_esysroot[0] == '\0')
++	    my_esysroot = xstrdup("/");
++
++	  if (!target_system_root ||
++	      !filename_eq(my_esysroot, target_system_root[0] == '\0' ? "/" : target_system_root))
++	    {
++	      const char *broot = env.get("BROOT");
++	      char *my_broot = (!broot || broot[0] == '\0') ? xstrdup("/") : lrealpath(broot);
++
++	      if (!filename_eq(my_esysroot, my_broot))
++		{
++		  target_system_root = esysroot;
++		  target_system_root_changed = 1;
++		}
++
++	      free(my_broot);
++	    }
++
++	  free(my_esysroot);
 +	}
 +    }
 +
- #if defined(TARGET_SYSTEM_ROOT_RELOCATABLE) && !defined(VMS)
-   /* If the normal TARGET_SYSTEM_ROOT is inside of $exec_prefix,
-      then consider it to relocate with the rest of the GCC installation
+   /* Set up the search paths.  We add directories that we expect to
+      contain GNU Toolchain components before directories specified by
+      the machine description so that we will find GNU components (like
 -- 
-2.45.2
+2.47.1
 
