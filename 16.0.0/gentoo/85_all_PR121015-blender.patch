@@ -1,0 +1,229 @@
+https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121015#c4
+
+From 0ded000129390b21ec7dbab8db4cf64f85915ba6 Mon Sep 17 00:00:00 2001
+From: "H.J. Lu" <hjl.tools@gmail.com>
+Date: Thu, 10 Jul 2025 06:21:58 +0800
+Subject: [PATCH] x86: Handle broadcast all 1s to V8QI
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+commit 77473a27bae04da99d6979d43e7bd0a8106f4557
+Author: H.J. Lu <hjl.tools@gmail.com>
+Date:   Thu Jun 26 06:08:51 2025 +0800
+
+    x86: Also handle all 1s float vector constant
+
+replaces
+
+(insn 29 28 30 5 (set (reg:V2SF 107)
+        (mem/u/c:V2SF (symbol_ref/u:DI ("*.LC0") [flags 0x2]) [0  S8 A64])) 2031 {*movv2sf_internal}
+     (expr_list:REG_EQUAL (const_vector:V2SF [
+                (const_double:SF -QNaN [-QNaN]) repeated x2
+            ])
+        (nil)))
+
+with
+
+(insn 98 13 14 3 (set (reg:V8QI 112)
+        (const_vector:V8QI [
+                (const_int -1 [0xffffffffffffffff]) repeated x8
+            ])) -1
+     (nil))
+...
+(insn 29 28 30 5 (set (reg:V2SF 107)
+        (subreg:V2SF (reg:V8QI 112) 0)) 2031 {*movv2sf_internal}
+     (expr_list:REG_EQUAL (const_vector:V2SF [
+                (const_double:SF -QNaN [-QNaN]) repeated x2
+            ])
+        (nil)))
+
+which leads to
+
+pr121015.c: In function ‘render_result_from_bake_h’:
+pr121015.c:34:1: error: unrecognizable insn:
+   34 | }
+      | ^
+(insn 98 13 14 3 (set (reg:V8QI 112)
+        (const_vector:V8QI [
+                (const_int -1 [0xffffffffffffffff]) repeated x8
+            ])) -1
+     (expr_list:REG_EQUIV (const_vector:V8QI [
+                (const_int -1 [0xffffffffffffffff]) repeated x8
+            ])
+        (nil)))
+during RTL pass: ira
+
+Generate
+
+(insn 99 13 98 3 (set (reg:V16QI 113)
+        (const_vector:V16QI [
+                (const_int -1 [0xffffffffffffffff]) repeated x16
+            ])) -1
+     (nil))
+(insn 98 99 14 3 (set (reg:V8QI 112)
+        (subreg:V8QI (reg:V16QI 113) 0)) -1
+     (nil))
+
+instead of
+
+(insn 98 13 14 3 (set (reg:V8QI 112)
+        (const_vector:V8QI [
+                (const_int -1 [0xffffffffffffffff]) repeated x8
+            ])) -1
+     (nil))
+
+gcc/
+
+	PR target/121015
+	* config/i386/i386-features.cc (ix86_place_single_vector_set):
+	Handle broadcast all 1s to V8QI.
+
+gcc/testsuite/
+
+	PR target/121015
+	* gcc.target/i386/pr121015.c: New test.
+
+Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
+---
+ gcc/config/i386/i386-features.cc         | 60 +++++++++++++++++-------
+ gcc/testsuite/gcc.target/i386/pr121015.c | 34 ++++++++++++++
+ 2 files changed, 78 insertions(+), 16 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015.c
+
+diff --git a/gcc/config/i386/i386-features.cc b/gcc/config/i386/i386-features.cc
+index 054f8d5ddc8..f7629644380 100644
+--- a/gcc/config/i386/i386-features.cc
++++ b/gcc/config/i386/i386-features.cc
+@@ -3085,6 +3085,9 @@ ix86_rpad_gate ()
+ 	  && optimize_function_for_speed_p (cfun));
+ }
+ 
++static machine_mode ix86_get_vector_cse_mode (unsigned int,
++					      machine_mode smode);
++
+ /* Generate a vector set, DEST = SRC, at entry of the nearest dominator
+    for basic block map BBS, which is in the fake loop that contains the
+    whole function, so that there is only a single vector set in the
+@@ -3101,6 +3104,26 @@ ix86_place_single_vector_set (rtx dest, rtx src, bitmap bbs,
+     bb = get_immediate_dominator (CDI_DOMINATORS,
+ 				  bb->loop_father->header);
+ 
++  machine_mode mode = GET_MODE (dest);
++  rtx set_xmm = nullptr;
++  rtx_insn *set_xmm_insn = nullptr;
++  if (GET_MODE_SIZE (mode) < 16)
++    {
++      /* Handle
++
++	 (const_vector:V8QI
++	   [(const_int -1 [0xffffffffffffffff]) repeated x8 ])
++
++       */
++      if (src != CONSTM1_RTX (mode))
++	gcc_unreachable ();
++      machine_mode xmm_mode
++	= ix86_get_vector_cse_mode (16, GET_MODE_INNER (mode));
++      rtx xmm_src = gen_reg_rtx (xmm_mode);
++      set_xmm = gen_rtx_SET (xmm_src, CONSTM1_RTX (xmm_mode));
++      src = gen_rtx_SUBREG (mode, xmm_src, 0);
++    }
++
+   rtx set = gen_rtx_SET (dest, src);
+ 
+   rtx_insn *insn = BB_HEAD (bb);
+@@ -3114,31 +3137,36 @@ ix86_place_single_vector_set (rtx dest, rtx src, bitmap bbs,
+       insn = NEXT_INSN (insn);
+     }
+ 
++  rtx_insn *after = nullptr;
+   rtx_insn *set_insn;
+   if (insn == BB_HEAD (bb))
+-    {
+-      set_insn = emit_insn_before (set, insn);
+-      if (dump_file)
+-	{
+-	  fprintf (dump_file, "\nPlace:\n\n");
+-	  print_rtl_single (dump_file, set_insn);
+-	  fprintf (dump_file, "\nbefore:\n\n");
+-	  print_rtl_single (dump_file, insn);
+-	  fprintf (dump_file, "\n");
+-	}
+-    }
++    set_insn = emit_insn_before (set, insn);
+   else
+     {
+-      rtx_insn *after = insn ? PREV_INSN (insn) : BB_END (bb);
++      after = insn ? PREV_INSN (insn) : BB_END (bb);
+       set_insn = emit_insn_after (set, after);
+-      if (dump_file)
++    }
++
++  if (set_xmm)
++    set_xmm_insn = emit_insn_before (set_xmm, set_insn);
++
++  if (dump_file)
++    {
++      fprintf (dump_file, "\nPlace:\n\n");
++      if (set_xmm_insn)
++	print_rtl_single (dump_file, set_xmm_insn);
++      print_rtl_single (dump_file, set_insn);
++      if (after)
+ 	{
+-	  fprintf (dump_file, "\nPlace:\n\n");
+-	  print_rtl_single (dump_file, set_insn);
+ 	  fprintf (dump_file, "\nafter:\n\n");
+ 	  print_rtl_single (dump_file, after);
+-	  fprintf (dump_file, "\n");
+ 	}
++      else
++	{
++	  fprintf (dump_file, "\nbefore:\n\n");
++	  print_rtl_single (dump_file, insn);
++	}
++      fprintf (dump_file, "\n");
+     }
+ 
+   if (inner_scalar)
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015.c b/gcc/testsuite/gcc.target/i386/pr121015.c
+new file mode 100644
+index 00000000000..ad1fdccf50c
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015.c
+@@ -0,0 +1,34 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -march=x86-64-v3" } */
++/* { dg-final { scan-assembler-times "vpcmpeq" 1 { target { ! ia32 } } } } */
++/* { dg-final { scan-assembler-not "\.long\[ \t\]+-1\n" { target { ! ia32 } } } } */
++
++extern union {
++  int i;
++  float f;
++} int_as_float_u;
++
++extern int render_result_from_bake_w;
++extern int render_result_from_bake_h_seed_pass;
++extern float *render_result_from_bake_h_primitive;
++extern float *render_result_from_bake_h_seed;
++
++float
++int_as_float(int i)
++{
++  int_as_float_u.i = i;
++  return int_as_float_u.f;
++}
++
++void
++render_result_from_bake_h(int tx)
++{
++  while (render_result_from_bake_w) {
++    for (; tx < render_result_from_bake_w; tx++)
++      render_result_from_bake_h_primitive[1] =
++          render_result_from_bake_h_primitive[2] = int_as_float(-1);
++    if (render_result_from_bake_h_seed_pass) {
++      *render_result_from_bake_h_seed = 0;
++    }
++  }
++}
+-- 
+2.50.0
