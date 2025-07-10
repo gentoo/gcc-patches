@@ -1,9 +1,9 @@
-https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121015#c4
+https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121015#c5
 
-From 0ded000129390b21ec7dbab8db4cf64f85915ba6 Mon Sep 17 00:00:00 2001
+From 9f7e70f5e1172650653e13554d984ec9d7e50298 Mon Sep 17 00:00:00 2001
 From: "H.J. Lu" <hjl.tools@gmail.com>
 Date: Thu, 10 Jul 2025 06:21:58 +0800
-Subject: [PATCH] x86: Handle broadcast all 1s to V8QI
+Subject: [PATCH] x86: Handle integer all 1s vectors in mmx.md
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -54,30 +54,24 @@ pr121015.c:34:1: error: unrecognizable insn:
         (nil)))
 during RTL pass: ira
 
-Generate
-
-(insn 99 13 98 3 (set (reg:V16QI 113)
-        (const_vector:V16QI [
-                (const_int -1 [0xffffffffffffffff]) repeated x16
-            ])) -1
-     (nil))
-(insn 98 99 14 3 (set (reg:V8QI 112)
-        (subreg:V8QI (reg:V16QI 113) 0)) -1
-     (nil))
-
-instead of
-
-(insn 98 13 14 3 (set (reg:V8QI 112)
-        (const_vector:V8QI [
-                (const_int -1 [0xffffffffffffffff]) repeated x8
-            ])) -1
-     (nil))
+1. Update constm1_operand to also return true for integer and float all
+1s vectors.
+2. Add nonimm_or_0_or_m1_operand for nonimmediate, zero or -1 operand.
+3. Add BI for constant all 0s/1s operand.
+4. Update "*mov<mode>_internal" in mmx.md to handle integer all 1s vectors.
+5. Update MMXMODE move splitter to also split all 1s source operand.
 
 gcc/
 
 	PR target/121015
-	* config/i386/i386-features.cc (ix86_place_single_vector_set):
-	Handle broadcast all 1s to V8QI.
+	* config/i386/constraints.md (BI): New constraint.
+	* config/i386/i386.cc (ix86_print_operand): Support CONSTM1_RTX.
+	* config/i386/mmx.md (*mov<mode>_internal): Replace C with BI
+	memory and integer register destination.
+	Update MMXMODE move splitter to also split all 1s source operand.
+	* config/i386/predicates.md (constm1_operand): Also return true
+	for int_float_vector_all_ones_operand.
+	(nonimm_or_0_or_m1_operand): New predicate.
 
 gcc/testsuite/
 
@@ -86,115 +80,141 @@ gcc/testsuite/
 
 Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
 ---
- gcc/config/i386/i386-features.cc         | 60 +++++++++++++++++-------
- gcc/testsuite/gcc.target/i386/pr121015.c | 34 ++++++++++++++
- 2 files changed, 78 insertions(+), 16 deletions(-)
+ gcc/config/i386/constraints.md           |  5 ++++
+ gcc/config/i386/i386.cc                  |  7 ++++--
+ gcc/config/i386/mmx.md                   |  8 +++---
+ gcc/config/i386/predicates.md            | 26 +++++++++++--------
+ gcc/testsuite/gcc.target/i386/pr121015.c | 32 ++++++++++++++++++++++++
+ 5 files changed, 62 insertions(+), 16 deletions(-)
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121015.c
 
-diff --git a/gcc/config/i386/i386-features.cc b/gcc/config/i386/i386-features.cc
-index 054f8d5ddc8..f7629644380 100644
---- a/gcc/config/i386/i386-features.cc
-+++ b/gcc/config/i386/i386-features.cc
-@@ -3085,6 +3085,9 @@ ix86_rpad_gate ()
- 	  && optimize_function_for_speed_p (cfun));
- }
+diff --git a/gcc/config/i386/constraints.md b/gcc/config/i386/constraints.md
+index 38877a7e61b..b436893bce4 100644
+--- a/gcc/config/i386/constraints.md
++++ b/gcc/config/i386/constraints.md
+@@ -173,6 +173,7 @@ (define_register_constraint "YW"
+ ;;  H  Integer SSE constant that is 128/256bit all ones
+ ;;     and zero-extand to 256/512bit, or 128bit all ones
+ ;;     and zero-extend to 512bit.
++;;  I  Integer vector constant with all 0s/1s operand.
+ ;;  M  x86-64 memory operand.
  
-+static machine_mode ix86_get_vector_cse_mode (unsigned int,
-+					      machine_mode smode);
-+
- /* Generate a vector set, DEST = SRC, at entry of the nearest dominator
-    for basic block map BBS, which is in the fake loop that contains the
-    whole function, so that there is only a single vector set in the
-@@ -3101,6 +3104,26 @@ ix86_place_single_vector_set (rtx dest, rtx src, bitmap bbs,
-     bb = get_immediate_dominator (CDI_DOMINATORS,
- 				  bb->loop_father->header);
+ (define_constraint "Bf"
+@@ -237,6 +238,10 @@ (define_constraint "BH"
+   (ior (match_operand 0 "vector_all_ones_zero_extend_half_operand")
+        (match_operand 0 "vector_all_ones_zero_extend_quarter_operand")))
  
-+  machine_mode mode = GET_MODE (dest);
-+  rtx set_xmm = nullptr;
-+  rtx_insn *set_xmm_insn = nullptr;
-+  if (GET_MODE_SIZE (mode) < 16)
-+    {
-+      /* Handle
++(define_constraint "BI"
++  "@internal constant all 0s/1s operand."
++  (match_operand 0 "const0_or_m1_operand"))
 +
-+	 (const_vector:V8QI
-+	   [(const_int -1 [0xffffffffffffffff]) repeated x8 ])
-+
-+       */
-+      if (src != CONSTM1_RTX (mode))
-+	gcc_unreachable ();
-+      machine_mode xmm_mode
-+	= ix86_get_vector_cse_mode (16, GET_MODE_INNER (mode));
-+      rtx xmm_src = gen_reg_rtx (xmm_mode);
-+      set_xmm = gen_rtx_SET (xmm_src, CONSTM1_RTX (xmm_mode));
-+      src = gen_rtx_SUBREG (mode, xmm_src, 0);
-+    }
-+
-   rtx set = gen_rtx_SET (dest, src);
- 
-   rtx_insn *insn = BB_HEAD (bb);
-@@ -3114,31 +3137,36 @@ ix86_place_single_vector_set (rtx dest, rtx src, bitmap bbs,
-       insn = NEXT_INSN (insn);
-     }
- 
-+  rtx_insn *after = nullptr;
-   rtx_insn *set_insn;
-   if (insn == BB_HEAD (bb))
--    {
--      set_insn = emit_insn_before (set, insn);
--      if (dump_file)
--	{
--	  fprintf (dump_file, "\nPlace:\n\n");
--	  print_rtl_single (dump_file, set_insn);
--	  fprintf (dump_file, "\nbefore:\n\n");
--	  print_rtl_single (dump_file, insn);
--	  fprintf (dump_file, "\n");
--	}
--    }
-+    set_insn = emit_insn_before (set, insn);
-   else
-     {
--      rtx_insn *after = insn ? PREV_INSN (insn) : BB_END (bb);
-+      after = insn ? PREV_INSN (insn) : BB_END (bb);
-       set_insn = emit_insn_after (set, after);
--      if (dump_file)
-+    }
-+
-+  if (set_xmm)
-+    set_xmm_insn = emit_insn_before (set_xmm, set_insn);
-+
-+  if (dump_file)
-+    {
-+      fprintf (dump_file, "\nPlace:\n\n");
-+      if (set_xmm_insn)
-+	print_rtl_single (dump_file, set_xmm_insn);
-+      print_rtl_single (dump_file, set_insn);
-+      if (after)
+ ;; NB: Similar to 'm', but don't use define_memory_constraint on x86-64
+ ;; to prevent LRA from converting the operand to the form '(mem (reg X))'
+ ;; where X is a base register.
+diff --git a/gcc/config/i386/i386.cc b/gcc/config/i386/i386.cc
+index ad7360ec71a..6c7cc7c15f2 100644
+--- a/gcc/config/i386/i386.cc
++++ b/gcc/config/i386/i386.cc
+@@ -14671,9 +14671,12 @@ ix86_print_operand (FILE *file, rtx x, int code)
+ 	 since we can in fact encode that into an immediate.  */
+       if (GET_CODE (x) == CONST_VECTOR)
  	{
--	  fprintf (dump_file, "\nPlace:\n\n");
--	  print_rtl_single (dump_file, set_insn);
- 	  fprintf (dump_file, "\nafter:\n\n");
- 	  print_rtl_single (dump_file, after);
--	  fprintf (dump_file, "\n");
+-	  if (x != CONST0_RTX (GET_MODE (x)))
++	  if (x == CONST0_RTX (GET_MODE (x)))
++	    x = const0_rtx;
++	  else if (x == CONSTM1_RTX (GET_MODE (x)))
++	    x = constm1_rtx;
++	  else
+ 	    output_operand_lossage ("invalid vector immediate");
+-	  x = const0_rtx;
  	}
-+      else
-+	{
-+	  fprintf (dump_file, "\nbefore:\n\n");
-+	  print_rtl_single (dump_file, insn);
-+	}
-+      fprintf (dump_file, "\n");
-     }
  
-   if (inner_scalar)
+       if (code == 'P')
+diff --git a/gcc/config/i386/mmx.md b/gcc/config/i386/mmx.md
+index 79202323e53..d9020ef3da6 100644
+--- a/gcc/config/i386/mmx.md
++++ b/gcc/config/i386/mmx.md
+@@ -183,9 +183,9 @@ (define_expand "mov<mode>"
+ 
+ (define_insn "*mov<mode>_internal"
+   [(set (match_operand:MMXMODE 0 "nonimmediate_operand"
+-    "=r ,o ,r,r ,m ,?!y,!y,?!y,m  ,r  ,?!y,v,v,v,m,r,v,!y,*x")
+-	(match_operand:MMXMODE 1 "nonimm_or_0_operand"
+-    "rCo,rC,C,rm,rC,C  ,!y,m  ,?!y,?!y,r  ,C,v,m,v,v,r,*x,!y"))]
++    "=r  ,o  ,r ,r ,m  ,?!y,!y,?!y,m  ,r  ,?!y,v,v,v,m,r,v,!y,*x")
++	(match_operand:MMXMODE 1 "nonimm_or_0_or_m1_operand"
++    "rBIo,rBI,BI,rm,rBI,C  ,!y,m  ,?!y,?!y,r  ,C,v,m,v,v,r,*x,!y"))]
+   "(TARGET_MMX || TARGET_MMX_WITH_SSE)
+    && !(MEM_P (operands[0]) && MEM_P (operands[1]))
+    && ix86_hardreg_mov_ok (operands[0], operands[1])"
+@@ -313,7 +313,7 @@ (define_split
+ 
+ (define_split
+   [(set (match_operand:MMXMODE 0 "nonimmediate_gr_operand")
+-	(match_operand:MMXMODE 1 "const0_operand"))]
++	(match_operand:MMXMODE 1 "const0_or_m1_operand"))]
+   "!TARGET_64BIT && reload_completed"
+   [(const_int 0)]
+   "ix86_split_long_move (operands); DONE;")
+diff --git a/gcc/config/i386/predicates.md b/gcc/config/i386/predicates.md
+index 3afaf83a7a0..7def9b89b48 100644
+--- a/gcc/config/i386/predicates.md
++++ b/gcc/config/i386/predicates.md
+@@ -833,16 +833,6 @@ (define_predicate "const1_operand"
+   return op == CONST1_RTX (mode);
+ })
+ 
+-;; Match exactly -1.
+-(define_predicate "constm1_operand"
+-  (and (match_code "const_int")
+-       (match_test "op == constm1_rtx")))
+-
+-;; Match 0 or -1.
+-(define_predicate "const0_or_m1_operand"
+-  (ior (match_operand 0 "const0_operand")
+-       (match_operand 0 "constm1_operand")))
+-
+ ;; Match exactly eight.
+ (define_predicate "const8_operand"
+   (and (match_code "const_int")
+@@ -1218,6 +1208,17 @@ (define_predicate "int_float_vector_all_ones_operand"
+        (match_operand 0 "float_vector_all_ones_operand")
+        (match_test "op == constm1_rtx")))
+ 
++;; Match exactly -1.
++(define_predicate "constm1_operand"
++  (ior (and (match_code "const_int")
++            (match_test "op == constm1_rtx"))
++       (match_operand 0 "int_float_vector_all_ones_operand")))
++
++;; Match 0 or -1.
++(define_predicate "const0_or_m1_operand"
++  (ior (match_operand 0 "const0_operand")
++       (match_operand 0 "constm1_operand")))
++
+ /* Return true if operand is an 128/256bit all ones vector
+    that zero-extends to 256/512bit.  */
+ (define_predicate "vector_all_ones_zero_extend_half_operand"
+@@ -1359,6 +1360,11 @@ (define_predicate "nonimm_or_0_operand"
+   (ior (match_operand 0 "nonimmediate_operand")
+        (match_operand 0 "const0_operand")))
+ 
++; Return true when OP is a nonimmediate, zero or -1.
++(define_predicate "nonimm_or_0_or_m1_operand"
++  (ior (match_operand 0 "nonimmediate_operand")
++       (match_operand 0 "const0_or_m1_operand")))
++
+ ; Return true when OP is a nonimmediate or zero or all ones.
+ (define_predicate "nonimm_or_0_or_1s_operand"
+   (ior (match_operand 0 "nonimmediate_operand")
 diff --git a/gcc/testsuite/gcc.target/i386/pr121015.c b/gcc/testsuite/gcc.target/i386/pr121015.c
 new file mode 100644
-index 00000000000..ad1fdccf50c
+index 00000000000..57c8bff14ef
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/i386/pr121015.c
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,32 @@
 +/* { dg-do compile } */
 +/* { dg-options "-O2 -march=x86-64-v3" } */
-+/* { dg-final { scan-assembler-times "vpcmpeq" 1 { target { ! ia32 } } } } */
-+/* { dg-final { scan-assembler-not "\.long\[ \t\]+-1\n" { target { ! ia32 } } } } */
 +
 +extern union {
 +  int i;
