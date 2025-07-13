@@ -1,0 +1,563 @@
+https://inbox.sourceware.org/gcc-patches/CAMe9rOoxxaxWSAuyJL2=s3jSyQ5_tmg78Nr+oz+t3x-2xgc7+w@mail.gmail.com/
+
+From d6f3358aeab4f2acbe6793f4773248bdcd56c10d Mon Sep 17 00:00:00 2001
+Message-ID: <d6f3358aeab4f2acbe6793f4773248bdcd56c10d.1752368830.git.sam@gentoo.org>
+From: "H.J. Lu" <hjl.tools@gmail.com>
+Date: Wed, 2 Jul 2025 08:58:23 +0800
+Subject: [PATCH] x86-64: Add --enable-x86-64-mfentry
+
+When profiling is enabled with shrink wrapping, the mcount call may not
+be placed at the function entry after
+
+	pushq %rbp
+	movq %rsp,%rbp
+
+As the result, the profile data may be skewed which makes PGO less
+effective.
+
+Add --enable-x86-64-mfentry to enable -mfentry by default to use
+__fentry__, added to glibc in 2010 by:
+
+commit d22e4cc9397ed41534c9422d0b0ffef8c77bfa53
+Author: Andi Kleen <ak@linux.intel.com>
+Date:   Sat Aug 7 21:24:05 2010 -0700
+
+    x86: Add support for frame pointer less mcount
+
+instead of mcount, which is placed before the prologue so that -pg can
+be used with -fshrink-wrap-separate enabled at -O1.  This option is
+64-bit only because __fentry__ doesn't support PIC in 32-bit mode.  The
+default it to enable -mfentry when targeting glibc.
+
+Also warn -pg without -mfentry with shrink wrapping enabled.  The warning
+is disable for PIC in 32-bit mode.
+
+gcc/
+
+	PR target/120881
+	* config.in: Regenerated.
+	* configure: Likewise.
+	* configure.ac: Add --enable-x86-64-mfentry.
+	* config/i386/i386-options.cc (ix86_option_override_internal):
+	Enable __fentry__ in 64-bit mode if ENABLE_X86_64_MFENTRY is set
+	to 1.  Warn -pg without -mfentry with shrink wrapping enabled.
+	* doc/install.texi: Document --enable-x86-64-mfentry.
+
+gcc/testsuite/
+
+	PR target/120881
+	* gcc.dg/20021014-1.c: Add additional -mfentry -fno-pic options
+	for x86.
+	* gcc.dg/aru-2.c: Likewise.
+	* gcc.dg/nest.c: Likewise.
+	* gcc.dg/pr32450.c: Likewise.
+	* gcc.dg/pr43643.c: Likewise.
+	* gcc.target/i386/pr104447.c: Likewise.
+	* gcc.target/i386/pr113122-3.c: Likewise.
+	* gcc.target/i386/pr119386-1.c: Add additional -mfentry if not
+	ia32.
+	* gcc.target/i386/pr119386-2.c: Likewise.
+	* gcc.target/i386/pr120881-1a.c: New test.
+	* gcc.target/i386/pr120881-1b.c: Likewise.
+	* gcc.target/i386/pr120881-1c.c: Likewise.
+	* gcc.target/i386/pr120881-1d.c: Likewise.
+	* gcc.target/i386/pr120881-2a.c: Likewise.
+	* gcc.target/i386/pr120881-2b.c: Likewise.
+	* gcc.target/i386/pr82699-1.c: Add additional -mfentry.
+	* lib/target-supports.exp (check_effective_target_fentry): New.
+
+Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
+---
+ gcc/config.in                               |  6 +++
+ gcc/config/i386/i386-options.cc             | 11 ++++-
+ gcc/configure                               | 46 +++++++++++++++++++-
+ gcc/configure.ac                            | 35 +++++++++++++++
+ gcc/doc/install.texi                        | 11 +++++
+ gcc/testsuite/gcc.dg/20021014-1.c           |  1 +
+ gcc/testsuite/gcc.dg/aru-2.c                |  1 +
+ gcc/testsuite/gcc.dg/nest.c                 |  1 +
+ gcc/testsuite/gcc.dg/pr32450.c              |  2 +-
+ gcc/testsuite/gcc.dg/pr43643.c              |  1 +
+ gcc/testsuite/gcc.target/i386/pr104447.c    |  2 +-
+ gcc/testsuite/gcc.target/i386/pr113122-3.c  |  2 +-
+ gcc/testsuite/gcc.target/i386/pr119386-1.c  |  4 +-
+ gcc/testsuite/gcc.target/i386/pr119386-2.c  |  3 +-
+ gcc/testsuite/gcc.target/i386/pr120881-1a.c |  4 ++
+ gcc/testsuite/gcc.target/i386/pr120881-1b.c |  4 ++
+ gcc/testsuite/gcc.target/i386/pr120881-1c.c |  3 ++
+ gcc/testsuite/gcc.target/i386/pr120881-1d.c |  3 ++
+ gcc/testsuite/gcc.target/i386/pr120881-2a.c | 21 +++++++++
+ gcc/testsuite/gcc.target/i386/pr120881-2b.c |  6 +++
+ gcc/testsuite/gcc.target/i386/pr82699-1.c   |  2 +-
+ gcc/testsuite/lib/target-supports.exp       | 48 +++++++++++++++++++++
+ 22 files changed, 208 insertions(+), 9 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr120881-1a.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr120881-1b.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr120881-1c.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr120881-1d.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr120881-2a.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr120881-2b.c
+
+diff --git a/gcc/config.in b/gcc/config.in
+index ab62c1566cbb..353d1bc94078 100644
+--- a/gcc/config.in
++++ b/gcc/config.in
+@@ -318,6 +318,12 @@
+ #endif
+ 
+ 
++/* Define to enable -mfentry by default on x86-64. */
++#ifndef USED_FOR_TARGET
++#undef ENABLE_X86_64_MFENTRY
++#endif
++
++
+ /* Define to the name of a file containing a list of extra machine modes for
+    this architecture. */
+ #ifndef USED_FOR_TARGET
+diff --git a/gcc/config/i386/i386-options.cc b/gcc/config/i386/i386-options.cc
+index 09cb1337f94c..53658496efdc 100644
+--- a/gcc/config/i386/i386-options.cc
++++ b/gcc/config/i386/i386-options.cc
+@@ -2839,7 +2839,9 @@ ix86_option_override_internal (bool main_args_p,
+ 
+   /* Set the default value for -mfentry.  */
+   if (!opts_set->x_flag_fentry)
+-    opts->x_flag_fentry = TARGET_SEH;
++    opts->x_flag_fentry = (TARGET_SEH
++			   || (TARGET_64BIT_P (opts->x_ix86_isa_flags)
++			       && ENABLE_X86_64_MFENTRY));
+   else
+     {
+       if (!TARGET_64BIT_P (opts->x_ix86_isa_flags) && opts->x_flag_pic
+@@ -2850,6 +2852,13 @@ ix86_option_override_internal (bool main_args_p,
+ 	sorry ("%<-mno-fentry%> isn%'t compatible with SEH");
+     }
+ 
++  if (!opts->x_flag_fentry
++      && (TARGET_64BIT_P (opts->x_ix86_isa_flags) || !opts->x_flag_pic)
++      && opts->x_flag_shrink_wrap
++      && opts->x_profile_flag)
++    warning (0, "%<-pg%> without %<-mfentry%> may be unreliable with "
++	     "shrink wrapping");
++
+   if (TARGET_SEH && TARGET_CALL_MS2SYSV_XLOGUES)
+     sorry ("%<-mcall-ms2sysv-xlogues%> isn%'t currently supported with SEH");
+ 
+diff --git a/gcc/configure b/gcc/configure
+index f056cfe9677e..7537da20291a 100755
+--- a/gcc/configure
++++ b/gcc/configure
+@@ -1064,6 +1064,7 @@ enable_versioned_jit
+ enable_default_pie
+ enable_cet
+ enable_s390_excess_float_precision
++enable_x86_64_mfentry
+ '
+       ac_precious_vars='build_alias
+ host_alias
+@@ -1842,6 +1843,7 @@ Optional Features:
+   --enable-s390-excess-float-precision
+                           on s390 targets, evaluate float with double
+                           precision when in standards-conforming mode
++  --enable-x86-64-mfentry enable -mfentry by default on x86-64 targets
+ 
+ Optional Packages:
+   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
+@@ -21520,7 +21522,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 21523 "configure"
++#line 21525 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -21626,7 +21628,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 21629 "configure"
++#line 21631 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -35022,6 +35024,46 @@ $as_echo "#define ENABLE_S390_EXCESS_FLOAT_PRECISION 1" >>confdefs.h
+   ;;
+ esac
+ 
++# On x86-64, when profiling is enabled with shrink wrapping, the mcount
++# call may not be placed at the function entry after
++#	pushq %rbp
++#	movq %rsp,%rbp
++# As the result, the profile data may be skewed which makes PGO less
++# effective:
++# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=120881
++# Enable -mfentry by default on x86-64 to put the profiling counter call
++# before the prologue.
++# Check whether --enable-x86-64-mfentry was given.
++if test "${enable_x86_64_mfentry+set}" = set; then :
++  enableval=$enable_x86_64_mfentry; case "${enableval}" in
++   yes | no | auto)
++     enable_x86_64_mfentry=$enableval
++     ;;
++   *)
++     as_fn_error $? "'$enable_x86_64_mfentry' is an invalid value for --enable-x86-64-mfentry.  Valid choices are 'yes', 'no' and 'auto'." "$LINENO" 5
++     ;;
++   esac
++else
++  enable_x86_64_mfentry=auto
++fi
++
++
++if test x"$enable_x86_64_mfentry" = xauto; then
++  case "${target}" in
++  i?86-*-*gnu* | x86_64-*-*gnu*)
++    # Enable -mfentry by default with glibc on x86.
++    enable_x86_64_mfentry=yes
++    ;;
++  esac
++fi
++
++gif=`if test x$enable_x86_64_mfentry = xyes; then echo 1; else echo 0; fi`
++
++cat >>confdefs.h <<_ACEOF
++#define ENABLE_X86_64_MFENTRY $gif
++_ACEOF
++
++
+ # Check if the linker supports '-z now'
+ ld_now_support=no
+ { $as_echo "$as_me:${as_lineno-$LINENO}: checking linker -z now option" >&5
+diff --git a/gcc/configure.ac b/gcc/configure.ac
+index 58bf63f8be9e..24e0aa69c0f6 100644
+--- a/gcc/configure.ac
++++ b/gcc/configure.ac
+@@ -7972,6 +7972,41 @@ standards-compatible mode on s390 targets.])
+   ;;
+ esac
+ 
++# On x86-64, when profiling is enabled with shrink wrapping, the mcount
++# call may not be placed at the function entry after
++#	pushq %rbp
++#	movq %rsp,%rbp
++# As the result, the profile data may be skewed which makes PGO less
++# effective:
++# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=120881
++# Enable -mfentry by default on x86-64 to put the profiling counter call
++# before the prologue.
++AC_ARG_ENABLE(x86-64-mfentry,
++  [AS_HELP_STRING([--enable-x86-64-mfentry],
++		  [enable -mfentry by default on x86-64 targets])],
++  [case "${enableval}" in
++   yes | no | auto)
++     enable_x86_64_mfentry=$enableval
++     ;;
++   *)
++     AC_MSG_ERROR(['$enable_x86_64_mfentry' is an invalid value for --enable-x86-64-mfentry.  Valid choices are 'yes', 'no' and 'auto'.])
++     ;;
++   esac],
++  [enable_x86_64_mfentry=auto])
++
++if test x"$enable_x86_64_mfentry" = xauto; then
++  case "${target}" in
++  i?86-*-*gnu* | x86_64-*-*gnu*)
++    # Enable -mfentry by default with glibc on x86.
++    enable_x86_64_mfentry=yes
++    ;;
++  esac
++fi
++
++gif=`if test x$enable_x86_64_mfentry = xyes; then echo 1; else echo 0; fi`
++AC_DEFINE_UNQUOTED(ENABLE_X86_64_MFENTRY, $gif,
++[Define to enable -mfentry by default on x86-64.])
++
+ # Check if the linker supports '-z now'
+ ld_now_support=no
+ AC_MSG_CHECKING(linker -z now option)
+diff --git a/gcc/doc/install.texi b/gcc/doc/install.texi
+index 80ee2cd6ebad..09ea87aa8120 100644
+--- a/gcc/doc/install.texi
++++ b/gcc/doc/install.texi
+@@ -2667,6 +2667,17 @@ target binutils supports @code{Intel CET} instructions and disabled
+ otherwise.  In this case, the target libraries are configured to get
+ additional @option{-fcf-protection} option.
+ 
++@item --enable-x86-64-mfentry
++@itemx --disable-x86-64-mfentry
++Enable @option {-mfentry} by default on x86-64 to put the profiling
++counter call, @code{__fentry__}, before the prologue so that @option{-pg}
++can be used with @option{-fshrink-wrap} which is enabled at @option{-O1}.
++This configure option is 64-bit only because @code{__fentry__} doesn't
++support PIC in 32-bit mode.
++
++@option{--enable-x86-64-mfentry=auto} is default.  @option{-mfentry} is
++enabled on Linux/x86-64 by default.
++
+ @item --with-riscv-attribute=@samp{yes}, @samp{no} or @samp{default}
+ Generate RISC-V attribute by default, in order to record extra build
+ information in object.
+diff --git a/gcc/testsuite/gcc.dg/20021014-1.c b/gcc/testsuite/gcc.dg/20021014-1.c
+index e43f7b297c5e..f5f6fcf36251 100644
+--- a/gcc/testsuite/gcc.dg/20021014-1.c
++++ b/gcc/testsuite/gcc.dg/20021014-1.c
+@@ -2,6 +2,7 @@
+ /* { dg-require-profiling "-p" } */
+ /* { dg-options "-O2 -p" } */
+ /* { dg-options "-O2 -p -static" { target hppa*-*-hpux* } } */
++/* { dg-additional-options "-mfentry -fno-pic" { target i?86-*-* x86_64-*-* } } */
+ /* { dg-error "profiler" "No profiler support" { target xstormy16-*-* } 0 } */
+ /* { dg-message "" "consider using `-pg' instead of `-p' with gprof(1)" { target *-*-freebsd* } 0 } */
+ 
+diff --git a/gcc/testsuite/gcc.dg/aru-2.c b/gcc/testsuite/gcc.dg/aru-2.c
+index 054223c151b2..102ece177264 100644
+--- a/gcc/testsuite/gcc.dg/aru-2.c
++++ b/gcc/testsuite/gcc.dg/aru-2.c
+@@ -1,6 +1,7 @@
+ /* { dg-do run } */
+ /* { dg-require-profiling "-pg" } */
+ /* { dg-options "-O2 -pg" } */
++/* { dg-additional-options "-mfentry -fno-pic" { target i?86-*-* x86_64-*-* } } */
+ 
+ static int __attribute__((noinline))
+ bar (int x)
+diff --git a/gcc/testsuite/gcc.dg/nest.c b/gcc/testsuite/gcc.dg/nest.c
+index 5734c11f1a3e..9221ed1c8f81 100644
+--- a/gcc/testsuite/gcc.dg/nest.c
++++ b/gcc/testsuite/gcc.dg/nest.c
+@@ -3,6 +3,7 @@
+ /* { dg-require-profiling "-pg" } */
+ /* { dg-options "-O2 -pg" } */
+ /* { dg-options "-O2 -pg -static" { target hppa*-*-hpux* } } */
++/* { dg-additional-options "-mfentry -fno-pic" { target i?86-*-* x86_64-*-* } } */
+ /* { dg-error "profiler" "No profiler support" { target xstormy16-*-* } 0 } */
+ 
+ extern void abort (void);
+diff --git a/gcc/testsuite/gcc.dg/pr32450.c b/gcc/testsuite/gcc.dg/pr32450.c
+index 9606e3021eab..4aaeb7dd6546 100644
+--- a/gcc/testsuite/gcc.dg/pr32450.c
++++ b/gcc/testsuite/gcc.dg/pr32450.c
+@@ -3,7 +3,7 @@
+ /* { dg-do run } */
+ /* { dg-require-profiling "-pg" } */
+ /* { dg-options "-O2 -pg" } */
+-/* { dg-options "-O2 -pg -mtune=core2" { target { i?86-*-* x86_64-*-* } } } */
++/* { dg-options "-O2 -pg -mtune=core2 -mfentry -fno-pic" { target { i?86-*-* x86_64-*-* } } } */
+ /* { dg-options "-O2 -pg -static" { target hppa*-*-hpux* } } */
+ 
+ extern void abort (void);
+diff --git a/gcc/testsuite/gcc.dg/pr43643.c b/gcc/testsuite/gcc.dg/pr43643.c
+index 43896abd85af..a62586dc7196 100644
+--- a/gcc/testsuite/gcc.dg/pr43643.c
++++ b/gcc/testsuite/gcc.dg/pr43643.c
+@@ -4,6 +4,7 @@
+ /* { dg-require-profiling "-pg" } */
+ /* { dg-options "-O2 -pg" } */
+ /* { dg-options "-O2 -pg -static" { target hppa*-*-hpux* } } */
++/* { dg-additional-options "-mfentry -fno-pic" { target i?86-*-* x86_64-*-* } } */
+ 
+ extern char *strdup (const char *);
+ 
+diff --git a/gcc/testsuite/gcc.target/i386/pr104447.c b/gcc/testsuite/gcc.target/i386/pr104447.c
+index cb618c7b8bb3..f58170db7ecf 100644
+--- a/gcc/testsuite/gcc.target/i386/pr104447.c
++++ b/gcc/testsuite/gcc.target/i386/pr104447.c
+@@ -1,6 +1,6 @@
+ /* { dg-do compile } */
+ /* { dg-require-profiling "-pg" } */
+-/* { dg-options "-O2 -pg" } */
++/* { dg-options "-O2 -pg -mfentry -fno-pic" } */
+ 
+ int
+ bar (int x)
+diff --git a/gcc/testsuite/gcc.target/i386/pr113122-3.c b/gcc/testsuite/gcc.target/i386/pr113122-3.c
+index 71aa240ba98c..c46805dd7722 100644
+--- a/gcc/testsuite/gcc.target/i386/pr113122-3.c
++++ b/gcc/testsuite/gcc.target/i386/pr113122-3.c
+@@ -1,7 +1,7 @@
+ /* PR target/113122 */
+ /* { dg-do assemble { target *-*-linux* } } */
+ /* { dg-require-effective-target masm_intel } */
+-/* { dg-options "-fprofile -O2 -masm=intel" } */
++/* { dg-options "-fprofile -mfentry -fno-pic -O2 -masm=intel" } */
+ 
+ void
+ func (void)
+diff --git a/gcc/testsuite/gcc.target/i386/pr119386-1.c b/gcc/testsuite/gcc.target/i386/pr119386-1.c
+index 9a0dc64b5b93..39a3e1d2e806 100644
+--- a/gcc/testsuite/gcc.target/i386/pr119386-1.c
++++ b/gcc/testsuite/gcc.target/i386/pr119386-1.c
+@@ -1,7 +1,9 @@
+ /* PR target/119386 */
+ /* { dg-do compile { target *-*-linux* } } */
+ /* { dg-options "-O2 -fpic -pg" } */
+-/* { dg-final { scan-assembler "call\[ \t\]+mcount@PLT" } } */
++/* { dg-additional-options "-mfentry" { target { ! ia32 }  } } */
++/* { dg-final { scan-assembler "call\[ \t\]+mcount@PLT" { target ia32 } } } */
++/* { dg-final { scan-assembler "call\[ \t\]+__fentry__@PLT" { target { ! ia32 } } } } */
+ 
+ int
+ main ()
+diff --git a/gcc/testsuite/gcc.target/i386/pr119386-2.c b/gcc/testsuite/gcc.target/i386/pr119386-2.c
+index 3ea978ecfdfd..d516aa9bd6af 100644
+--- a/gcc/testsuite/gcc.target/i386/pr119386-2.c
++++ b/gcc/testsuite/gcc.target/i386/pr119386-2.c
+@@ -1,7 +1,8 @@
+ /* PR target/119386 */
+ /* { dg-do compile { target *-*-linux* } } */
+ /* { dg-options "-O2 -fpic -fno-plt -pg" } */
+-/* { dg-final { scan-assembler "call\[ \t\]+\\*mcount@GOTPCREL\\(" { target { ! ia32 } } } } */
++/* { dg-additional-options "-mfentry" { target { ! ia32 }  } } */
++/* { dg-final { scan-assembler "call\[ \t\]+\\*__fentry__@GOTPCREL" { target { ! ia32 } } } } */
+ /* { dg-final { scan-assembler "call\[ \t\]+\\*mcount@GOT\\(" { target ia32 } } } */
+ 
+ 
+diff --git a/gcc/testsuite/gcc.target/i386/pr120881-1a.c b/gcc/testsuite/gcc.target/i386/pr120881-1a.c
+new file mode 100644
+index 000000000000..3d9ac0e9e866
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr120881-1a.c
+@@ -0,0 +1,4 @@
++/* { dg-do compile { target fpic } } */
++/* { dg-require-profiling "-pg" } */
++/* { dg-options "-O2 -pg -mno-fentry -fno-pic" } */
++/* { dg-message "'-pg' without '-mfentry' may be unreliable with shrink wrapping" "" { target *-*-* } 0 } */
+diff --git a/gcc/testsuite/gcc.target/i386/pr120881-1b.c b/gcc/testsuite/gcc.target/i386/pr120881-1b.c
+new file mode 100644
+index 000000000000..082640726b1d
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr120881-1b.c
+@@ -0,0 +1,4 @@
++/* { dg-do compile { target { fpic && { ! ia32 } } } } */
++/* { dg-require-profiling "-pg" } */
++/* { dg-options "-O2 -pg -mno-fentry -fpic" } */
++/* { dg-message "'-pg' without '-mfentry' may be unreliable with shrink wrapping" "" { target *-*-* } 0 } */
+diff --git a/gcc/testsuite/gcc.target/i386/pr120881-1c.c b/gcc/testsuite/gcc.target/i386/pr120881-1c.c
+new file mode 100644
+index 000000000000..c21979f8eb1f
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr120881-1c.c
+@@ -0,0 +1,3 @@
++/* { dg-do compile { target { fpic && ia32 } } } */
++/* { dg-require-profiling "-pg" } */
++/* { dg-options "-O2 -pg -mno-fentry -fpic" } */
+diff --git a/gcc/testsuite/gcc.target/i386/pr120881-1d.c b/gcc/testsuite/gcc.target/i386/pr120881-1d.c
+new file mode 100644
+index 000000000000..f74af23ff5c8
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr120881-1d.c
+@@ -0,0 +1,3 @@
++/* { dg-do compile { target { fpic && ia32 } } } */
++/* { dg-require-profiling "-pg" } */
++/* { dg-options "-O2 -pg -mno-fentry -fno-shrink-wrap -fno-pic" } */
+diff --git a/gcc/testsuite/gcc.target/i386/pr120881-2a.c b/gcc/testsuite/gcc.target/i386/pr120881-2a.c
+new file mode 100644
+index 000000000000..52e3e5292e5f
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr120881-2a.c
+@@ -0,0 +1,21 @@
++/* { dg-do compile { target fentry } } */
++/* { dg-options "-O2 -pg" } */
++/* Keep labels and directives ('.cfi_startproc', '.cfi_endproc').  */
++/* { dg-final { check-function-bodies "**" "" "" { target "*-*-*" } {^\t?\.} } } */
++
++/*
++**f2:
++**.LFB[0-9]+:
++**	.cfi_startproc
++**	call	__fentry__
++**...
++*/
++
++extern void f1 (void);
++
++void
++f2 (int count)
++{
++  for (int i = 0; i < count; ++i)
++    f1 ();
++}
+diff --git a/gcc/testsuite/gcc.target/i386/pr120881-2b.c b/gcc/testsuite/gcc.target/i386/pr120881-2b.c
+new file mode 100644
+index 000000000000..43a12f007749
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr120881-2b.c
+@@ -0,0 +1,6 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -fdump-rtl-pro_and_epilogue -march=x86-64" } */
++/* { dg-final { scan-rtl-dump "Now spread 1 times" "pro_and_epilogue" } } */
++
++#include "pr120881-2a.c"
++
+diff --git a/gcc/testsuite/gcc.target/i386/pr82699-1.c b/gcc/testsuite/gcc.target/i386/pr82699-1.c
+index 272d0797ff8f..96e3ccb27076 100644
+--- a/gcc/testsuite/gcc.target/i386/pr82699-1.c
++++ b/gcc/testsuite/gcc.target/i386/pr82699-1.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile { target *-*-linux* } } */
+-/* { dg-options "-O2 -fno-pic -fcf-protection -pg -fasynchronous-unwind-tables" } */
++/* { dg-options "-O2 -mfentry -fno-pic -fcf-protection -pg -fasynchronous-unwind-tables" } */
+ /* { dg-final { scan-assembler-times {\t\.cfi_startproc\n\tendbr} 1 } } */
+ 
+ extern int bar (int);
+diff --git a/gcc/testsuite/lib/target-supports.exp b/gcc/testsuite/lib/target-supports.exp
+index 9ab46a0eab43..c37a30a32ed4 100644
+--- a/gcc/testsuite/lib/target-supports.exp
++++ b/gcc/testsuite/lib/target-supports.exp
+@@ -14528,3 +14528,51 @@ proc check_effective_target_foldable_pi_based_trigonometry { } {
+ 	}
+     }]
+ }
++#
++# Return 1 if the x86-64 target enables -mfentry by default, 0
++# otherwise.  Cache the result.
++
++proc check_effective_target_fentry { } {
++    global tool
++    global GCC_UNDER_TEST
++
++    if { ![check_effective_target_x86] } {
++	return 0
++    }
++
++    # Need auto-host.h to check linker support.
++    if { ![file exists ../../auto-host.h ] } {
++	return 0
++    }
++
++    return [check_cached_effective_target fentry {
++	# Set up and compile to see if ENABLE_X86_64_MFENTRY is
++	# non-zero.  Include the current process ID in the file
++	# names to prevent conflicts with invocations for multiple
++	# testsuites.
++
++	set src pie[pid].c
++	set obj pie[pid].o
++
++	set f [open $src "w"]
++	puts $f "#include \"../../auto-host.h\""
++	puts $f "#if ENABLE_X86_64_MFENTRY == 0 || !defined __x86_64__"
++	puts $f "# error -mfentry is not enabled by default."
++	puts $f "#endif"
++	close $f
++
++	verbose "check_effective_target_fentry compiling testfile $src" 2
++	set lines [${tool}_target_compile $src $obj object ""]
++
++	file delete $src
++	file delete $obj
++
++	if [string match "" $lines] then {
++	    verbose "check_effective_target_fentry testfile compilation passed" 2
++	    return 1
++	} else {
++	    verbose "check_effective_target_fentry testfile compilation failed" 2
++	    return 0
++	}
++    }]
++}
+
+base-commit: 598455fd73b2061e461c54c18fae8bcc2b4b6d72
+-- 
+2.50.1
+

@@ -3,6 +3,7 @@
 	- 85_all_PR120929-Revert-Use-the-counted_by-attribute-of-pointers-in-a.patch
 	- 86_all_PR120929-Revert-Use-the-counted_by-attribute-of-pointers-in-b.patch
 	+ 85_all_PR120987-ipa-modref-typo.patch
+	+ 86_all_PR120881-x86-64-Add-enable-x86-64-mfentry.patch
 
 5	6 July 2025
 
