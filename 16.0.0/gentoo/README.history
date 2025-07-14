@@ -1,5 +1,6 @@
 7	????
 
+	- 86_all_PR120881-x86-64-Add-enable-x86-64-mfentry.patch
 	+ 88_all_PR120870-tuning.patch
 
 6	14 July 2025
