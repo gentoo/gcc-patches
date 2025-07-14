@@ -1,0 +1,1042 @@
+https://inbox.sourceware.org/gcc-patches/CAMe9rOp5dSWgFmZ=Ps8R9M0OkRFTXZtCHnHQL0AqBk+ddNQw5A@mail.gmail.com/
+
+From 393baf5d3fd2408a0be029c09ab2e18219867087 Mon Sep 17 00:00:00 2001
+Message-ID: <393baf5d3fd2408a0be029c09ab2e18219867087.1752460761.git.sam@gentoo.org>
+From: "H.J. Lu" <hjl.tools@gmail.com>
+Date: Sun, 13 Jul 2025 08:59:34 +0800
+Subject: [PATCH] x86: Update MMX moves to support all 1s vectors
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+commit 77473a27bae04da99d6979d43e7bd0a8106f4557
+Author: H.J. Lu <hjl.tools@gmail.com>
+Date:   Thu Jun 26 06:08:51 2025 +0800
+
+    x86: Also handle all 1s float vector constant
+
+replaces
+
+(insn 29 28 30 5 (set (reg:V2SF 107)
+        (mem/u/c:V2SF (symbol_ref/u:DI ("*.LC0") [flags 0x2]) [0  S8 A64])) 2031 {*movv2sf_internal}
+     (expr_list:REG_EQUAL (const_vector:V2SF [
+                (const_double:SF -QNaN [-QNaN]) repeated x2
+            ])
+        (nil)))
+
+with
+
+(insn 98 13 14 3 (set (reg:V8QI 112)
+        (const_vector:V8QI [
+                (const_int -1 [0xffffffffffffffff]) repeated x8
+            ])) -1
+     (nil))
+...
+(insn 29 28 30 5 (set (reg:V2SF 107)
+        (subreg:V2SF (reg:V8QI 112) 0)) 2031 {*movv2sf_internal}
+     (expr_list:REG_EQUAL (const_vector:V2SF [
+                (const_double:SF -QNaN [-QNaN]) repeated x2
+            ])
+        (nil)))
+
+which leads to
+
+pr121015.c: In function ‘render_result_from_bake_h’:
+pr121015.c:34:1: error: unrecognizable insn:
+   34 | }
+      | ^
+(insn 98 13 14 3 (set (reg:V8QI 112)
+        (const_vector:V8QI [
+                (const_int -1 [0xffffffffffffffff]) repeated x8
+            ])) -1
+     (expr_list:REG_EQUIV (const_vector:V8QI [
+                (const_int -1 [0xffffffffffffffff]) repeated x8
+            ])
+        (nil)))
+during RTL pass: ira
+
+1. Add BZ constraint for constant 0 in 64-bit or without SSE to replace
+C constraint in 8-byte MMX zeroing stores so that we can generate
+
+	pxor	%xmm0, %xmm0
+	movq	%xmm0, (%edx)
+
+with SSE in 32-bit.
+2. Extend standard_sse_constant_p to cover 4-byte and 8-byte all 1s to
+support
+
+(set (reg:V8QI 100)
+     (const_vector:V8QI [
+       (const_int -1 [0xffffffffffffffff]) repeated x8]))
+
+and
+
+(set (mem/c:V4QI (reg/f:SI 99)
+     (const_vector:V4QI [
+       (const_int -1 [0xffffffffffffffff]) repeated x4]))
+
+3. Update 4-byte and 8-byte MMX moves to support constant all 1s vectors.
+4. Split 4-byte and 8-byte MMX CONSTM1 moves by loading from memory if
+they haven't been eliminated.
+
+gcc/
+
+	PR target/121015
+	* config/i386/constraints.md (BZ): New constraint.
+	* config/i386/i386.cc (standard_sse_constant_p): Support 4-byte
+	and 8-byte all 1s.
+	(ix86_print_operand): Support CONSTM1_RTX.
+	* config/i386/mmx.md (mmxconstm1): New.
+	(MMXMODE:mov<mode>): Replace nonimm_or_0_operand with
+	nonimmediate_or_sse_const_operand.
+	(MMXMODE:*mov<mode>_internal): Replace C with BZ in zeroing
+	stores.  Add <m,<<mmxconstm1>> and <v,<mmxconstm1>> alternatives.
+	Add a MMXMODE splitter to split CONSTM1_RTX moves.
+	(V_32:mov<mode>): Replace nonimm_or_0_operand with
+	nonimmediate_or_sse_const_operand.
+	(V_32:*mov<mode>_internal): Add <rm,<<mmxconstm1>> and
+	<v,<mmxconstm1>> alternatives.
+	Add a V_32 splitter to split CONSTM1_RTX stores.
+
+gcc/testsuite/
+
+	PR target/121015
+	* gcc.target/i386/pr117839-1b.c: Updated assembler scan for 8-byte
+	zeroing store with XMM register in 32-bit.
+	* gcc.target/i386/pr117839-2.c: Likewise.
+	* gcc.target/i386/pr121015-1.c: New test.
+	* gcc.target/i386/pr121015-2a.c: Likewise.
+	* gcc.target/i386/pr121015-2b.c: Likewise.
+	* gcc.target/i386/pr121015-3.c: Likewise.
+	* gcc.target/i386/pr121015-4.c: Likewise.
+	* gcc.target/i386/pr121015-5a.c: Likewise.
+	* gcc.target/i386/pr121015-5b.c: Likewise.
+	* gcc.target/i386/pr121015-5c.c: Likewise.
+	* gcc.target/i386/pr121015-6.c: Likewise.
+	* gcc.target/i386/pr121015-7a.c: Likewise.
+	* gcc.target/i386/pr121015-7b.c: Likewise.
+	* gcc.target/i386/pr121015-7c.c: Likewise.
+	* gcc.target/i386/pr121015-8.c: Likewise.
+	* gcc.target/i386/pr121015-9.c: Likewise.
+	* gcc.target/i386/pr121015-10a.c: Likewise.
+	* gcc.target/i386/pr121015-10b.c: Likewise.
+	* gcc.target/i386/pr121015-10c.c: Likewise.
+
+Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
+Co-Authored-By: Uros Bizjak <ubizjak@gmail.com>
+---
+ gcc/config/i386/constraints.md               |   7 +
+ gcc/config/i386/i386.cc                      |  13 +-
+ gcc/config/i386/mmx.md                       | 130 ++++++++++++++-----
+ gcc/testsuite/gcc.target/i386/pr117839-1b.c  |   5 +-
+ gcc/testsuite/gcc.target/i386/pr117839-2.c   |   5 +-
+ gcc/testsuite/gcc.target/i386/pr121015-1.c   |  34 +++++
+ gcc/testsuite/gcc.target/i386/pr121015-10a.c |  32 +++++
+ gcc/testsuite/gcc.target/i386/pr121015-10b.c |  16 +++
+ gcc/testsuite/gcc.target/i386/pr121015-10c.c |  21 +++
+ gcc/testsuite/gcc.target/i386/pr121015-11a.c |  21 +++
+ gcc/testsuite/gcc.target/i386/pr121015-11b.c |  13 ++
+ gcc/testsuite/gcc.target/i386/pr121015-11c.c |  17 +++
+ gcc/testsuite/gcc.target/i386/pr121015-2a.c  |  24 ++++
+ gcc/testsuite/gcc.target/i386/pr121015-2b.c  |   6 +
+ gcc/testsuite/gcc.target/i386/pr121015-3.c   |  35 +++++
+ gcc/testsuite/gcc.target/i386/pr121015-4.c   |  22 ++++
+ gcc/testsuite/gcc.target/i386/pr121015-5a.c  |  21 +++
+ gcc/testsuite/gcc.target/i386/pr121015-5b.c  |  16 +++
+ gcc/testsuite/gcc.target/i386/pr121015-5c.c  |  20 +++
+ gcc/testsuite/gcc.target/i386/pr121015-6.c   |  23 ++++
+ gcc/testsuite/gcc.target/i386/pr121015-7a.c  |  23 ++++
+ gcc/testsuite/gcc.target/i386/pr121015-7b.c  |   6 +
+ gcc/testsuite/gcc.target/i386/pr121015-7c.c  |   8 ++
+ gcc/testsuite/gcc.target/i386/pr121015-8.c   |  14 ++
+ gcc/testsuite/gcc.target/i386/pr121015-9.c   |  14 ++
+ 25 files changed, 512 insertions(+), 34 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-1.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-10a.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-10b.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-10c.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-11a.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-11b.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-11c.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-2a.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-2b.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-3.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-4.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-5a.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-5b.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-5c.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-6.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-7a.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-7b.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-7c.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-8.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121015-9.c
+
+diff --git a/gcc/config/i386/constraints.md b/gcc/config/i386/constraints.md
+index 38877a7e61bd..4bfd9b2a4580 100644
+--- a/gcc/config/i386/constraints.md
++++ b/gcc/config/i386/constraints.md
+@@ -174,6 +174,7 @@ (define_register_constraint "YW"
+ ;;     and zero-extand to 256/512bit, or 128bit all ones
+ ;;     and zero-extend to 512bit.
+ ;;  M  x86-64 memory operand.
++;;  Z  Constant zero operand in 64-bit or without SSE.
+ 
+ (define_constraint "Bf"
+   "@internal Flags register operand."
+@@ -246,6 +247,12 @@ (define_constraint "BM"
+        (match_test "memory_address_addr_space_p (GET_MODE (op), XEXP (op, 0),
+ 						 MEM_ADDR_SPACE (op))")))
+ 
++(define_constraint "BZ"
++  "@internal Constant zero operand in 64-bit or without SSE."
++  (and (match_test "TARGET_64BIT || !TARGET_SSE")
++       (ior (match_test "op == const0_rtx")
++            (match_operand 0 "const0_operand"))))
++
+ ;; Integer constant constraints.
+ (define_constraint "Wb"
+   "Integer constant in the range 0 @dots{} 7, for 8-bit shifts."
+diff --git a/gcc/config/i386/i386.cc b/gcc/config/i386/i386.cc
+index 313522b88e3c..a9c1418a2bf5 100644
+--- a/gcc/config/i386/i386.cc
++++ b/gcc/config/i386/i386.cc
+@@ -5448,6 +5448,8 @@ standard_sse_constant_p (rtx x, machine_mode pred_mode)
+ 	    return 2;
+ 	  break;
+ 	case 16:
++	case 8:
++	case 4:
+ 	  if (TARGET_SSE2)
+ 	    return 2;
+ 	  break;
+@@ -14671,9 +14673,14 @@ ix86_print_operand (FILE *file, rtx x, int code)
+ 	 since we can in fact encode that into an immediate.  */
+       if (GET_CODE (x) == CONST_VECTOR)
+ 	{
+-	  if (x != CONST0_RTX (GET_MODE (x)))
+-	    output_operand_lossage ("invalid vector immediate");
+-	  x = const0_rtx;
++	  if (x == CONSTM1_RTX (GET_MODE (x)))
++	    x = constm1_rtx;
++	  else
++	    {
++	      if (x != CONST0_RTX (GET_MODE (x)))
++		output_operand_lossage ("invalid vector immediate");
++	      x = const0_rtx;
++	    }
+ 	}
+ 
+       if (code == 'P')
+diff --git a/gcc/config/i386/mmx.md b/gcc/config/i386/mmx.md
+index 29a8cb599a7e..3b013e3db311 100644
+--- a/gcc/config/i386/mmx.md
++++ b/gcc/config/i386/mmx.md
+@@ -111,6 +111,13 @@ (define_mode_attr mmxinsnmode
+    (V4BF "DI") (V2BF "SI")
+    (V2SF "DI")])
+ 
++;; MMX constant -1 constraint
++(define_mode_attr mmxconstm1
++  [(V8QI "BC") (V4HI "BC") (V2SI "BC") (V1DI "BC")
++   (V4QI "BC") (V2HI "BC") (V1SI "BC")
++   (V4HF "BF") (V4BF "BF") (V2SF "BF")
++   (V2HF "BF") (V2BF "BF")])
++
+ (define_mode_attr mmxdoublemode
+   [(V8QI "V8HI") (V4HI "V4SI")])
+ 
+@@ -174,20 +181,25 @@ (define_mode_attr Yv_Yw
+ 
+ (define_expand "mov<mode>"
+   [(set (match_operand:MMXMODE 0 "nonimmediate_operand")
+-	(match_operand:MMXMODE 1 "nonimm_or_0_operand"))]
++	(match_operand:MMXMODE 1 "nonimmediate_or_sse_const_operand"))]
+   "TARGET_MMX || TARGET_MMX_WITH_SSE"
+ {
+   ix86_expand_vector_move (<MODE>mode, operands);
+   DONE;
+ })
+ 
++;; There must no CONSTM1_RTX vector loads after reload.
+ (define_insn "*mov<mode>_internal"
+   [(set (match_operand:MMXMODE 0 "nonimmediate_operand"
+-    "=r ,o ,r,r ,m ,?!y,!y,?!y,m  ,r  ,?!y,v,v,v,m,r,v,!y,*x")
+-	(match_operand:MMXMODE 1 "nonimm_or_0_operand"
+-    "rCo,rC,C,rm,rC,C  ,!y,m  ,?!y,?!y,r  ,C,v,m,v,v,r,*x,!y"))]
++    "=r ,o  ,r,r ,m  ,m           ,?!y,!y,?!y,m  ,r  ,?!y,v,v           ,v,v,m,r,v,!y,*x")
++	(match_operand:MMXMODE 1 "nonimmediate_or_sse_const_operand"
++    "rCo,rBZ,C,rm,rBZ,<mmxconstm1>,C  ,!y,m  ,?!y,?!y,r  ,C,<mmxconstm1>,v,m,v,v,r,*x,!y"))]
+   "(TARGET_MMX || TARGET_MMX_WITH_SSE)
+    && !(MEM_P (operands[0]) && MEM_P (operands[1]))
++   && (!reload_completed
++       || !(SSE_REG_P (operands[0])
++            && int_float_vector_all_ones_operand (operands[1],
++                                                  <MODE>mode)))
+    && ix86_hardreg_mov_ok (operands[0], operands[1])"
+ {
+   switch (get_attr_type (insn))
+@@ -230,31 +242,31 @@ (define_insn "*mov<mode>_internal"
+   [(set (attr "isa")
+      (cond [(eq_attr "alternative" "0,1")
+ 	      (const_string "nox64")
+-	    (eq_attr "alternative" "2,3,4,9,10")
++	    (eq_attr "alternative" "2,3,4,10,11")
+ 	      (const_string "x64")
+-	    (eq_attr "alternative" "15,16")
++	    (eq_attr "alternative" "5,17,18")
+ 	      (const_string "x64_sse2")
+-	    (eq_attr "alternative" "17,18")
++	    (eq_attr "alternative" "13,19,20")
+ 	      (const_string "sse2")
+ 	   ]
+ 	   (const_string "*")))
+    (set (attr "type")
+      (cond [(eq_attr "alternative" "0,1")
+ 	      (const_string "multi")
+-	    (eq_attr "alternative" "2,3,4")
++	    (eq_attr "alternative" "2,3,4,5")
+ 	      (const_string "imov")
+-	    (eq_attr "alternative" "5")
++	    (eq_attr "alternative" "6")
+ 	      (const_string "mmx")
+-	    (eq_attr "alternative" "6,7,8,9,10")
++	    (eq_attr "alternative" "7,8,9,10,11")
+ 	      (const_string "mmxmov")
+-	    (eq_attr "alternative" "11")
++	    (eq_attr "alternative" "12,13")
+ 	      (const_string "sselog1")
+-	    (eq_attr "alternative" "17,18")
++	    (eq_attr "alternative" "19,20")
+ 	      (const_string "ssecvt")
+ 	   ]
+ 	   (const_string "ssemov")))
+    (set (attr "prefix_rex")
+-     (if_then_else (eq_attr "alternative" "9,10,15,16")
++     (if_then_else (eq_attr "alternative" "10,11,17,18")
+        (const_string "1")
+        (const_string "*")))
+    (set (attr "prefix")
+@@ -269,7 +281,7 @@ (define_insn "*mov<mode>_internal"
+    (set (attr "mode")
+      (cond [(eq_attr "alternative" "2")
+ 	      (const_string "SI")
+-	    (eq_attr "alternative" "11,12")
++	    (eq_attr "alternative" "12,13,14")
+ 	      (cond [(match_test "<MODE>mode == V2SFmode
+ 				  || <MODE>mode == V4HFmode
+ 				  || <MODE>mode == V4BFmode")
+@@ -280,7 +292,7 @@ (define_insn "*mov<mode>_internal"
+ 		    ]
+ 		    (const_string "TI"))
+ 
+-	    (and (eq_attr "alternative" "13")
++	    (and (eq_attr "alternative" "15")
+ 		 (ior (ior (and (match_test "<MODE>mode == V2SFmode")
+ 				(not (match_test "TARGET_MMX_WITH_SSE")))
+ 			   (not (match_test "TARGET_SSE2")))
+@@ -288,7 +300,7 @@ (define_insn "*mov<mode>_internal"
+ 				  || <MODE>mode == V4BFmode")))
+ 	      (const_string "V2SF")
+ 
+-	    (and (eq_attr "alternative" "14")
++	    (and (eq_attr "alternative" "16")
+ 		 (ior (ior (match_test "<MODE>mode == V2SFmode")
+ 			   (not (match_test "TARGET_SSE2")))
+ 		      (match_test "<MODE>mode == V4HFmode
+@@ -297,13 +309,49 @@ (define_insn "*mov<mode>_internal"
+ 	   ]
+ 	   (const_string "DI")))
+    (set (attr "preferred_for_speed")
+-     (cond [(eq_attr "alternative" "9,15")
++     (cond [(eq_attr "alternative" "10,17")
+ 	      (symbol_ref "TARGET_INTER_UNIT_MOVES_FROM_VEC")
+-	    (eq_attr "alternative" "10,16")
++	    (eq_attr "alternative" "11,18")
+ 	      (symbol_ref "TARGET_INTER_UNIT_MOVES_TO_VEC")
+ 	   ]
+ 	   (symbol_ref "true")))])
+ 
++;; Split
++;;
++;; (set (reg:V8QI 100)
++;;      (const_vector:V8QI [
++;;        (const_int -1 [0xffffffffffffffff]) repeated x8]))
++;;
++;; by loading from memory if it hasn't been eliminated to make top bits
++;; cleared in vector register.  For 32-bit PIC, we also must split
++;;
++;; (set (mem/c:V8QI (reg/f:SI 99)
++;;      (const_vector:V8QI [
++;;        (const_int -1 [0xffffffffffffffff]) repeated x8]))
++;;
++;; before reload since 32-bit doesn't support 8-byte immediate store and
++;; PIC register can't be allocated after reload.
++(define_split
++  [(set (match_operand:MMXMODE 0 "nonimmediate_operand")
++	(match_operand:MMXMODE 1 "int_float_vector_all_ones_operand"))]
++  "TARGET_SSE
++   && (SSE_REG_P (operands[0])
++       || (!reload_completed && flag_pic && !TARGET_64BIT))"
++   [(const_int 0)]
++{
++  operands[1] = validize_mem (force_const_mem (<MODE>mode,
++                                               operands[1]));
++  rtx src;
++  if (REG_P (operands[0]))
++    src = operands[1];
++  else
++    {
++      src = gen_reg_rtx (<MODE>mode);
++      emit_move_insn (src, operands[1]);
++    }
++  emit_move_insn (operands[0], src);
++})
++
+ (define_split
+   [(set (match_operand:MMXMODE 0 "nonimmediate_gr_operand")
+ 	(match_operand:MMXMODE 1 "nonimmediate_gr_operand"))]
+@@ -329,19 +377,24 @@ (define_expand "movmisalign<mode>"
+ 
+ (define_expand "mov<mode>"
+   [(set (match_operand:V_32 0 "nonimmediate_operand")
+-	(match_operand:V_32 1 "nonimm_or_0_operand"))]
++	(match_operand:V_32 1 "nonimmediate_or_sse_const_operand"))]
+   ""
+ {
+   ix86_expand_vector_move (<MODE>mode, operands);
+   DONE;
+ })
+ 
++;; There must no CONSTM1_RTX vector loads after reload.
+ (define_insn "*mov<mode>_internal"
+   [(set (match_operand:V_32 0 "nonimmediate_operand"
+-    "=r ,m ,v,v,v,m,r,v")
+-	(match_operand:V_32 1 "nonimm_or_0_operand"
+-    "rmC,rC,C,v,m,v,v,r"))]
++    "=r ,m ,rm          ,v,v           ,v,v,m,r,v")
++	(match_operand:V_32 1 "nonimmediate_or_sse_const_operand"
++    "rmC,rC,<mmxconstm1>,C,<mmxconstm1>,v,m,v,v,r"))]
+   "!(MEM_P (operands[0]) && MEM_P (operands[1]))
++   && (!reload_completed
++       || !(SSE_REG_P (operands[0])
++            && int_float_vector_all_ones_operand (operands[1],
++                                                  <MODE>mode)))
+    && ix86_hardreg_mov_ok (operands[0], operands[1])"
+ {
+   switch (get_attr_type (insn))
+@@ -360,14 +413,14 @@ (define_insn "*mov<mode>_internal"
+     }
+ }
+   [(set (attr "isa")
+-     (cond [(eq_attr "alternative" "6,7")
++     (cond [(eq_attr "alternative" "2,4,8,9")
+ 	      (const_string "sse2")
+ 	   ]
+ 	   (const_string "*")))
+    (set (attr "type")
+-     (cond [(eq_attr "alternative" "2")
++     (cond [(eq_attr "alternative" "3,4")
+ 	      (const_string "sselog1")
+-	    (eq_attr "alternative" "3,4,5,6,7")
++	    (eq_attr "alternative" "5,6,7,8,9")
+ 	      (const_string "ssemov")
+ 	   ]
+ 	   (const_string "imov")))
+@@ -380,7 +433,7 @@ (define_insn "*mov<mode>_internal"
+        (const_string "1")
+        (const_string "*")))
+    (set (attr "mode")
+-     (cond [(eq_attr "alternative" "2,3")
++     (cond [(eq_attr "alternative" "3,4,5")
+ 	      (cond [(match_test "<MODE>mode == V2HFmode
+ 				 || <MODE>mode == V2BFmode")
+ 		       (const_string "V4SF")
+@@ -392,7 +445,7 @@ (define_insn "*mov<mode>_internal"
+ 		    ]
+ 		    (const_string "TI"))
+ 
+-	    (and (eq_attr "alternative" "4,5")
++	    (and (eq_attr "alternative" "6,7")
+ 		 (ior (match_test "<MODE>mode == V2HFmode
+ 				 || <MODE>mode == V2BFmode")
+ 		      (not (match_test "TARGET_SSE2"))))
+@@ -400,13 +453,32 @@ (define_insn "*mov<mode>_internal"
+ 	   ]
+ 	   (const_string "SI")))
+    (set (attr "preferred_for_speed")
+-     (cond [(eq_attr "alternative" "6")
++     (cond [(eq_attr "alternative" "8")
+ 	      (symbol_ref "TARGET_INTER_UNIT_MOVES_FROM_VEC")
+-	    (eq_attr "alternative" "7")
++	    (eq_attr "alternative" "9")
+ 	      (symbol_ref "TARGET_INTER_UNIT_MOVES_TO_VEC")
+ 	   ]
+ 	   (symbol_ref "true")))])
+ 
++;; Split
++;;
++;; (set (reg:V4QI 100)
++;;      (const_vector:V4QI [
++;;        (const_int -1 [0xffffffffffffffff]) repeated x4]))
++;;
++;; by loading from memory if it hasn't been eliminated to make top bits
++;; cleared in vector register.
++(define_split
++  [(set (match_operand:V_32 0 "register_operand")
++	(match_operand:V_32 1 "int_float_vector_all_ones_operand"))]
++  "TARGET_SSE && SSE_REG_P (operands[0])"
++  [(const_int 0)]
++{
++  operands[1] = validize_mem (force_const_mem (<MODE>mode,
++                                               operands[1]));
++  emit_move_insn (operands[0], operands[1]);
++})
++
+ ;; 16-bit, 32-bit and 64-bit constant vector stores.  After reload,
+ ;; convert them to immediate integer stores.
+ (define_insn_and_split "*mov<mode>_imm"
+diff --git a/gcc/testsuite/gcc.target/i386/pr117839-1b.c b/gcc/testsuite/gcc.target/i386/pr117839-1b.c
+index e71b991a2073..6b181f35dff9 100644
+--- a/gcc/testsuite/gcc.target/i386/pr117839-1b.c
++++ b/gcc/testsuite/gcc.target/i386/pr117839-1b.c
+@@ -1,5 +1,8 @@
+ /* { dg-do compile } */
+ /* { dg-options "-O2 -march=x86-64-v3" } */
+-/* { dg-final { scan-assembler-times "xor\[a-z\]*\[\t \]*%xmm\[0-9\]\+,\[^,\]*" 1 } } */
++/* { dg-final { scan-assembler-times "xor\[\t \]+%xmm\[0-9\]+, \[^,\]+" 1 { target { ! ia32 } } } } */
++/* { dg-final { scan-assembler-times "xor\[\t \]+%xmm\[0-9\]+, \[^,\]+" 2 { target ia32 } } } */
++/* { dg-final { scan-assembler-times "movl\[\t \]+\\\$0, " 3 { target ia32 } } } */
++/* { dg-final { scan-assembler-times "movq\[\t \]+%xmm\[0-9\]+, \[^,\]+" 1 { target ia32 } } } */
+ 
+ #include "pr117839-1a.c"
+diff --git a/gcc/testsuite/gcc.target/i386/pr117839-2.c b/gcc/testsuite/gcc.target/i386/pr117839-2.c
+index c76744cf98b8..b00d8eaec5c2 100644
+--- a/gcc/testsuite/gcc.target/i386/pr117839-2.c
++++ b/gcc/testsuite/gcc.target/i386/pr117839-2.c
+@@ -1,6 +1,9 @@
+ /* { dg-do compile } */
+ /* { dg-options "-O2 -march=x86-64-v3" } */
+-/* { dg-final { scan-assembler-times "xor\[a-z\]*\[\t \]*%xmm\[0-9\]\+,\[^,\]*" 1 } } */
++/* { dg-final { scan-assembler-times "xor\[\t \]+%xmm\[0-9\]+, \[^,\]+" 1 { target { ! ia32 } } } } */
++/* { dg-final { scan-assembler-times "xor\[\t \]+%xmm\[0-9\]+, \[^,\]+" 3 { target ia32 } } } */
++/* { dg-final { scan-assembler-times "movl\[\t \]+\\\$0, " 1 { target ia32 } } } */
++/* { dg-final { scan-assembler-times "movq\[\t \]+%xmm\[0-9\]+, \[^,\]+" 2 { target ia32 } } } */
+ 
+ #include <stddef.h>
+ 
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-1.c b/gcc/testsuite/gcc.target/i386/pr121015-1.c
+new file mode 100644
+index 000000000000..fefa5185be4d
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-1.c
+@@ -0,0 +1,34 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -march=x86-64-v3" } */
++/* { dg-final { scan-assembler-not "\tmovl\[\\t \]+\\\$-1, %" { target { ! ia32 } } } } */
++/* { dg-final { scan-assembler "\tmovq\[\\t \]+\\\$-1, " { target { ! ia32 } } } } */
++
++extern union {
++  int i;
++  float f;
++} int_as_float_u;
++
++extern int render_result_from_bake_w;
++extern int render_result_from_bake_h_seed_pass;
++extern float *render_result_from_bake_h_primitive;
++extern float *render_result_from_bake_h_seed;
++
++float
++int_as_float(int i)
++{
++  int_as_float_u.i = i;
++  return int_as_float_u.f;
++}
++
++void
++render_result_from_bake_h(int tx)
++{
++  while (render_result_from_bake_w) {
++    for (; tx < render_result_from_bake_w; tx++)
++      render_result_from_bake_h_primitive[1] =
++          render_result_from_bake_h_primitive[2] = int_as_float(-1);
++    if (render_result_from_bake_h_seed_pass) {
++      *render_result_from_bake_h_seed = 0;
++    }
++  }
++}
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-10a.c b/gcc/testsuite/gcc.target/i386/pr121015-10a.c
+new file mode 100644
+index 000000000000..67b574cc8374
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-10a.c
+@@ -0,0 +1,32 @@
++/* { dg-do compile { target fpic } } */
++/* { dg-options "-O2 -march=x86-64 -fpic" } */
++/* Keep labels and directives ('.cfi_startproc', '.cfi_endproc').  */
++/* { dg-final { check-function-bodies "**" "" "" { target { ! ia32 } } {^\t?\.}  } } */
++
++/*
++**__bid64_to_binary80:
++**.LFB[0-9]+:
++**	.cfi_startproc
++**	mov(l|q)	__bid64_to_binary80_x_out@GOTPCREL\(%rip\), %(r|e)ax
++**	movq	\$-1, \(%(r|e)ax\)
++**	ret
++**...
++*/
++
++typedef struct {
++  struct {
++    unsigned short lo4;
++    unsigned short lo3;
++    unsigned short lo2;
++    unsigned short lo1;
++  } i;
++} BID_BINARY80LDOUBLE;
++extern BID_BINARY80LDOUBLE __bid64_to_binary80_x_out;
++void
++__bid64_to_binary80 (void)
++{
++  __bid64_to_binary80_x_out.i.lo4
++    = __bid64_to_binary80_x_out.i.lo3
++    = __bid64_to_binary80_x_out.i.lo2
++    = __bid64_to_binary80_x_out.i.lo1 = 65535;
++}
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-10b.c b/gcc/testsuite/gcc.target/i386/pr121015-10b.c
+new file mode 100644
+index 000000000000..06cb58f702d3
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-10b.c
+@@ -0,0 +1,16 @@
++/* { dg-do compile { target { fpic && lp64 } } } */
++/* { dg-options "-O2 -march=x86-64 -fno-pic -mcmodel=large" } */
++
++/*
++**__bid64_to_binary80:
++**.LFB[0-9]+:
++**	.cfi_startproc
++**	movabsq	\$.LC0, %rax
++**	movq	\(%rax\), %rdx
++**	movabsq	\$__bid64_to_binary80_x_out, %rax
++**	movq	%rdx, \(%rax\)
++**	ret
++**...
++*/
++
++#include "pr121015-10a.c"
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-10c.c b/gcc/testsuite/gcc.target/i386/pr121015-10c.c
+new file mode 100644
+index 000000000000..573a15628830
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-10c.c
+@@ -0,0 +1,21 @@
++/* { dg-do compile { target { fpic && lp64 } } } */
++/* { dg-options "-O2 -march=x86-64 -fpic -mcmodel=large" } */
++
++/*
++**__bid64_to_binary80:
++**.LFB[0-9]+:
++**	.cfi_startproc
++**.L2:
++**	leaq	.L2\(%rip\), %rax
++**	movabsq	\$_GLOBAL_OFFSET_TABLE_-.L2, %r11
++**	movabsq	\$__bid64_to_binary80_x_out@GOT, %rdx
++**	movabsq	\$.LC0@GOTOFF, %rcx
++**	addq	%r11, %rax
++**	movq	\(%rax,%rdx\), %rdx
++**	movq	\(%rax,%rcx\), %rax
++**	movq	%rax, \(%rdx\)
++**	ret
++**...
++*/
++
++#include "pr121015-10a.c"
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-11a.c b/gcc/testsuite/gcc.target/i386/pr121015-11a.c
+new file mode 100644
+index 000000000000..5aafb2806b12
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-11a.c
+@@ -0,0 +1,21 @@
++/* { dg-do compile { target fpic } } */
++/* { dg-options "-O2 -march=x86-64 -fpic" } */
++/* Keep labels and directives ('.cfi_startproc', '.cfi_endproc').  */
++/* { dg-final { check-function-bodies "**" "" "" { target { ! ia32 } } {^\t?\.}  } } */
++
++/*
++**foo:
++**.LFB[0-9]+:
++**	.cfi_startproc
++**	movd	.LC0\(%rip\), %xmm0
++**...
++*/
++
++typedef char __v4qi __attribute__ ((__vector_size__ (4)));
++
++void
++foo (void)
++{
++  register __v4qi x asm ("xmm0") = __extension__(__v4qi){-1, -1, -1, -1};
++  asm ("reg %0" : : "v" (x));
++}
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-11b.c b/gcc/testsuite/gcc.target/i386/pr121015-11b.c
+new file mode 100644
+index 000000000000..9ff2908829b6
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-11b.c
+@@ -0,0 +1,13 @@
++/* { dg-do compile { target { fpic && lp64 } } } */
++/* { dg-options "-O2 -march=x86-64 -fno-pic -mcmodel=large" } */
++
++/*
++**foo:
++**.LFB[0-9]+:
++**	.cfi_startproc
++**	movabsq	\$.LC0, %rax
++**	movd	\(%rax\), %xmm0
++**...
++*/
++
++#include "pr121015-11a.c"
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-11c.c b/gcc/testsuite/gcc.target/i386/pr121015-11c.c
+new file mode 100644
+index 000000000000..f0e6ccb2b92f
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-11c.c
+@@ -0,0 +1,17 @@
++/* { dg-do compile { target { fpic && lp64 } } } */
++/* { dg-options "-O2 -march=x86-64 -fpic -mcmodel=large" } */
++
++/*
++**foo:
++**.LFB[0-9]+:
++**	.cfi_startproc
++**.L2:
++**	movabsq	\$_GLOBAL_OFFSET_TABLE_-.L2, %r11
++**	leaq	.L2\(%rip\), %rax
++**	movabsq	\$.LC0@GOTOFF, %rdx
++**	addq	%r11, %rax
++**	movd	\(%rax,%rdx\), %xmm0
++**...
++*/
++
++#include "pr121015-11a.c"
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-2a.c b/gcc/testsuite/gcc.target/i386/pr121015-2a.c
+new file mode 100644
+index 000000000000..e8840b0ffd6d
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-2a.c
+@@ -0,0 +1,24 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -march=x86-64" } */
++
++void
++foo (int *c1, int *c2)
++{
++  if (c1)
++    {
++      c1 = __builtin_assume_aligned (c1, 16);
++      c1[0] = 0;
++      c1[1] = 0;
++    }
++  if (c2)
++    {
++      c2 = __builtin_assume_aligned (c2, 16);
++      c2[0] = 0;
++      c2[1] = 0;
++    }
++}
++
++/* { dg-final { scan-assembler-times "pxor\[ \\t\]+\[^\n\]*%xmm" 2 { target ia32 } } } */
++/* { dg-final { scan-assembler-times "movq\[ \\t\]+\[^\n\]*%xmm" 2 { target ia32 } } } */
++/* { dg-final { scan-assembler-times "movq\[ \\t\]+\\\$0," 2 { target { ! ia32 } } } } */
++/* { dg-final { scan-assembler-not "xmm" { target { ! ia32 } } } } */
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-2b.c b/gcc/testsuite/gcc.target/i386/pr121015-2b.c
+new file mode 100644
+index 000000000000..9df2766c6120
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-2b.c
+@@ -0,0 +1,6 @@
++/* { dg-do compile { target ia32 } } */
++/* { dg-options "-O2 -mno-sse" } */
++
++#include "pr121015-2a.c"
++
++/* { dg-final { scan-assembler-times "movl\[ \\t\]+\\\$0," 4 } } */
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-3.c b/gcc/testsuite/gcc.target/i386/pr121015-3.c
+new file mode 100644
+index 000000000000..44bf63c73e69
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-3.c
+@@ -0,0 +1,35 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -march=x86-64" } */
++
++typedef enum { CPP_NUMBER } cpp_ttype;
++typedef struct {
++  bool unsignedp;
++  bool overflow;
++} cpp_num;
++extern cpp_num value, __trans_tmp_1;
++extern cpp_ttype eval_token_token_0;
++extern int eval_token_temp;
++static cpp_num
++eval_token(void)
++{
++  cpp_num __trans_tmp_2, result;
++  result.overflow = false;
++  switch (eval_token_token_0)
++    {
++    case CPP_NUMBER:
++      switch (eval_token_temp)
++	{
++	case 1:
++	  return __trans_tmp_1;
++	}
++      result.unsignedp = false;
++      __trans_tmp_2 = result;
++      return __trans_tmp_2;
++    }
++  return result;
++}
++void 
++_cpp_parse_expr_pfile(void)
++{
++  value = eval_token();
++}
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-4.c b/gcc/testsuite/gcc.target/i386/pr121015-4.c
+new file mode 100644
+index 000000000000..2848a946dd16
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-4.c
+@@ -0,0 +1,22 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -march=x86-64" } */
++/* Keep labels and directives ('.cfi_startproc', '.cfi_endproc').  */
++/* { dg-final { check-function-bodies "**" "" "" { target { ! ia32 } } {^\t?\.}  } } */
++
++/*
++**zero:
++**.LFB0:
++**	.cfi_startproc
++**	xorps	%xmm0, %xmm0
++**	ret
++**...
++*/
++
++typedef float __v2sf __attribute__ ((__vector_size__ (8)));
++extern __v2sf f1;
++
++__v2sf
++zero (void)
++{
++  return __extension__(__v2sf){0, 0};
++}
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-5a.c b/gcc/testsuite/gcc.target/i386/pr121015-5a.c
+new file mode 100644
+index 000000000000..605a87db1fc4
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-5a.c
+@@ -0,0 +1,21 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -march=x86-64" } */
++/* Keep labels and directives ('.cfi_startproc', '.cfi_endproc').  */
++/* { dg-final { check-function-bodies "**" "" "" { target { ! ia32 } } {^\t?\.}  } } */
++
++/*
++**m1:
++**.LFB[0-9]+:
++**	.cfi_startproc
++**	movq	.LC[0-9]+\(%rip\), %xmm0
++**	ret
++**...
++*/
++
++typedef char __v8qi __attribute__ ((__vector_size__ (8)));
++
++__v8qi
++m1 (void)
++{
++  return __extension__(__v8qi){-1, -1, -1, -1, -1, -1, -1, -1};
++}
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-5b.c b/gcc/testsuite/gcc.target/i386/pr121015-5b.c
+new file mode 100644
+index 000000000000..22d51fd33efd
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-5b.c
+@@ -0,0 +1,16 @@
++/* { dg-do compile { target { fpic && lp64 } } } */
++/* { dg-options "-O2 -march=x86-64 -fno-pic -mcmodel=large" } */
++/* Keep labels and directives ('.cfi_startproc', '.cfi_endproc').  */
++/* { dg-final { check-function-bodies "**" "" "" { target "*-*-*" } {^\t?\.}  } } */
++
++/*
++**m1:
++**.LFB[0-9]+:
++**	.cfi_startproc
++**	movabsq	\$.LC0, %rax
++**	movq	\(%rax\), %xmm0
++**	ret
++**...
++*/
++
++#include "pr121015-5a.c"
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-5c.c b/gcc/testsuite/gcc.target/i386/pr121015-5c.c
+new file mode 100644
+index 000000000000..bb210fa71ff5
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-5c.c
+@@ -0,0 +1,20 @@
++/* { dg-do compile { target { fpic && lp64 } } } */
++/* { dg-options "-O2 -march=x86-64 -fpic -mcmodel=large" } */
++/* Keep labels and directives ('.cfi_startproc', '.cfi_endproc').  */
++/* { dg-final { check-function-bodies "**" "" "" { target "*-*-*" } {^\t?\.}  } } */
++
++/*
++**m1:
++**.LFB[0-9]+:
++**	.cfi_startproc
++**.L2:
++**	movabsq	\$_GLOBAL_OFFSET_TABLE_-.L2, %r11
++**	leaq	.L2\(%rip\), %rax
++**	movabsq	\$.LC0@GOTOFF, %rdx
++**	addq	%r11, %rax
++**	movq	\(%rax,%rdx\), %xmm0
++**	ret
++**...
++*/
++
++#include "pr121015-5a.c"
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-6.c b/gcc/testsuite/gcc.target/i386/pr121015-6.c
+new file mode 100644
+index 000000000000..daebcb0acc51
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-6.c
+@@ -0,0 +1,23 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -march=x86-64" } */
++/* Keep labels and directives ('.cfi_startproc', '.cfi_endproc').  */
++/* { dg-final { check-function-bodies "**" "" "" { target { ! ia32 } } {^\t?\.}  } } */
++
++/*
++**m1:
++**.LFB[0-9]+:
++**	.cfi_startproc
++**	pcmpeqd	%xmm0, %xmm0
++**	ret
++**...
++*/
++
++#include <x86intrin.h>
++
++__m128i
++m1 (void)
++{
++  __m64 x = _mm_set1_pi8 (-1);
++  __m128i y = _mm_set1_epi64 (x);
++  return y;
++}
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-7a.c b/gcc/testsuite/gcc.target/i386/pr121015-7a.c
+new file mode 100644
+index 000000000000..94037e33d811
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-7a.c
+@@ -0,0 +1,23 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -march=x86-64" } */
++
++void
++foo (int *c1, int *c2)
++{
++  if (c1)
++    {
++      c1 = __builtin_assume_aligned (c1, 16);
++      c1[0] = -1;
++      c1[1] = -1;
++    }
++  if (c2)
++    {
++      c2 = __builtin_assume_aligned (c2, 16);
++      c2[0] = -1;
++      c2[1] = -1;
++    }
++}
++
++/* { dg-final { scan-assembler-times "movq\[ \\t\]+\[^\n\]*%xmm" 4 { target ia32 } } } */
++/* { dg-final { scan-assembler-times "movq\[ \\t\]+\\\$-1," 2 { target { ! ia32 } } } } */
++/* { dg-final { scan-assembler-not "xmm" { target { ! ia32 } } } } */
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-7b.c b/gcc/testsuite/gcc.target/i386/pr121015-7b.c
+new file mode 100644
+index 000000000000..3784ce0dfeda
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-7b.c
+@@ -0,0 +1,6 @@
++/* { dg-do compile { target ia32 } } */
++/* { dg-options "-O2 -mno-sse" } */
++
++#include "pr121015-7a.c"
++
++/* { dg-final { scan-assembler-times "movl\[ \\t\]+\\\$-1," 4 } } */
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-7c.c b/gcc/testsuite/gcc.target/i386/pr121015-7c.c
+new file mode 100644
+index 000000000000..33b2df3ac9ec
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-7c.c
+@@ -0,0 +1,8 @@
++/* { dg-do compile { target fpic } } */
++/* { dg-options "-O2 -march=x86-64 -fpic" } */
++
++#include "pr121015-7a.c"
++
++/* { dg-final { scan-assembler-times "movq\[ \\t\]+\[^\n\]*%xmm" 4 { target ia32 } } } */
++/* { dg-final { scan-assembler-times "movq\[ \\t\]+\\\$-1," 2 { target { ! ia32 } } } } */
++/* { dg-final { scan-assembler-not "xmm" { target { ! ia32 } } } } */
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-8.c b/gcc/testsuite/gcc.target/i386/pr121015-8.c
+new file mode 100644
+index 000000000000..de2db2a2b0de
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-8.c
+@@ -0,0 +1,14 @@
++/* { dg-do compile } */
++/* { dg-options "-Og -fno-dce -mtune=generic" } */
++
++typedef int __attribute__((__vector_size__ (4))) S;
++extern int bar (S);
++
++int
++foo ()
++{
++  return bar ((S){-1});
++}
++
++/* { dg-final { scan-assembler-times "movl\[ \\t\]+\\\$-1, \\(%esp\\)" 1 { target ia32 } } } */
++/* { dg-final { scan-assembler-times "movl\[ \\t\]+\\\$-1, %edi" 1 { target { ! ia32 } } } } */
+diff --git a/gcc/testsuite/gcc.target/i386/pr121015-9.c b/gcc/testsuite/gcc.target/i386/pr121015-9.c
+new file mode 100644
+index 000000000000..05c2021ba057
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121015-9.c
+@@ -0,0 +1,14 @@
++/* { dg-do compile } */
++/* { dg-options "-Og -fno-dce -mtune=generic" } */
++
++typedef int __attribute__((__vector_size__ (4))) S;
++extern int bar (S);
++
++int
++foo ()
++{
++  return bar ((S){0});
++}
++
++/* { dg-final { scan-assembler-times "movl\[ \\t\]+\\\$0, \\(%esp\\)" 1 { target ia32 } } } */
++/* { dg-final { scan-assembler-times "movl\[ \\t\]+\\\$0, %edi" 1 { target { ! ia32 } } } } */
+
+base-commit: db3afff48fc7ed896b3dd17eb93f0cfe3cc41da8
+-- 
+2.50.1
+
