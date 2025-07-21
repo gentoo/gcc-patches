@@ -1,3 +1,8 @@
+8	????
+
+	+ 86_all_PR121190-vect-Fix-insufficient-alignment-requirement-for-spec.patch
+	+ 87_all_PR121020-vect-Add-missing-skip-vector-check-for-peeling-with-.patch
+
 7	21 July 2025
 
 	- 86_all_PR120881-x86-64-Add-enable-x86-64-mfentry.patch
