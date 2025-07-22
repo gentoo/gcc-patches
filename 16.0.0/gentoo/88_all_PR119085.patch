@@ -1,0 +1,111 @@
+https://inbox.sourceware.org/gcc-patches/ri6wm80s22z.fsf@virgil.suse.cz/
+
+From d767af4c6d02ec7150f891f15f3c5713bfad6d47 Mon Sep 17 00:00:00 2001
+Message-ID: <d767af4c6d02ec7150f891f15f3c5713bfad6d47.1753228537.git.sam@gentoo.org>
+From: Martin Jambor <mjambor@suse.cz>
+Date: Tue, 22 Jul 2025 17:00:04 +0200
+Subject: [PATCH] tree-sra: Avoid total SRA if there are incompat. aggregate
+ accesses (PR119085)
+
+Hi,
+
+we currently use the types encountered in the function body and not in
+type declaration to perform total scalarization.  Bug PR 119085
+uncovered that we miss a check that when the same data is accessed
+with aggregate types that those are actually compatible.  Without it,
+we can base total scalarization on a type that does not "cover" all
+live data in a different part of the function.  This patch adds the
+check.
+
+Bootstrapped and tested on x86_64-linux.  OK for master and all active
+release branches?
+
+Thanks,
+
+Martin
+
+gcc/ChangeLog:
+
+2025-07-21  Martin Jambor  <mjambor@suse.cz>
+
+	PR tree-optimization/119085
+	* tree-sra.cc (sort_and_splice_var_accesses): Prevent total
+	scalarization if two incompatible aggregates access the same place.
+
+gcc/testsuite/ChangeLog:
+
+2025-07-21  Martin Jambor  <mjambor@suse.cz>
+
+PR tree-optimization/119085
+	* gcc.dg/tree-ssa/pr119085.c: New test.
+---
+ gcc/testsuite/gcc.dg/tree-ssa/pr119085.c | 37 ++++++++++++++++++++++++
+ gcc/tree-sra.cc                          |  6 ++++
+ 2 files changed, 43 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.dg/tree-ssa/pr119085.c
+
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/pr119085.c b/gcc/testsuite/gcc.dg/tree-ssa/pr119085.c
+new file mode 100644
+index 000000000000..e9811ce12b58
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/tree-ssa/pr119085.c
+@@ -0,0 +1,37 @@
++/* { dg-do run } */
++/* { dg-options "-O1" } */
++
++struct with_hole {
++  int x;
++  long y;
++};
++struct without_hole {
++  int x;
++  int y;
++};
++union u {
++  struct with_hole with_hole;
++  struct without_hole without_hole;
++};
++
++void __attribute__((noinline))
++test (union u *up, union u u)
++{
++  union u u2;
++  volatile int f = 0;
++  u2 = u;
++  if (f)
++    u2.with_hole = u.with_hole;
++  *up = u2;
++}
++
++int main(void)
++{
++  union u u;
++  union u u2;
++  u2.without_hole.y = -1;
++  test (&u, u2);
++  if (u.without_hole.y != -1)
++    __builtin_abort ();
++  return 0;
++}
+diff --git a/gcc/tree-sra.cc b/gcc/tree-sra.cc
+index 240af676ea33..032f27704847 100644
+--- a/gcc/tree-sra.cc
++++ b/gcc/tree-sra.cc
+@@ -2504,6 +2504,12 @@ sort_and_splice_var_accesses (tree var)
+ 		}
+ 	      unscalarizable_region = true;
+ 	    }
++	  /* If there the same place is accessed with two incompatible
++	     aggregate types, trying to base total scalarization on either of
++	     them can be wrong.  */
++	  if (!first_scalar && !types_compatible_p (access->type, ac2->type))
++	    bitmap_set_bit (cannot_scalarize_away_bitmap,
++			    DECL_UID (access->base));
+ 
+ 	  if (grp_same_access_path
+ 	      && (!ac2->grp_same_access_path
+
+base-commit: fdbc5ff61b471076cc9c758fb6c30d62f7ef1c56
+-- 
+2.50.1
+
