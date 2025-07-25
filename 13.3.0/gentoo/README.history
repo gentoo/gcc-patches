@@ -1,7 +1,12 @@
+6	25 July 2025
+
+	+ 94_all-libsanitizer-Fix-build-with-glibc-2.42.patch
+	+ 95_all-sanitizer_common-Remove-reference-to-obsolete-termio.patch
+
 5	27 May 2025
 
 	+ 33_all_time64.patch
-	+ 34_all_time64_ssemath.patcho
+	+ 34_all_time64_ssemath.patch
 
 4	25 April 2025
 
