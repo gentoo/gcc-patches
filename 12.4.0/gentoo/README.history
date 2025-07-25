@@ -1,3 +1,8 @@
+4	25 July 2025
+
+	+ 78_all-libsanitizer-Fix-build-with-glibc-2.42.patch
+	+ 79_all-sanitizer_common-Remove-reference-to-obsolete-termio.patch
+
 3	3 April 2025
 
 	- 76_all_all_PR107087_12_Wstringop-overread-libstdc++-cow-empty.patch
