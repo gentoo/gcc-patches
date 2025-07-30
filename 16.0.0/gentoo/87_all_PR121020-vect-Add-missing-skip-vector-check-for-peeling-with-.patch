@@ -1,12 +1,12 @@
 https://bugs.gentoo.org/959698
-https://inbox.sourceware.org/gcc-patches/20250721110642.186287-1-Pengfei.Li2@arm.com/T/#u
+https://inbox.sourceware.org/gcc-patches/DB3PR08MB8962138B27178069736147E5A425A@DB3PR08MB8962.eurprd08.prod.outlook.com/
 
-From f66323025c47ba09cee296a8a638cfe63d1bdad3 Mon Sep 17 00:00:00 2001
-Message-ID: <f66323025c47ba09cee296a8a638cfe63d1bdad3.1753106388.git.sam@gentoo.org>
-In-Reply-To: <e120f6cb794a4d104b37913c918aabe0ae6b2c64.1753106388.git.sam@gentoo.org>
-References: <e120f6cb794a4d104b37913c918aabe0ae6b2c64.1753106388.git.sam@gentoo.org>
+From 652f42c43949e64961721b7c78758030a8b9b1e0 Mon Sep 17 00:00:00 2001
+Message-ID: <652f42c43949e64961721b7c78758030a8b9b1e0.1753836047.git.sam@gentoo.org>
+In-Reply-To: <f91a62751e8198e6f02c21dffa35ac803b46d048.1753836047.git.sam@gentoo.org>
+References: <f91a62751e8198e6f02c21dffa35ac803b46d048.1753836047.git.sam@gentoo.org>
 From: Pengfei Li <Pengfei.Li2@arm.com>
-Date: Mon, 21 Jul 2025 11:06:42 +0000
+Date: Tue, 29 Jul 2025 14:53:46 +0000
 Subject: [PATCH 2/2] vect: Add missing skip-vector check for peeling with
  versioning [PR121020]
 
@@ -45,20 +45,19 @@ gcc/testsuite/ChangeLog:
 
 * gcc.dg/vect/vect-early-break_138-pr121020.c: New test.
 ---
- .../vect/vect-early-break_138-pr121020.c      | 52 +++++++++++++++++++
+ .../vect/vect-early-break_138-pr121020.c      | 54 +++++++++++++++++++
  gcc/tree-vect-loop-manip.cc                   |  2 +-
  gcc/tree-vectorizer.h                         |  4 ++
- 3 files changed, 57 insertions(+), 1 deletion(-)
+ 3 files changed, 59 insertions(+), 1 deletion(-)
  create mode 100644 gcc/testsuite/gcc.dg/vect/vect-early-break_138-pr121020.c
 
 diff --git a/gcc/testsuite/gcc.dg/vect/vect-early-break_138-pr121020.c b/gcc/testsuite/gcc.dg/vect/vect-early-break_138-pr121020.c
 new file mode 100644
-index 000000000000..86661e445a83
+index 000000000000..8cb62bf5bc93
 --- /dev/null
 +++ b/gcc/testsuite/gcc.dg/vect/vect-early-break_138-pr121020.c
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,54 @@
 +/* PR tree-optimization/121020 */
-+/* { dg-do run } */
 +/* { dg-options "-O3 --vect-cost-model=unlimited" } */
 +/* { dg-additional-options "-march=znver2" { target x86_64-*-* i?86-*-* } } */
 +/* { dg-require-effective-target mmap } */
@@ -68,6 +67,7 @@ index 000000000000..86661e445a83
 +#include <stdio.h>
 +#include <sys/mman.h>
 +#include <unistd.h>
++#include "tree-vect.h"
 +
 +__attribute__((noipa))
 +bool equal (uint64_t *restrict p, uint64_t *restrict q, int length)
@@ -81,6 +81,8 @@ index 000000000000..86661e445a83
 +
 +int main ()
 +{
++  check_vect ();
++
 +  long pgsz = sysconf (_SC_PAGESIZE);
 +  if (pgsz == -1) {
 +    fprintf (stderr, "sysconf failed\n");
@@ -123,10 +125,10 @@ index 2d01a4b0ed1c..7fcbc1ad2eb8 100644
  
    /* Epilog loop must be executed if the number of iterations for epilog
 diff --git a/gcc/tree-vectorizer.h b/gcc/tree-vectorizer.h
-index 80f8853733de..69428f1747cb 100644
+index 203e5ad964a6..e19002794324 100644
 --- a/gcc/tree-vectorizer.h
 +++ b/gcc/tree-vectorizer.h
-@@ -1168,6 +1168,10 @@ public:
+@@ -1197,6 +1197,10 @@ public:
     || LOOP_REQUIRES_VERSIONING_FOR_NITERS (L)		\
     || LOOP_REQUIRES_VERSIONING_FOR_SIMD_IF_COND (L))
  
