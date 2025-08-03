@@ -1,3 +1,7 @@
+7		8 August 2025
+	+ 78_all-libsanitizer-Fix-build-with-glibc-2.42.patch
+	+ 79_all-sanitizer_common-Remove-reference-to-obsolete-termio.patch
+
 6		28 Apr 2023
 	+ 77_all_all_PR109585_13_rtl-alias-analysis-typo.patch
 
