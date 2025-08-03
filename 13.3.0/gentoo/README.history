@@ -1,3 +1,9 @@
+8	3 August 2025
+
+	+ 94_all_genoutput-Accelerate-the-place_operands-function.patch
+	+ 95_all_genemit-Distribute-evenly-to-files-PR111600.patch
+	+ 96_all_genrecog-Split-into-separate-partitions-PR111600.patch
+
 7	2 August 2025
 
 	- 94_all-libsanitizer-Fix-build-with-glibc-2.42.patch
