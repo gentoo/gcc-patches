@@ -1,3 +1,7 @@
+3		5 August 2025
+
+	+ 32_all_gnat-with-gcc-10.patch
+
 2		08 Feb 202
 	+ 31_all_msgfmt-libstdc++-link.patch
 
