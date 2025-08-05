@@ -1,0 +1,45 @@
+From 1fb90d5be8591b6d2ad021a05be5c4ef3b7bfc09 Mon Sep 17 00:00:00 2001
+Message-ID: <1fb90d5be8591b6d2ad021a05be5c4ef3b7bfc09.1754357401.git.sam@gentoo.org>
+From: Eric Botcazou <ebotcazou@adacore.com>
+Date: Thu, 13 Sep 2018 17:05:40 +0000
+Subject: [PATCH] re PR ada/81103 (gcc/ada/terminals.c: please remove unused
+ termio.h)
+
+	PR ada/81103
+	* terminals.c: Do not include termio.h.
+
+From-SVN: r264277
+---
+ gcc/ada/terminals.c | 9 ---------
+ 2 files changed, 6 insertions(+), 10 deletions(-)
+
+diff --git a/gcc/ada/terminals.c b/gcc/ada/terminals.c
+index 7025f57d645e..bd2cdd0d0ad0 100644
+--- a/gcc/ada/terminals.c
++++ b/gcc/ada/terminals.c
+@@ -1107,14 +1107,6 @@ __gnat_setup_winsize (void *desc, int rows, int columns)
+ #include <errno.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+-
+-/* On some system termio is either absent or including it will disable termios
+-   (HP-UX) */
+-#if !defined (__hpux__) && !defined (BSD) && !defined (__APPLE__) \
+-  && !defined (__rtems__) && !defined (__QNXNTO__)
+-#   include <termio.h>
+-#endif
+-
+ #include <sys/ioctl.h>
+ #include <termios.h>
+ #include <fcntl.h>
+@@ -1130,7 +1122,6 @@ __gnat_setup_winsize (void *desc, int rows, int columns)
+ #   include <sys/signal.h>
+ #endif
+ #if defined (__hpux__)
+-#   include <sys/termio.h>
+ #   include <sys/stropts.h>
+ #endif
+ 
+-- 
+2.50.1
+

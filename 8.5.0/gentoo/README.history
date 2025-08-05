@@ -1,3 +1,9 @@
+5		5 August 2025
+
+	+ 34_all_Fix-build-breakage-with-latest-glibc-release.patch
+	+ 35_all_re-PR-ada-81103-gcc-ada-terminals.c-please-remove-un.patch
+	+ 36_all_glibc_236.patch
+
 4		08 Feb 2023
 	+ 31_all_powerpcspe-pie-crt.patch
 	+ 32_all_powerpcspe-march-PLATFORM.patch
