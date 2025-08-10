@@ -1,7 +1,6 @@
 2	10 August 2025
 
 	+ 77_all-libsanitizer-Fix-build-with-glibc-2.42.patch
-	+ 78_all-sanitizer_common-Remove-reference-to-obsolete-termio.patch
 
 1	15 Dec 2024
 
