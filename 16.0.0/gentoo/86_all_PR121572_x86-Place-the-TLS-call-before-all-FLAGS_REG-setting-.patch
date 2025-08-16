@@ -1,0 +1,202 @@
+https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121572#c4
+
+From caceadf47fe1b278311c73d5cbd062dca62298ac Mon Sep 17 00:00:00 2001
+From: "H.J. Lu" <hjl.tools@gmail.com>
+Date: Sat, 16 Aug 2025 14:04:33 -0700
+Subject: [PATCH] x86: Place the TLS call before all FLAGS_REG setting BBs
+
+We can't place a TLS call before a conditional jump in a basic block like
+
+(code_label 13 11 14 4 2 (nil) [1 uses])
+(note 14 13 16 4 [bb 4] NOTE_INSN_BASIC_BLOCK)
+(jump_insn 16 14 17 4 (set (pc)
+        (if_then_else (le (reg:CCNO 17 flags)
+                (const_int 0 [0]))
+            (label_ref 27)
+            (pc))) "x.c":10:21 discrim 1 1462 {*jcc}
+     (expr_list:REG_DEAD (reg:CCNO 17 flags)
+        (int_list:REG_BR_PROB 628353713 (nil)))
+ -> 27)
+
+since the TLS call will clobber flags register.  Instead, we should place
+such call before all register setting basic blocks which dominate the
+current basic block.
+
+NB: GNU2 TLS:
+
+(insn 66 2 5 2 (parallel [
+  (set (reg:DI 116)
+       (plus:DI (unspec:DI [
+                   (symbol_ref:DI ("_TLS_MODULE_BASE_") [flags 0x10])
+                   (unspec:DI [
+                      (symbol_ref:DI ("_TLS_MODULE_BASE_") [flags 0x10])
+                    ] UNSPEC_TLSDESC)
+                   (reg/f:DI 7 sp)] UNSPEC_TLSDESC)
+                (const:DI (unspec:DI [
+                            (symbol_ref:DI ("tv_cache") [flags 0x5a])
+                           ] UNSPEC_DTPOFF))))
+  (clobber (reg:CC 17 flags))]) 1678 {*tls_dynamic_gnu2_combine_64_di}
+  (nil))
+
+only clobbers flags register.
+
+gcc/
+
+	PR target/121572
+	* config/i386/i386-features.cc (ix86_place_single_tls_call): Also
+	search for REG_DEAD notes if flag register is alive.  Place the
+	TLS call before all FLAGS_REG setting BBs for conditional jump.
+
+gcc/testsuite/
+
+	PR target/121572
+	* gcc.target/i386/pr121572-1a.c: New test.
+	* gcc.target/i386/pr121572-1b.c: Likewise.
+
+Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
+---
+ gcc/config/i386/i386-features.cc            | 41 ++++++++++++++++++++-
+ gcc/testsuite/gcc.target/i386/pr121572-1a.c | 40 ++++++++++++++++++++
+ gcc/testsuite/gcc.target/i386/pr121572-1b.c | 18 +++++++++
+ 3 files changed, 98 insertions(+), 1 deletion(-)
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-1a.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-1b.c
+
+diff --git a/gcc/config/i386/i386-features.cc b/gcc/config/i386/i386-features.cc
+index f0bdc5c1880..7cdf98c5778 100644
+--- a/gcc/config/i386/i386-features.cc
++++ b/gcc/config/i386/i386-features.cc
+@@ -3748,6 +3748,7 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+     bb = get_immediate_dominator (CDI_DOMINATORS,
+ 				  bb->loop_father->header);
+ 
++place_tls_call:
+   rtx_insn *insn = BB_HEAD (bb);
+   while (insn && !NONDEBUG_INSN_P (insn))
+     {
+@@ -3837,7 +3838,7 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+ 	  && bitmap_bit_p (in, i))
+ 	bitmap_set_bit (live_caller_saved_regs, i);
+ 
+-  if (!bitmap_empty_p (live_caller_saved_regs))
++  if (flags_live_p || !bitmap_empty_p (live_caller_saved_regs))
+     {
+       /* Search for REG_DEAD notes in this basic block.  */
+       FOR_BB_INSNS (bb, insn)
+@@ -3845,6 +3846,44 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+ 	  if (!NONDEBUG_INSN_P (insn))
+ 	    continue;
+ 
++	  if (JUMP_P (insn))
++	    {
++	      /* This must be a conditional jump.  */
++	      rtx label = JUMP_LABEL (insn);
++	      if (label == nullptr
++		  || ANY_RETURN_P (label)
++		  || !(LABEL_P (label) || SYMBOL_REF_P (label)))
++		gcc_unreachable ();
++
++	      rtx_insn *set_insn;
++	      basic_block set_bb;
++	      auto_bitmap set_bbs;
++
++	      /* Get all BBs which define FLAGS_REG and dominate the
++		 current BB from all DEFs of FLAGS_REG.  */
++	      for (df_ref def = DF_REG_DEF_CHAIN (FLAGS_REG);
++		   def;
++		   def = DF_REF_NEXT_REG (def))
++		if (!DF_REF_IS_ARTIFICIAL (def)
++		    && !DF_REF_FLAGS_IS_SET (def, DF_REF_MAY_CLOBBER)
++		    && !DF_REF_FLAGS_IS_SET (def, DF_REF_MUST_CLOBBER))
++		  {
++		    set_insn = DF_REF_INSN (def);
++		    set = single_set (set_insn);
++		    gcc_assert (set);
++		    set_bb = DF_REF_BB (def);
++		    if (dominated_by_p (CDI_DOMINATORS, bb, set_bb))
++		      bitmap_set_bit (set_bbs, set_bb->index);
++		  }
++
++	      /* Place the call before all FLAGS_REG setting BBs since
++		 we can't place a call before nor after a conditional
++		 jump.  */
++	      bb = nearest_common_dominator_for_set (CDI_DOMINATORS,
++						     set_bbs);
++	      goto place_tls_call;
++	    }
++
+ 	  /* Check if FLAGS register is live.  */
+ 	  set = single_set (insn);
+ 	  if (set)
+diff --git a/gcc/testsuite/gcc.target/i386/pr121572-1a.c b/gcc/testsuite/gcc.target/i386/pr121572-1a.c
+new file mode 100644
+index 00000000000..179a1a9e66c
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121572-1a.c
+@@ -0,0 +1,40 @@
++/* { dg-do compile { target *-*-linux* } } */
++/* { dg-options "-O0 -fpic -fplt -mtls-dialect=gnu" } */
++/* Keep labels and directives ('.cfi_startproc', '.cfi_endproc').  */
++/* { dg-final { check-function-bodies "**" "" "" { target { ! ia32 } } {^\t?\.} } } */
++
++/*
++**bug:
++**.LFB[0-9]+:
++**...
++**	leaq	tv_cache@tlsld\(%rip\), %rdi
++**	call	__tls_get_addr@PLT
++**	movl	\$-1, %edi
++**	mov[l|q]	%[e|r]ax, %[e|r]bx
++**	call	val@PLT
++**...
++*/
++
++extern __thread int tv_cache __attribute__ ((visibility("hidden")));
++extern void use_cache (int);
++extern int val (int v);
++
++__attribute__((optimize(2)))
++void
++bug (void)
++{
++  int compared = val(-1);
++
++  if (compared == 0 || (compared > 0 && val(2) == 0))
++    {
++      __builtin_trap();
++    }
++
++  if (compared < 0) {
++      use_cache(tv_cache);
++      return;
++  }
++
++  use_cache(tv_cache);
++  __builtin_trap();
++}
+diff --git a/gcc/testsuite/gcc.target/i386/pr121572-1b.c b/gcc/testsuite/gcc.target/i386/pr121572-1b.c
+new file mode 100644
+index 00000000000..8a6089109f5
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121572-1b.c
+@@ -0,0 +1,18 @@
++/* { dg-do compile { target *-*-linux* } } */
++/* { dg-options "-O0 -fpic -fplt -mtls-dialect=gnu2" } */
++/* Keep labels and directives ('.cfi_startproc', '.cfi_endproc').  */
++/* { dg-final { check-function-bodies "**" "" "" { target { ! ia32 } } {^\t?\.} } } */
++
++/*
++**bug:
++**.LFB[0-9]+:
++**...
++**	lea[l|q]	tv_cache@TLSDESC\(%rip\), %[e|r]ax
++**	movl	\$-1, %edi
++**	call	\*tv_cache@TLSCALL\(%[e|r]ax\)
++**	mov[l|q]	%[e|r]ax, %[e|r]bx
++**	call	val@PLT
++**...
++*/
++
++#include "pr121572-1a.c"
+-- 
+2.50.1

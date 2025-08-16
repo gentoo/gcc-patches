@@ -1,3 +1,7 @@
+10	???
+
+	+ 86_all_PR121572_x86-Place-the-TLS-call-before-all-FLAGS_REG-setting-.patch
+
 9	5 August 2025
 
 	- 86_all_PR121190-vect-Fix-insufficient-alignment-requirement-for-spec.patch
