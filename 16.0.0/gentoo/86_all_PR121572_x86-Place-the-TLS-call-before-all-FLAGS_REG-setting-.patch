@@ -1,9 +1,8 @@
-https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121572#c9
-
-From ef27987069ba929157eb43f3b734534dd636f7f4 Mon Sep 17 00:00:00 2001
+From 81d358d3e24e18744e1c000672c5317d606c91ee Mon Sep 17 00:00:00 2001
+Message-ID: <81d358d3e24e18744e1c000672c5317d606c91ee.1755464442.git.sam@gentoo.org>
 From: "H.J. Lu" <hjl.tools@gmail.com>
-Date: Sat, 16 Aug 2025 14:04:33 -0700
-Subject: [PATCH v2] x86: Place the TLS call before all register setting BBs
+Date: Sun, 17 Aug 2025 13:50:05 -0700
+Subject: [PATCH] x86: Place the TLS call before all register setting BBs
 
 We can't place a TLS call before a conditional jump in a basic block like
 
@@ -70,7 +69,7 @@ Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-2b.c
 
 diff --git a/gcc/config/i386/i386-features.cc b/gcc/config/i386/i386-features.cc
-index f0bdc5c1880..903f2b0b478 100644
+index f0bdc5c1880b..903f2b0b4789 100644
 --- a/gcc/config/i386/i386-features.cc
 +++ b/gcc/config/i386/i386-features.cc
 @@ -3684,10 +3684,12 @@ ix86_broadcast_inner (rtx op, machine_mode mode,
@@ -317,7 +316,7 @@ index f0bdc5c1880..903f2b0b478 100644
  		case X86_CSE_CONSTM1_VECTOR:
 diff --git a/gcc/testsuite/gcc.target/i386/pr121572-1a.c b/gcc/testsuite/gcc.target/i386/pr121572-1a.c
 new file mode 100644
-index 00000000000..270d8ff5cb6
+index 000000000000..270d8ff5cb6d
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/i386/pr121572-1a.c
 @@ -0,0 +1,41 @@
@@ -364,7 +363,7 @@ index 00000000000..270d8ff5cb6
 +}
 diff --git a/gcc/testsuite/gcc.target/i386/pr121572-1b.c b/gcc/testsuite/gcc.target/i386/pr121572-1b.c
 new file mode 100644
-index 00000000000..8a6089109f5
+index 000000000000..8a6089109f50
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/i386/pr121572-1b.c
 @@ -0,0 +1,18 @@
@@ -388,7 +387,7 @@ index 00000000000..8a6089109f5
 +#include "pr121572-1a.c"
 diff --git a/gcc/testsuite/gcc.target/i386/pr121572-2a.c b/gcc/testsuite/gcc.target/i386/pr121572-2a.c
 new file mode 100644
-index 00000000000..38b254657d3
+index 000000000000..38b254657d35
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/i386/pr121572-2a.c
 @@ -0,0 +1,39 @@
@@ -433,7 +432,7 @@ index 00000000000..38b254657d3
 +/* { dg-final { scan-assembler-times "call\[ \t\]__tls_get_addr@PLT" 1 { target { ! ia32 } } } } */
 diff --git a/gcc/testsuite/gcc.target/i386/pr121572-2b.c b/gcc/testsuite/gcc.target/i386/pr121572-2b.c
 new file mode 100644
-index 00000000000..33d70024324
+index 000000000000..33d700243249
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/i386/pr121572-2b.c
 @@ -0,0 +1,6 @@
@@ -443,5 +442,8 @@ index 00000000000..33d70024324
 +#include "pr121572-2a.c"
 +
 +/* { dg-final { scan-assembler-times "call\[ \t\]\\*__gmpfr_emax@TLSCALL\\(%(?:r|e)ax\\)" 1 { target { ! ia32 } } } } */
+
+base-commit: 6f63044a7ae63a276a4f6d3108849e093c690bc6
 -- 
 2.50.1
+
