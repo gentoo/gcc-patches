@@ -1,6 +1,6 @@
-https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121572#c8
+https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121572#c9
 
-From db980f943e547d786c2a33798b0e217b658058c4 Mon Sep 17 00:00:00 2001
+From ef27987069ba929157eb43f3b734534dd636f7f4 Mon Sep 17 00:00:00 2001
 From: "H.J. Lu" <hjl.tools@gmail.com>
 Date: Sat, 16 Aug 2025 14:04:33 -0700
 Subject: [PATCH v2] x86: Place the TLS call before all register setting BBs
@@ -29,23 +29,8 @@ the basic block:
 Instead, we should place such call before all register setting basic
 blocks which dominate the current basic block.
 
-NB: GNU2 TLS:
-
-(insn 66 2 5 2 (parallel [
-  (set (reg:DI 116)
-       (plus:DI (unspec:DI [
-                   (symbol_ref:DI ("_TLS_MODULE_BASE_") [flags 0x10])
-                   (unspec:DI [
-                      (symbol_ref:DI ("_TLS_MODULE_BASE_") [flags 0x10])
-                    ] UNSPEC_TLSDESC)
-                   (reg/f:DI 7 sp)] UNSPEC_TLSDESC)
-                (const:DI (unspec:DI [
-                            (symbol_ref:DI ("tv_cache") [flags 0x5a])
-                           ] UNSPEC_DTPOFF))))
-  (clobber (reg:CC 17 flags))]) 1678 {*tls_dynamic_gnu2_combine_64_di}
-  (nil))
-
-only clobbers flags register.
+Keep track the replaced GNU and GNU2 TLS instructions.  Use these info to
+place the __tls_get_addr call and mark FLAGS register as dead.
 
 gcc/
 
@@ -53,14 +38,15 @@ gcc/
 	* config/i386/i386-features.cc (replace_tls_call): Add a bitmap
 	argument and put the updated TLS instruction in the bitmap.
 	(ix86_get_dominator_for_reg): New.
-	(ix86_place_single_tls_call): Add a bitmap argument for updated
-	TLS instructions.  Add the live flag register to the bitmap.
-	Mark FLAGS register as dead if INSN replaced the TLS instruction.
-	Clear the live register bitmap only for hard register.  If there
-	is a conditional jump in the basic block or any live caller-saved
-	registers aren't dead at the end of the basic block, get the basic
-	block which dominates all basic blocks which set the live
-	registers.
+	(ix86_place_single_tls_call): Add 2 bitmap arguments for updated
+	GNU and GNU2 TLS instructions.  Add the live flag register to the
+	bitmap.  Insert the __tls_get_addr call before INSN if it replaces
+	a __tls_get_addr call.  Mark FLAGS register as dead if INSN
+	replaced the GNU2 TLS instruction.  Clear the live register bitmap
+	only for hard register.  If there is a conditional jump in the
+	basic block or any live caller-saved registers aren't dead at the
+	end of the basic block, get the basic block which dominates all
+	basic blocks which set the live registers.
 
 gcc/testsuite/
 
@@ -72,19 +58,19 @@ gcc/testsuite/
 
 Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
 ---
- gcc/config/i386/i386-features.cc            | 117 ++++++++++++++++----
- gcc/testsuite/gcc.target/i386/pr121572-1a.c |  41 +++++++
+ gcc/config/i386/i386-features.cc            | 136 ++++++++++++++++----
+ gcc/testsuite/gcc.target/i386/pr121572-1a.c |  41 ++++++
  gcc/testsuite/gcc.target/i386/pr121572-1b.c |  18 +++
- gcc/testsuite/gcc.target/i386/pr121572-2a.c |  39 +++++++
+ gcc/testsuite/gcc.target/i386/pr121572-2a.c |  39 ++++++
  gcc/testsuite/gcc.target/i386/pr121572-2b.c |   6 +
- 5 files changed, 197 insertions(+), 24 deletions(-)
+ 5 files changed, 215 insertions(+), 25 deletions(-)
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-1a.c
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-1b.c
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-2a.c
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-2b.c
 
 diff --git a/gcc/config/i386/i386-features.cc b/gcc/config/i386/i386-features.cc
-index f0bdc5c1880..e7285c639dd 100644
+index f0bdc5c1880..903f2b0b478 100644
 --- a/gcc/config/i386/i386-features.cc
 +++ b/gcc/config/i386/i386-features.cc
 @@ -3684,10 +3684,12 @@ ix86_broadcast_inner (rtx op, machine_mode mode,
@@ -112,7 +98,7 @@ index f0bdc5c1880..e7285c639dd 100644
        if (dump_file)
  	{
  	  fprintf (dump_file, "\nReplace:\n\n");
-@@ -3732,15 +3737,46 @@ replace_tls_call (rtx src, auto_bitmap &tls_call_insns)
+@@ -3732,15 +3737,48 @@ replace_tls_call (rtx src, auto_bitmap &tls_call_insns)
      }
  }
  
@@ -149,20 +135,22 @@ index f0bdc5c1880..e7285c639dd 100644
 -   a single TLS CALL of KIND with VAL in the whole function.  If
 -   TLSDESC_SET isn't nullptr, insert it before the TLS call.  */
 +   a single TLS CALL of KIND with VAL in the whole function.
-+   UPDATED_TLS_INSNS contains instructions which replace the original TLS
-+   instructions.  If TLSDESC_SET isn't nullptr, insert it before the TLS
-+   call.  */
++   UPDATED_GNU_TLS_INSNS contains instructions which replace the GNU TLS
++   instructions.  UPDATED_GNU2_TLS_INSNS contains instructions which
++   replace the GNU2 TLS instructions.  If TLSDESC_SET isn't nullptr,
++   insert it before the TLS call.  */
  
  static void
  ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
 -			    bitmap bbs, rtx tlsdesc_set = nullptr)
 +			    auto_bitmap &bbs,
-+			    auto_bitmap &updated_tls_insns,
++			    auto_bitmap &updated_gnu_tls_insns,
++			    auto_bitmap &updated_gnu2_tls_insns,
 +			    rtx tlsdesc_set = nullptr)
  {
    basic_block bb = nearest_common_dominator_for_set (CDI_DOMINATORS, bbs);
    while (bb->loop_father->latch
-@@ -3748,6 +3784,7 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+@@ -3748,6 +3786,7 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
      bb = get_immediate_dominator (CDI_DOMINATORS,
  				  bb->loop_father->header);
  
@@ -170,7 +158,7 @@ index f0bdc5c1880..e7285c639dd 100644
    rtx_insn *insn = BB_HEAD (bb);
    while (insn && !NONDEBUG_INSN_P (insn))
      {
-@@ -3824,7 +3861,8 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+@@ -3824,7 +3863,8 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
    auto_bitmap live_caller_saved_regs;
    bitmap in = df_live ? DF_LIVE_IN (bb) : DF_LR_IN (bb);
  
@@ -180,7 +168,7 @@ index f0bdc5c1880..e7285c639dd 100644
  
    unsigned int i;
  
-@@ -3845,13 +3883,39 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+@@ -3845,13 +3885,46 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
  	  if (!NONDEBUG_INSN_P (insn))
  	    continue;
  
@@ -209,20 +197,27 @@ index f0bdc5c1880..e7285c639dd 100644
 -		flags_live_p = true;
 +	      if (REG_P (dest))
 +		{
-+		  if (REGNO (dest) == FLAGS_REG)
-+		    bitmap_set_bit (live_caller_saved_regs, FLAGS_REG);
-+		  /* NB: Mark FLAGS register as dead if INSN replaced
-+		     the TLS instruction since FLAGS register would be
-+		     clobbered by the TLS instruction.  */
-+		  else if (bitmap_bit_p (updated_tls_insns,
-+					 INSN_UID (insn)))
++		  if (bitmap_bit_p (updated_gnu_tls_insns,
++				    INSN_UID (insn)))
++		    {
++		    /* Insert the __tls_get_addr call before INSN which
++		       replaces a __tls_get_addr call.  */
++		      before = insn;
++		      goto insert_before;
++		    }
++		  if (bitmap_bit_p (updated_gnu2_tls_insns,
++				    INSN_UID (insn)))
++		    /* Mark FLAGS register as dead since FLAGS register
++		       would be clobbered by the GNU2 TLS instruction.  */
 +		    bitmap_clear_bit (live_caller_saved_regs,
 +				      FLAGS_REG);
++		  else if (REGNO (dest) == FLAGS_REG)
++		    bitmap_set_bit (live_caller_saved_regs, FLAGS_REG);
 +		}
  	    }
  
  	  rtx link;
-@@ -3863,29 +3927,30 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+@@ -3863,29 +3936,30 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
  		for (i = REGNO (XEXP (link, 0));
  		     i < END_REGNO (XEXP (link, 0));
  		     i++)
@@ -267,39 +262,56 @@ index f0bdc5c1880..e7285c639dd 100644
      }
  
    /* Emit the TLS CALL insn.  */
-@@ -4213,6 +4278,7 @@ pass_x86_cse::x86_cse (void)
+@@ -3895,7 +3969,10 @@ insert_after:
+       tls_insn = emit_insn_after (tls, after);
+     }
+   else
+-    tls_insn = emit_insn_before (tls, before);
++    {
++insert_before:
++      tls_insn = emit_insn_before (tls, before);
++    }
+ 
+   rtx_insn *tlsdesc_insn = nullptr;
+   if (tlsdesc_set)
+@@ -4213,6 +4290,8 @@ pass_x86_cse::x86_cse (void)
    basic_block bb;
    rtx_insn *insn;
    unsigned int i;
-+  auto_bitmap updated_tls_insns;
++  auto_bitmap updated_gnu_tls_insns;
++  auto_bitmap updated_gnu2_tls_insns;
  
    df_set_flags (DF_DEFER_INSN_RESCAN);
  
-@@ -4333,7 +4399,8 @@ pass_x86_cse::x86_cse (void)
+@@ -4333,7 +4412,10 @@ pass_x86_cse::x86_cse (void)
  	  case X86_CSE_TLS_LD_BASE:
  	  case X86_CSE_TLSDESC:
  	    broadcast_reg = gen_reg_rtx (load->mode);
 -	    replace_tls_call (broadcast_reg, load->insns);
 +	    replace_tls_call (broadcast_reg, load->insns,
-+			      updated_tls_insns);
++			      (load->kind == X86_CSE_TLSDESC
++			       ? updated_gnu2_tls_insns
++			       : updated_gnu_tls_insns));
  	    load->broadcast_reg = broadcast_reg;
  	    break;
  
-@@ -4399,6 +4466,7 @@ pass_x86_cse::x86_cse (void)
+@@ -4399,6 +4481,8 @@ pass_x86_cse::x86_cse (void)
  					      load->val,
  					      load->kind,
  					      load->bbs,
-+					      updated_tls_insns,
++					      updated_gnu_tls_insns,
++					      updated_gnu2_tls_insns,
  					      PATTERN (load->def_insn));
  		  break;
  		case X86_CSE_VEC_DUP:
-@@ -4442,7 +4510,8 @@ pass_x86_cse::x86_cse (void)
+@@ -4442,7 +4526,9 @@ pass_x86_cse::x86_cse (void)
  		  ix86_place_single_tls_call (load->broadcast_reg,
  					      load->val,
  					      load->kind,
 -					      load->bbs);
 +					      load->bbs,
-+					      updated_tls_insns);
++					      updated_gnu_tls_insns,
++					      updated_gnu2_tls_insns);
  		  break;
  		case X86_CSE_CONST0_VECTOR:
  		case X86_CSE_CONSTM1_VECTOR:
