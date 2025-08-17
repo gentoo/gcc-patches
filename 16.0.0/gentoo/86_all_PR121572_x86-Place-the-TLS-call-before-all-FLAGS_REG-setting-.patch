@@ -1,9 +1,9 @@
-https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121572#c6
+https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121572#c8
 
-From 27d463bd32623918d641a4f5168811ae86939e9b Mon Sep 17 00:00:00 2001
+From db980f943e547d786c2a33798b0e217b658058c4 Mon Sep 17 00:00:00 2001
 From: "H.J. Lu" <hjl.tools@gmail.com>
 Date: Sat, 16 Aug 2025 14:04:33 -0700
-Subject: [PATCH] x86: Place the TLS call before all register setting BBs
+Subject: [PATCH v2] x86: Place the TLS call before all register setting BBs
 
 We can't place a TLS call before a conditional jump in a basic block like
 
@@ -50,13 +50,17 @@ only clobbers flags register.
 gcc/
 
 	PR target/121572
-	* config/i386/i386-features.cc (ix86_get_dominator_for_reg): New.
-	(ix86_place_single_tls_call): Add the live flag register to the
-	bitmap.  Clear the live register bitmap only for hard register.
-	If there is a conditional jump in the basic block or any live
-	caller-saved registers aren't dead at the end of the basic block,
-	get the basic block which dominates all basic blocks which set
-	the live registers.
+	* config/i386/i386-features.cc (replace_tls_call): Add a bitmap
+	argument and put the updated TLS instruction in the bitmap.
+	(ix86_get_dominator_for_reg): New.
+	(ix86_place_single_tls_call): Add a bitmap argument for updated
+	TLS instructions.  Add the live flag register to the bitmap.
+	Mark FLAGS register as dead if INSN replaced the TLS instruction.
+	Clear the live register bitmap only for hard register.  If there
+	is a conditional jump in the basic block or any live caller-saved
+	registers aren't dead at the end of the basic block, get the basic
+	block which dominates all basic blocks which set the live
+	registers.
 
 gcc/testsuite/
 
@@ -68,22 +72,47 @@ gcc/testsuite/
 
 Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
 ---
- gcc/config/i386/i386-features.cc            | 77 ++++++++++++++++-----
- gcc/testsuite/gcc.target/i386/pr121572-1a.c | 41 +++++++++++
- gcc/testsuite/gcc.target/i386/pr121572-1b.c | 18 +++++
- gcc/testsuite/gcc.target/i386/pr121572-2a.c | 55 +++++++++++++++
- gcc/testsuite/gcc.target/i386/pr121572-2b.c | 17 +++++
- 5 files changed, 192 insertions(+), 16 deletions(-)
+ gcc/config/i386/i386-features.cc            | 117 ++++++++++++++++----
+ gcc/testsuite/gcc.target/i386/pr121572-1a.c |  41 +++++++
+ gcc/testsuite/gcc.target/i386/pr121572-1b.c |  18 +++
+ gcc/testsuite/gcc.target/i386/pr121572-2a.c |  39 +++++++
+ gcc/testsuite/gcc.target/i386/pr121572-2b.c |   6 +
+ 5 files changed, 197 insertions(+), 24 deletions(-)
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-1a.c
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-1b.c
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-2a.c
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-2b.c
 
 diff --git a/gcc/config/i386/i386-features.cc b/gcc/config/i386/i386-features.cc
-index f0bdc5c1880..235c255232a 100644
+index f0bdc5c1880..e7285c639dd 100644
 --- a/gcc/config/i386/i386-features.cc
 +++ b/gcc/config/i386/i386-features.cc
-@@ -3732,6 +3732,33 @@ replace_tls_call (rtx src, auto_bitmap &tls_call_insns)
+@@ -3684,10 +3684,12 @@ ix86_broadcast_inner (rtx op, machine_mode mode,
+   return op;
+ }
+ 
+-/* Replace CALL instruction in TLS_CALL_INSNS with SET from SRC.  */
++/* Replace CALL instruction in TLS_CALL_INSNS with SET from SRC and
++   put the updated instruction in UPDATED_TLS_INSNS.  */
+ 
+ static void
+-replace_tls_call (rtx src, auto_bitmap &tls_call_insns)
++replace_tls_call (rtx src, auto_bitmap &tls_call_insns,
++		  auto_bitmap &updated_tls_insns)
+ {
+   bitmap_iterator bi;
+   unsigned int id;
+@@ -3716,6 +3718,9 @@ replace_tls_call (rtx src, auto_bitmap &tls_call_insns)
+       if (recog_memoized (set_insn) < 0)
+ 	gcc_unreachable ();
+ 
++      /* Put SET_INSN in UPDATED_TLS_INSNS.  */
++      bitmap_set_bit (updated_tls_insns, INSN_UID (set_insn));
++
+       if (dump_file)
+ 	{
+ 	  fprintf (dump_file, "\nReplace:\n\n");
+@@ -3732,15 +3737,46 @@ replace_tls_call (rtx src, auto_bitmap &tls_call_insns)
      }
  }
  
@@ -117,7 +146,23 @@ index f0bdc5c1880..235c255232a 100644
  /* Generate a TLS call of KIND with VAL and copy the call result to DEST,
     at entry of the nearest dominator for basic block map BBS, which is in
     the fake loop that contains the whole function, so that there is only
-@@ -3748,6 +3775,7 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+-   a single TLS CALL of KIND with VAL in the whole function.  If
+-   TLSDESC_SET isn't nullptr, insert it before the TLS call.  */
++   a single TLS CALL of KIND with VAL in the whole function.
++   UPDATED_TLS_INSNS contains instructions which replace the original TLS
++   instructions.  If TLSDESC_SET isn't nullptr, insert it before the TLS
++   call.  */
+ 
+ static void
+ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+-			    bitmap bbs, rtx tlsdesc_set = nullptr)
++			    auto_bitmap &bbs,
++			    auto_bitmap &updated_tls_insns,
++			    rtx tlsdesc_set = nullptr)
+ {
+   basic_block bb = nearest_common_dominator_for_set (CDI_DOMINATORS, bbs);
+   while (bb->loop_father->latch
+@@ -3748,6 +3784,7 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
      bb = get_immediate_dominator (CDI_DOMINATORS,
  				  bb->loop_father->header);
  
@@ -125,7 +170,7 @@ index f0bdc5c1880..235c255232a 100644
    rtx_insn *insn = BB_HEAD (bb);
    while (insn && !NONDEBUG_INSN_P (insn))
      {
-@@ -3824,7 +3852,8 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+@@ -3824,7 +3861,8 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
    auto_bitmap live_caller_saved_regs;
    bitmap in = df_live ? DF_LIVE_IN (bb) : DF_LR_IN (bb);
  
@@ -135,7 +180,7 @@ index f0bdc5c1880..235c255232a 100644
  
    unsigned int i;
  
-@@ -3845,13 +3874,28 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+@@ -3845,13 +3883,39 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
  	  if (!NONDEBUG_INSN_P (insn))
  	    continue;
  
@@ -151,7 +196,8 @@ index f0bdc5c1880..235c255232a 100644
 +	      /* Place the call before all FLAGS_REG setting BBs since
 +		 we can't place a call before nor after a conditional
 +		 jump.  */
-+	      break;
++	      bb = ix86_get_dominator_for_reg (FLAGS_REG, bb);
++	      goto place_tls_call;
 +	    }
 +
  	  /* Check if FLAGS register is live.  */
@@ -159,13 +205,24 @@ index f0bdc5c1880..235c255232a 100644
  	  if (set)
  	    {
  	      rtx dest = SET_DEST (set);
- 	      if (REG_P (dest) && REGNO (dest) == FLAGS_REG)
+-	      if (REG_P (dest) && REGNO (dest) == FLAGS_REG)
 -		flags_live_p = true;
-+		bitmap_set_bit (live_caller_saved_regs, FLAGS_REG);
++	      if (REG_P (dest))
++		{
++		  if (REGNO (dest) == FLAGS_REG)
++		    bitmap_set_bit (live_caller_saved_regs, FLAGS_REG);
++		  /* NB: Mark FLAGS register as dead if INSN replaced
++		     the TLS instruction since FLAGS register would be
++		     clobbered by the TLS instruction.  */
++		  else if (bitmap_bit_p (updated_tls_insns,
++					 INSN_UID (insn)))
++		    bitmap_clear_bit (live_caller_saved_regs,
++				      FLAGS_REG);
++		}
  	    }
  
  	  rtx link;
-@@ -3863,29 +3907,30 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+@@ -3863,29 +3927,30 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
  		for (i = REGNO (XEXP (link, 0));
  		     i < END_REGNO (XEXP (link, 0));
  		     i++)
@@ -210,6 +267,42 @@ index f0bdc5c1880..235c255232a 100644
      }
  
    /* Emit the TLS CALL insn.  */
+@@ -4213,6 +4278,7 @@ pass_x86_cse::x86_cse (void)
+   basic_block bb;
+   rtx_insn *insn;
+   unsigned int i;
++  auto_bitmap updated_tls_insns;
+ 
+   df_set_flags (DF_DEFER_INSN_RESCAN);
+ 
+@@ -4333,7 +4399,8 @@ pass_x86_cse::x86_cse (void)
+ 	  case X86_CSE_TLS_LD_BASE:
+ 	  case X86_CSE_TLSDESC:
+ 	    broadcast_reg = gen_reg_rtx (load->mode);
+-	    replace_tls_call (broadcast_reg, load->insns);
++	    replace_tls_call (broadcast_reg, load->insns,
++			      updated_tls_insns);
+ 	    load->broadcast_reg = broadcast_reg;
+ 	    break;
+ 
+@@ -4399,6 +4466,7 @@ pass_x86_cse::x86_cse (void)
+ 					      load->val,
+ 					      load->kind,
+ 					      load->bbs,
++					      updated_tls_insns,
+ 					      PATTERN (load->def_insn));
+ 		  break;
+ 		case X86_CSE_VEC_DUP:
+@@ -4442,7 +4510,8 @@ pass_x86_cse::x86_cse (void)
+ 		  ix86_place_single_tls_call (load->broadcast_reg,
+ 					      load->val,
+ 					      load->kind,
+-					      load->bbs);
++					      load->bbs,
++					      updated_tls_insns);
+ 		  break;
+ 		case X86_CSE_CONST0_VECTOR:
+ 		case X86_CSE_CONSTM1_VECTOR:
 diff --git a/gcc/testsuite/gcc.target/i386/pr121572-1a.c b/gcc/testsuite/gcc.target/i386/pr121572-1a.c
 new file mode 100644
 index 00000000000..270d8ff5cb6
@@ -283,30 +376,12 @@ index 00000000000..8a6089109f5
 +#include "pr121572-1a.c"
 diff --git a/gcc/testsuite/gcc.target/i386/pr121572-2a.c b/gcc/testsuite/gcc.target/i386/pr121572-2a.c
 new file mode 100644
-index 00000000000..3f2230f8885
+index 00000000000..38b254657d3
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/i386/pr121572-2a.c
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,39 @@
 +/* { dg-do compile { target *-*-linux* } } */
 +/* { dg-options "-O2 -fpic -fplt -mtls-dialect=gnu" } */
-+/* Keep labels and directives ('.cfi_startproc', '.cfi_endproc').  */
-+/* { dg-final { check-function-bodies "**" "" "" { target { ! ia32 } } {^\t?\.} } } */
-+
-+/*
-+**mpfr_agm:
-+**.LFB[0-9]+:
-+**...
-+**	movl	%edi, %ebp
-+**	data16	leaq	__gmpfr_emax@tlsgd\(%rip\), %rdi
-+**	.value	0x6666
-+**	rex64
-+**	call	__tls_get_addr@PLT
-+**	mov[l|q]	mpfr_agm_compare@GOTPCREL\(%rip\), %[e|r]dx
-+**	movl	\(%[e|r]dx\), %edx
-+**	testl	%edx, %edx
-+**	je	.L2
-+**...
-+*/
 +
 +typedef enum
 +{
@@ -342,28 +417,19 @@ index 00000000000..3f2230f8885
 +  __gmpfr_emin = __gmpfr_emax;
 +  return 0;
 +}
++
++/* { dg-final { scan-assembler-times "call\[ \t\]__tls_get_addr@PLT" 1 { target { ! ia32 } } } } */
 diff --git a/gcc/testsuite/gcc.target/i386/pr121572-2b.c b/gcc/testsuite/gcc.target/i386/pr121572-2b.c
 new file mode 100644
-index 00000000000..d81e2edc6f2
+index 00000000000..33d70024324
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/i386/pr121572-2b.c
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,6 @@
 +/* { dg-do compile { target *-*-linux* } } */
 +/* { dg-options "-O2 -fpic -fplt -mtls-dialect=gnu2" } */
-+/* Keep labels and directives ('.cfi_startproc', '.cfi_endproc').  */
-+/* { dg-final { check-function-bodies "**" "" "" { target { ! ia32 } } {^\t?\.} } } */
-+
-+/*
-+**mpfr_agm:
-+**.LFB[0-9]+:
-+**	.cfi_startproc
-+**	sub[l|q]	\$[0-9]+, %[e|r]sp
-+**	.cfi_def_cfa_offset [0-9]+
-+**	lea[l|q]	__gmpfr_emax@TLSDESC\(%rip\), %[e|r]ax
-+**	call	\*__gmpfr_emax@TLSCALL\(%[e|r]ax\)
-+**...
-+*/
 +
 +#include "pr121572-2a.c"
++
++/* { dg-final { scan-assembler-times "call\[ \t\]\\*__gmpfr_emax@TLSCALL\\(%(?:r|e)ax\\)" 1 { target { ! ia32 } } } } */
 -- 
 2.50.1
