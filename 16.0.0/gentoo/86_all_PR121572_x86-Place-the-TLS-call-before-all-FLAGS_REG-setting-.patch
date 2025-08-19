@@ -1,7 +1,7 @@
-From 93b90830524746278635ddac3a5841caa7139baf Mon Sep 17 00:00:00 2001
+From 43a0428a61f17969c8e0bf4ede1935b5655100c2 Mon Sep 17 00:00:00 2001
 From: "H.J. Lu" <hjl.tools@gmail.com>
 Date: Sat, 16 Aug 2025 14:04:33 -0700
-Subject: [PATCH v3] x86: Place the TLS call before all register setting BBs
+Subject: [PATCH v4] x86: Place the TLS call before all register setting BBs
 
 We can't place a TLS call before a conditional jump in a basic block like
 
@@ -36,6 +36,7 @@ gcc/
 	* config/i386/i386-features.cc (replace_tls_call): Add a bitmap
 	argument and put the updated TLS instruction in the bitmap.
 	(ix86_get_dominator_for_reg): New.
+	(ix86_check_flags_reg): Likewise.
 	(ix86_emit_tls_call): Likewise.
 	(ix86_place_single_tls_call): Add 2 bitmap arguments for updated
 	GNU and GNU2 TLS instructions.  Call ix86_emit_tls_call to emit
@@ -51,19 +52,19 @@ gcc/testsuite/
 
 Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
 ---
- gcc/config/i386/i386-features.cc            | 329 +++++++++++++-------
+ gcc/config/i386/i386-features.cc            | 334 +++++++++++++-------
  gcc/testsuite/gcc.target/i386/pr121572-1a.c |  41 +++
  gcc/testsuite/gcc.target/i386/pr121572-1b.c |  18 ++
  gcc/testsuite/gcc.target/i386/pr121572-2a.c |  39 +++
  gcc/testsuite/gcc.target/i386/pr121572-2b.c |   6 +
- 5 files changed, 327 insertions(+), 106 deletions(-)
+ 5 files changed, 332 insertions(+), 106 deletions(-)
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-1a.c
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-1b.c
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-2a.c
  create mode 100644 gcc/testsuite/gcc.target/i386/pr121572-2b.c
 
 diff --git a/gcc/config/i386/i386-features.cc b/gcc/config/i386/i386-features.cc
-index f0bdc5c1880..b1211ca916a 100644
+index f0bdc5c1880..7869ee22b67 100644
 --- a/gcc/config/i386/i386-features.cc
 +++ b/gcc/config/i386/i386-features.cc
 @@ -3684,10 +3684,12 @@ ix86_broadcast_inner (rtx op, machine_mode mode,
@@ -91,7 +92,7 @@ index f0bdc5c1880..b1211ca916a 100644
        if (dump_file)
  	{
  	  fprintf (dump_file, "\nReplace:\n\n");
-@@ -3732,15 +3737,211 @@ replace_tls_call (rtx src, auto_bitmap &tls_call_insns)
+@@ -3732,15 +3737,216 @@ replace_tls_call (rtx src, auto_bitmap &tls_call_insns)
      }
  }
  
@@ -122,6 +123,17 @@ index f0bdc5c1880..b1211ca916a 100644
 +  return bb;
 +}
 +
++/* Mark FLAGS register as live in DATA, a bitmap of live caller-saved
++   registers, if DEST is FLAGS register.  */
++
++static void
++ix86_check_flags_reg (rtx dest, const_rtx, void *data)
++{
++  auto_bitmap *live_caller_saved_regs = (auto_bitmap *) data;
++  if (REG_P (dest) && REGNO (dest) == FLAGS_REG)
++    bitmap_set_bit (*live_caller_saved_regs, FLAGS_REG);
++}
++
 +/* Emit a TLS_SET instruction of KIND in basic block BB.   Store the
 +   insertion point in *BEFORE_P for emit_insn_before or in *AFTER_P
 +   for emit_insn_after.  UPDATED_GNU_TLS_INSNS contains instructions
@@ -142,10 +154,7 @@ index f0bdc5c1880..b1211ca916a 100644
 +      while (insn && !NONDEBUG_INSN_P (insn))
 +	{
 +	  if (insn == BB_END (bb))
-+	    {
-+	      insn = NULL;
-+	      break;
-+	    }
++	    break;
 +	  insn = NEXT_INSN (insn);
 +	}
 +
@@ -174,14 +183,14 @@ index f0bdc5c1880..b1211ca916a 100644
 +
 +      if (bitmap_empty_p (live_caller_saved_regs))
 +	{
-+	  if (insn == BB_HEAD (bb))
++	  if (insn == BB_HEAD (bb) || insn == BB_END (bb))
 +	    {
 +	      *before_p = insn;
 +	      tls_insn = emit_insn_before (tls_set, insn);
 +	    }
 +	  else
 +	    {
-+	      insn = insn ? PREV_INSN (insn) : BB_END (bb);
++	      insn = PREV_INSN (insn);
 +	      *after_p = insn;
 +	      tls_insn = emit_insn_after (tls_set, insn);
 +	    }
@@ -197,7 +206,8 @@ index f0bdc5c1880..b1211ca916a 100644
 +	    continue;
 +
 +	  /* NB: Conditional jump is the only instruction which reads
-+	     flags register and changes control flow.  */
++	     flags register and changes control flow.  We can never
++	     place the TLS call after unconditional jump.  */
 +	  if (JUMP_P (insn))
 +	    {
 +	      /* This must be a conditional jump.  */
@@ -217,32 +227,26 @@ index f0bdc5c1880..b1211ca916a 100644
 +	      break;
 +	    }
 +
-+	  /* Check if FLAGS register is live.  */
-+	  rtx set = single_set (insn);
-+	  if (set)
++	  if (bitmap_bit_p (updated_gnu_tls_insns, INSN_UID (insn)))
 +	    {
-+	      rtx dest = SET_DEST (set);
-+	      if (REG_P (dest))
-+		{
-+		  if (bitmap_bit_p (updated_gnu_tls_insns,
-+				    INSN_UID (insn)))
-+		    {
-+		      /* Insert the __tls_get_addr call before INSN
-+			 which replaces a __tls_get_addr call.  */
-+		      *before_p = insn;
-+		      tls_insn = emit_insn_before (tls_set, insn);
-+		      return tls_insn;
-+		    }
-+		  if (bitmap_bit_p (updated_gnu2_tls_insns,
-+				    INSN_UID (insn)))
-+		    /* Mark FLAGS register as dead since FLAGS register
-+		       would be clobbered by the GNU2 TLS instruction.  */
-+		    bitmap_clear_bit (live_caller_saved_regs,
-+				      FLAGS_REG);
-+		  else if (REGNO (dest) == FLAGS_REG)
-+		    bitmap_set_bit (live_caller_saved_regs, FLAGS_REG);
-+		}
++	      /* Insert the __tls_get_addr call before INSN which
++		 replaces a __tls_get_addr call.  */
++	      *before_p = insn;
++	      tls_insn = emit_insn_before (tls_set, insn);
++	      return tls_insn;
 +	    }
++
++	  if (bitmap_bit_p (updated_gnu2_tls_insns, INSN_UID (insn)))
++	    {
++	      /* Mark FLAGS register as dead since FLAGS register
++		 would be clobbered by the GNU2 TLS instruction.  */
++	      bitmap_clear_bit (live_caller_saved_regs, FLAGS_REG);
++	      continue;
++	    }
++
++	  /* Check if FLAGS register is live.  */
++	  note_stores (insn, ix86_check_flags_reg,
++		       &live_caller_saved_regs);
 +
 +	  rtx link;
 +	  for (link = REG_NOTES (insn); link; link = XEXP (link, 1))
@@ -268,6 +272,8 @@ index f0bdc5c1880..b1211ca916a 100644
 +      /* NB: Start over again for conditional jump.  */
 +      if (repeat)
 +	continue;
++
++      gcc_assert (!bitmap_empty_p (live_caller_saved_regs));
 +
 +      /* If any live caller-saved registers aren't dead at the end of
 +	 this basic block, get the basic block which dominates all
@@ -306,7 +312,7 @@ index f0bdc5c1880..b1211ca916a 100644
  {
    basic_block bb = nearest_common_dominator_for_set (CDI_DOMINATORS, bbs);
    while (bb->loop_father->latch
-@@ -3748,17 +3949,6 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+@@ -3748,17 +3954,6 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
      bb = get_immediate_dominator (CDI_DOMINATORS,
  				  bb->loop_father->header);
  
@@ -324,7 +330,7 @@ index f0bdc5c1880..b1211ca916a 100644
    rtx rax = nullptr, rdi;
    rtx eqv = nullptr;
    rtx caddr;
-@@ -3766,7 +3956,6 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+@@ -3766,7 +3961,6 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
    rtx clob;
    rtx symbol;
    rtx tls;
@@ -332,7 +338,7 @@ index f0bdc5c1880..b1211ca916a 100644
  
    switch (kind)
      {
-@@ -3808,94 +3997,13 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
+@@ -3808,94 +4002,13 @@ ix86_place_single_tls_call (rtx dest, rtx val, x86_cse_kind kind,
        gcc_unreachable ();
      }
  
@@ -432,7 +438,7 @@ index f0bdc5c1880..b1211ca916a 100644
  
    rtx_insn *tlsdesc_insn = nullptr;
    if (tlsdesc_set)
-@@ -3936,7 +4044,7 @@ insert_after:
+@@ -3936,7 +4049,7 @@ insert_after:
  	    print_rtl_single (dump_file, tlsdesc_insn);
  	  print_rtl_single (dump_file, tls_insn);
  	  fprintf (dump_file, "\nbefore:\n\n");
@@ -441,7 +447,7 @@ index f0bdc5c1880..b1211ca916a 100644
  	  fprintf (dump_file, "\n");
  	}
      }
-@@ -4213,6 +4321,8 @@ pass_x86_cse::x86_cse (void)
+@@ -4213,6 +4326,8 @@ pass_x86_cse::x86_cse (void)
    basic_block bb;
    rtx_insn *insn;
    unsigned int i;
@@ -450,7 +456,7 @@ index f0bdc5c1880..b1211ca916a 100644
  
    df_set_flags (DF_DEFER_INSN_RESCAN);
  
-@@ -4333,7 +4443,10 @@ pass_x86_cse::x86_cse (void)
+@@ -4333,7 +4448,10 @@ pass_x86_cse::x86_cse (void)
  	  case X86_CSE_TLS_LD_BASE:
  	  case X86_CSE_TLSDESC:
  	    broadcast_reg = gen_reg_rtx (load->mode);
@@ -462,7 +468,7 @@ index f0bdc5c1880..b1211ca916a 100644
  	    load->broadcast_reg = broadcast_reg;
  	    break;
  
-@@ -4399,6 +4512,8 @@ pass_x86_cse::x86_cse (void)
+@@ -4399,6 +4517,8 @@ pass_x86_cse::x86_cse (void)
  					      load->val,
  					      load->kind,
  					      load->bbs,
@@ -471,7 +477,7 @@ index f0bdc5c1880..b1211ca916a 100644
  					      PATTERN (load->def_insn));
  		  break;
  		case X86_CSE_VEC_DUP:
-@@ -4442,7 +4557,9 @@ pass_x86_cse::x86_cse (void)
+@@ -4442,7 +4562,9 @@ pass_x86_cse::x86_cse (void)
  		  ix86_place_single_tls_call (load->broadcast_reg,
  					      load->val,
  					      load->kind,
