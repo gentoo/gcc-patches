@@ -1,5 +1,6 @@
-11	????
+11	20 August 2025
 
+	U 86_all_PR121572_x86-Place-the-TLS-call-before-all-FLAGS_REG-setting-.patch
 	+ 87_all_PR121553-Revert-c-P2036R3-Change-scope-of-lambda-trailing-ret.patch
 
 10	17 August 2025
