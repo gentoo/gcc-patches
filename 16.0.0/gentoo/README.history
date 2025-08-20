@@ -1,6 +1,7 @@
 12	????
 
 	- 86_all_PR121572_x86-Place-the-TLS-call-before-all-FLAGS_REG-setting-.patch
+	+ 88_all_PR121607-TLS-ICE.patch
 
 11	20 August 2025
 

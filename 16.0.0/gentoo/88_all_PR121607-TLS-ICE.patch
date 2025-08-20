@@ -1,0 +1,173 @@
+From e22c8a8cd7aef8938722e0ea6719dd1298d48812 Mon Sep 17 00:00:00 2001
+From: "H.J. Lu" <hjl.tools@gmail.com>
+Date: Wed, 20 Aug 2025 06:59:48 -0700
+Subject: [PATCH] x86-64: Emit the TLS call after NOTE_INSN_BASIC_BLOCK
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+For a basic block with only a label:
+
+(code_label 78 11 77 3 14 (nil) [1 uses])
+(note 77 78 54 3 [bb 3] NOTE_INSN_BASIC_BLOCK)
+
+emit the TLS call after NOTE_INSN_BASIC_BLOCK, instead of before
+NOTE_INSN_BASIC_BLOCK, to avoid
+
+x.c: In function ‘aout_16_write_syms’:
+x.c:54:1: error: NOTE_INSN_BASIC_BLOCK is missing for block 3
+   54 | }
+      | ^
+x.c:54:1: error: NOTE_INSN_BASIC_BLOCK 77 in middle of basic block 3
+during RTL pass: x86_cse
+x.c:54:1: internal compiler error: verify_flow_info failed
+
+gcc/
+
+	PR target/121607
+	* config/i386/i386-features.cc (ix86_emit_tls_call): Emit the
+	TLS call after NOTE_INSN_BASIC_BLOCK in a basic block with only
+	a label.
+
+gcc/testsuite/
+
+	PR target/121607
+	* gcc.target/i386/pr121607-1a.c: New test.
+	* gcc.target/i386/pr121607-1b.c: Likewise.
+
+Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
+---
+ gcc/config/i386/i386-features.cc            | 24 +++++++--
+ gcc/testsuite/gcc.target/i386/pr121607-1a.c | 59 +++++++++++++++++++++
+ gcc/testsuite/gcc.target/i386/pr121607-1b.c |  6 +++
+ 3 files changed, 86 insertions(+), 3 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121607-1a.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121607-1b.c
+
+diff --git a/gcc/config/i386/i386-features.cc b/gcc/config/i386/i386-features.cc
+index 7869ee22b67..514d2a5d378 100644
+--- a/gcc/config/i386/i386-features.cc
++++ b/gcc/config/i386/i386-features.cc
+@@ -3795,7 +3795,18 @@ ix86_emit_tls_call (rtx tls_set, x86_cse_kind kind, basic_block bb,
+       while (insn && !NONDEBUG_INSN_P (insn))
+ 	{
+ 	  if (insn == BB_END (bb))
+-	    break;
++	    {
++	      /* This must be a basic block with only a label:
++
++		 (code_label 78 11 77 3 14 (nil) [1 uses])
++		 (note 77 78 54 3 [bb 3] NOTE_INSN_BASIC_BLOCK)
++
++	       */
++	      gcc_assert (NOTE_P (insn)
++			  && NOTE_KIND (insn) == NOTE_INSN_BASIC_BLOCK);
++	      insn = NULL;
++	      break;
++	    }
+ 	  insn = NEXT_INSN (insn);
+ 	}
+ 
+@@ -3824,14 +3835,21 @@ ix86_emit_tls_call (rtx tls_set, x86_cse_kind kind, basic_block bb,
+ 
+       if (bitmap_empty_p (live_caller_saved_regs))
+ 	{
+-	  if (insn == BB_HEAD (bb) || insn == BB_END (bb))
++	  if (insn == BB_HEAD (bb))
+ 	    {
+ 	      *before_p = insn;
+ 	      tls_insn = emit_insn_before (tls_set, insn);
+ 	    }
+ 	  else
+ 	    {
+-	      insn = PREV_INSN (insn);
++	      /* Emit the TLS call after NOTE_INSN_BASIC_BLOCK in a
++		 basic block with only a label:
++
++		 (code_label 78 11 77 3 14 (nil) [1 uses])
++		 (note 77 78 54 3 [bb 3] NOTE_INSN_BASIC_BLOCK)
++
++	       */
++	      insn = insn ? PREV_INSN (insn) : BB_END (bb);
+ 	      *after_p = insn;
+ 	      tls_insn = emit_insn_after (tls_set, insn);
+ 	    }
+diff --git a/gcc/testsuite/gcc.target/i386/pr121607-1a.c b/gcc/testsuite/gcc.target/i386/pr121607-1a.c
+new file mode 100644
+index 00000000000..4c047068e3a
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121607-1a.c
+@@ -0,0 +1,59 @@
++/* { dg-do compile { target *-*-linux* } } */
++/* { dg-options "-O2 -fpic -fplt -mtls-dialect=gnu -fno-semantic-interposition -fstack-protector" } */
++
++typedef enum
++{
++  bfd_error_invalid_error_code
++} bfd_error_type;
++thread_local bfd_error_type bfd_error;
++int aout_16_write_syms___trans_tmp_1;
++short aout_16_write_syms_g_0_0;
++void xvec_0 (long, void *);
++
++typedef struct
++{
++  int output_section;
++} asection;
++
++void bfd_asymbol_section ();
++
++struct pdp11_external_nlist
++{
++  char e_desc[2];
++  char e_type[1];
++  char e_ovly[10];
++} translate_to_native_sym_flags (struct pdp11_external_nlist *sym_pointer)
++{
++  asection *sec;
++  sym_pointer->e_type[0] &= 5;
++  bfd_asymbol_section ();
++  if (sec == 0)
++    {
++      bfd_error_type error_tag;
++      bfd_error = error_tag;
++    }
++  if (sec->output_section)
++    {
++      bfd_error_type error_tag;
++      bfd_error = error_tag;
++    }
++}
++
++bool
++aout_16_write_syms (void *abfd)
++{
++  for (; aout_16_write_syms___trans_tmp_1;)
++    {
++      struct pdp11_external_nlist nsp;
++      if (abfd)
++        {
++          xvec_0 (aout_16_write_syms_g_0_0, nsp.e_desc);
++          nsp.e_ovly[0] = 0;
++        }
++      else
++        nsp.e_type[0] = 0;
++      translate_to_native_sym_flags (&nsp);
++    }
++}
++
++/* { dg-final { scan-assembler-times "call\[ \t\]__tls_get_addr@PLT" 2 { target { ! ia32 } } } } */
+diff --git a/gcc/testsuite/gcc.target/i386/pr121607-1b.c b/gcc/testsuite/gcc.target/i386/pr121607-1b.c
+new file mode 100644
+index 00000000000..366306702c7
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121607-1b.c
+@@ -0,0 +1,6 @@
++/* { dg-do compile { target *-*-linux* } } */
++/* { dg-options "-O2 -fpic -fplt -mtls-dialect=gnu2 -fno-semantic-interposition -fstack-protector" } */
++
++#include "pr121607-1a.c"
++
++/* { dg-final { scan-assembler-times "call\[ \t\]\\*bfd_error@TLSCALL\\(%(?:r|e)ax\\)" 2 { target { ! ia32 } } } } */
+-- 
+2.50.1
