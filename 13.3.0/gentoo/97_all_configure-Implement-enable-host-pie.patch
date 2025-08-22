@@ -1,0 +1,1464 @@
+From 6a974df8a779c8220a41919d118e3cf72829bcb9 Mon Sep 17 00:00:00 2001
+Message-ID: <6a974df8a779c8220a41919d118e3cf72829bcb9.1755666309.git.sam@gentoo.org>
+From: Marek Polacek <polacek@redhat.com>
+Date: Wed, 3 May 2023 17:06:13 -0400
+Subject: [PATCH 1/2] configure: Implement --enable-host-pie
+
+[ This is my third attempt to add this configure option.  The first
+version was approved but it came too late in the development cycle.
+The second version was also approved, but I had to revert it:
+<https://gcc.gnu.org/pipermail/gcc-patches/2022-November/607082.html>.
+I've fixed the problem (by moving $(PICFLAG) from INTERNAL_CFLAGS to
+ALL_COMPILERFLAGS).  Another change is that since r13-4536 I no longer
+need to touch Makefile.def, so this patch is simplified. ]
+
+This patch implements the --enable-host-pie configure option which
+makes the compiler executables PIE.  This can be used to enhance
+protection against ROP attacks, and can be viewed as part of a wider
+trend to harden binaries.
+
+It is similar to the option --enable-host-shared, except that --e-h-s
+won't add -shared to the linker flags whereas --e-h-p will add -pie.
+It is different from --enable-default-pie because that option just
+adds an implicit -fPIE/-pie when the compiler is invoked, but the
+compiler itself isn't PIE.
+
+Since r12-5768-gfe7c3ecf, PCH works well with PIE, so there are no PCH
+regressions.
+
+When building the compiler, the build process may use various in-tree
+libraries; these need to be built with -fPIE so that it's possible to
+use them when building a PIE.  For instance, when --with-included-gettext
+is in effect, intl object files must be compiled with -fPIE.  Similarly,
+when building in-tree gmp, isl, mpfr and mpc, they must be compiled with
+-fPIE.
+
+With this patch and --enable-host-pie used to configure gcc:
+
+$ file gcc/cc1{,plus,obj,gm2} gcc/f951 gcc/lto1 gcc/cpp gcc/go1 gcc/rust1 gcc/gnat1
+gcc/cc1:     ELF 64-bit LSB pie executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=98e22cde129d304aa6f33e61b1c39e144aeb135e, for GNU/Linux 3.2.0, with debug_info, not stripped
+gcc/cc1plus: ELF 64-bit LSB pie executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=859d1ea37e43dfe50c18fd4e3dd9a34bb1db8f77, for GNU/Linux 3.2.0, with debug_info, not stripped
+gcc/cc1obj:  ELF 64-bit LSB pie executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=1964f8ecee6163182bc26134e2ac1f324816e434, for GNU/Linux 3.2.0, with debug_info, not stripped
+gcc/cc1gm2:  ELF 64-bit LSB pie executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=a396672c7ff913d21855829202e7b02ecf42ff4c, for GNU/Linux 3.2.0, with debug_info, not stripped
+gcc/f951:    ELF 64-bit LSB pie executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=59c523db893186547ac75c7a71f48be0a461c06b, for GNU/Linux 3.2.0, with debug_info, not stripped
+gcc/lto1:    ELF 64-bit LSB pie executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=084a7b77df7be2d63c2d4c655b5bbc3fcdb6038d, for GNU/Linux 3.2.0, with debug_info, not stripped
+gcc/cpp:     ELF 64-bit LSB pie executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=3503bf8390d219a10d6653b8560aa21158132168, for GNU/Linux 3.2.0, with debug_info, not stripped
+gcc/go1:     ELF 64-bit LSB pie executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=988cc673af4fba5dcb482f4b34957b99050a68c5, for GNU/Linux 3.2.0, with debug_info, not stripped
+gcc/rust1:   ELF 64-bit LSB pie executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=b6a5d3d514446c4dcdee0707f086ab9b274a8a3c, for GNU/Linux 3.2.0, with debug_info, not stripped
+gcc/gnat1:   ELF 64-bit LSB pie executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=bb11ccdc2c366fe3fe0980476bcd8ca19b67f9dc, for GNU/Linux 3.2.0, with debug_info, not stripped
+
+I plan to add an option to link with -Wl,-z,now.
+
+Bootstrapped on x86_64-pc-linux-gnu with --with-included-gettext
+--enable-host-pie as well as without --enable-host-pie.  Also tested
+on a Debian system where the system gcc was configured with
+--enable-default-pie.
+
+Co-Authored by: Iain Sandoe  <iain@sandoe.co.uk>
+
+ChangeLog:
+
+	* configure.ac (--enable-host-pie): New check.  Set PICFLAG after this
+	check.
+	* configure: Regenerate.
+
+c++tools/ChangeLog:
+
+	* Makefile.in: Rename PIEFLAG to PICFLAG.  Set LD_PICFLAG.  Use it.
+	Use pic/libiberty.a if PICFLAG is set.
+	* configure.ac (--enable-default-pie): Set PICFLAG instead of PIEFLAG.
+	(--enable-host-pie): New check.
+	* configure: Regenerate.
+
+fixincludes/ChangeLog:
+
+	* Makefile.in: Set and use PICFLAG and LD_PICFLAG.  Use the "pic"
+	build of libiberty if PICFLAG is set.
+	* configure.ac:
+	* configure: Regenerate.
+
+gcc/ChangeLog:
+
+	* Makefile.in: Set LD_PICFLAG.  Use it.  Set enable_host_pie.
+	Remove NO_PIE_CFLAGS and NO_PIE_FLAG.  Pass LD_PICFLAG to
+	ALL_LINKERFLAGS.  Use the "pic" build of libiberty if --enable-host-pie.
+	* configure.ac (--enable-host-shared): Don't set PICFLAG here.
+	(--enable-host-pie): New check.  Set PICFLAG and LD_PICFLAG after this
+	check.
+	* configure: Regenerate.
+	* doc/install.texi: Document --enable-host-pie.
+
+gcc/ada/ChangeLog:
+
+	* gcc-interface/Make-lang.in (ALL_ADAFLAGS): Remove NO_PIE_CFLAGS.  Add
+	PICFLAG.  Use PICFLAG when building ada/b_gnat1.o and ada/b_gnatb.o.
+	* gcc-interface/Makefile.in: Use pic/libiberty.a if PICFLAG is set.
+	Remove NO_PIE_FLAG.
+
+gcc/m2/ChangeLog:
+
+	* Make-lang.in: New var, GM2_PICFLAGS.  Use it.
+
+gcc/d/ChangeLog:
+
+	* Make-lang.in: Remove NO_PIE_CFLAGS.
+
+intl/ChangeLog:
+
+	* Makefile.in: Use @PICFLAG@ in COMPILE as well.
+	* configure.ac (--enable-host-shared): Don't set PICFLAG here.
+	(--enable-host-pie): New check.  Set PICFLAG after this check.
+	* configure: Regenerate.
+
+libcody/ChangeLog:
+
+	* Makefile.in: Pass LD_PICFLAG to LDFLAGS.
+	* configure.ac (--enable-host-shared): Don't set PICFLAG here.
+	(--enable-host-pie): New check.  Set PICFLAG and LD_PICFLAG after this
+	check.
+	* configure: Regenerate.
+
+libcpp/ChangeLog:
+
+	* configure.ac (--enable-host-shared): Don't set PICFLAG here.
+	(--enable-host-pie): New check.  Set PICFLAG after this check.
+	* configure: Regenerate.
+
+libdecnumber/ChangeLog:
+
+	* configure.ac (--enable-host-shared): Don't set PICFLAG here.
+	(--enable-host-pie): New check.  Set PICFLAG after this check.
+	* configure: Regenerate.
+
+libiberty/ChangeLog:
+
+	* configure.ac: Also set shared when enable_host_pie.
+	* configure: Regenerate.
+
+zlib/ChangeLog:
+
+	* configure.ac (--enable-host-shared): Don't set PICFLAG here.
+	(--enable-host-pie): New check.  Set PICFLAG after this check.
+	* configure: Regenerate.
+
+(cherry picked from commit b6cb10af12cf869c1ae348c0e5cb2d364ef0abce)
+---
+ c++tools/Makefile.in               | 11 +++++--
+ c++tools/configure                 | 17 +++++++++--
+ c++tools/configure.ac              | 11 +++++--
+ configure                          | 49 ++++++++++++++++++++++++++++--
+ configure.ac                       | 43 ++++++++++++++++++++++++--
+ fixincludes/Makefile.in            | 12 +++++---
+ fixincludes/configure              | 13 ++++++++
+ fixincludes/configure.ac           |  8 +++++
+ gcc/Makefile.in                    | 32 +++++++++++--------
+ gcc/ada/gcc-interface/Make-lang.in |  7 +++--
+ gcc/ada/gcc-interface/Makefile.in  |  8 +++--
+ gcc/configure                      | 43 ++++++++++++++++++--------
+ gcc/configure.ac                   | 36 ++++++++++++++++------
+ gcc/d/Make-lang.in                 |  2 +-
+ gcc/doc/install.texi               | 16 ++++++++--
+ intl/Makefile.in                   |  2 +-
+ intl/configure                     | 24 +++++++++++++--
+ intl/configure.ac                  | 19 ++++++++++--
+ libcody/Makefile.in                |  2 +-
+ libcody/configure                  | 30 +++++++++++++++++-
+ libcody/configure.ac               | 26 ++++++++++++++--
+ libcpp/configure                   | 22 +++++++++++++-
+ libcpp/configure.ac                | 19 ++++++++++--
+ libdecnumber/configure             | 22 +++++++++++++-
+ libdecnumber/configure.ac          | 19 ++++++++++--
+ libiberty/configure                |  4 +--
+ libiberty/configure.ac             |  4 +--
+ zlib/configure                     | 28 ++++++++++++++---
+ zlib/configure.ac                  | 21 +++++++++++--
+ 29 files changed, 464 insertions(+), 86 deletions(-)
+
+diff --git a/c++tools/Makefile.in b/c++tools/Makefile.in
+index 77bda3d56dc1..dcb1029e064f 100644
+--- a/c++tools/Makefile.in
++++ b/c++tools/Makefile.in
+@@ -29,8 +29,9 @@ AUTOCONF := @AUTOCONF@
+ AUTOHEADER := @AUTOHEADER@
+ CXX := @CXX@
+ CXXFLAGS := @CXXFLAGS@
+-PIEFLAG := @PIEFLAG@
+-CXXOPTS := $(CXXFLAGS) $(PIEFLAG) -fno-exceptions -fno-rtti
++PICFLAG := @PICFLAG@
++LD_PICFLAG := @LD_PICFLAG@
++CXXOPTS := $(CXXFLAGS) $(PICFLAG) -fno-exceptions -fno-rtti
+ LDFLAGS := @LDFLAGS@
+ exeext := @EXEEXT@
+ LIBIBERTY := ../libiberty/libiberty.a
+@@ -90,11 +91,15 @@ ifeq (@CXX_AUX_TOOLS@,yes)
+ 
+ all::g++-mapper-server$(exeext)
+ 
++ifneq ($(PICFLAG),)
++override LIBIBERTY := ../libiberty/pic/libiberty.a
++endif
++
+ MAPPER.O := server.o resolver.o
+ CODYLIB = ../libcody/libcody.a
+ CXXINC += -I$(srcdir)/../libcody -I$(srcdir)/../include -I$(srcdir)/../gcc -I. -I../gcc
+ g++-mapper-server$(exeext): $(MAPPER.O) $(CODYLIB)
+-	+$(CXX) $(LDFLAGS) $(PIEFLAG) -o $@ $^ $(LIBIBERTY) $(NETLIBS)
++	+$(CXX) $(LDFLAGS) $(PICFLAG) $(LD_PICFLAG) -o $@ $^ $(LIBIBERTY) $(NETLIBS)
+ 
+ # copy to gcc dir so tests there can run
+ all::../gcc/g++-mapper-server$(exeext)
+diff --git a/c++tools/configure b/c++tools/configure
+index 742816e42539..880870093839 100755
+--- a/c++tools/configure
++++ b/c++tools/configure
+@@ -627,7 +627,8 @@ get_gcc_base_ver
+ EGREP
+ GREP
+ CXXCPP
+-PIEFLAG
++LD_PICFLAG
++PICFLAG
+ MAINTAINER
+ CXX_AUX_TOOLS
+ AUTOHEADER
+@@ -700,6 +701,7 @@ enable_c___tools
+ enable_maintainer_mode
+ enable_checking
+ enable_default_pie
++enable_host_pie
+ with_gcc_major_version_only
+ '
+       ac_precious_vars='build_alias
+@@ -1333,6 +1335,7 @@ Optional Features:
+                           only specific categories of checks. Categories are:
+                           yes,no,all,none,release.
+   --enable-default-pie    enable Position Independent Executable as default
++  --enable-host-pie       build host code as PIE
+ 
+ Optional Packages:
+   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
+@@ -2990,12 +2993,20 @@ fi
+ # Check whether --enable-default-pie was given.
+ # Check whether --enable-default-pie was given.
+ if test "${enable_default_pie+set}" = set; then :
+-  enableval=$enable_default_pie; PIEFLAG=-fPIE
++  enableval=$enable_default_pie; PICFLAG=-fPIE
+ else
+-  PIEFLAG=
++  PICFLAG=
+ fi
+ 
+ 
++# Enable --enable-host-pie
++# Check whether --enable-host-pie was given.
++if test "${enable_host_pie+set}" = set; then :
++  enableval=$enable_host_pie; PICFLAG=-fPIE; LD_PICFLAG=-pie
++fi
++
++
++
+ 
+ # Check if O_CLOEXEC is defined by fcntl
+ 
+diff --git a/c++tools/configure.ac b/c++tools/configure.ac
+index 23e98c8e7216..44dfaccbbfaf 100644
+--- a/c++tools/configure.ac
++++ b/c++tools/configure.ac
+@@ -102,8 +102,15 @@ fi
+ AC_ARG_ENABLE(default-pie,
+ [AS_HELP_STRING([--enable-default-pie],
+ 		  [enable Position Independent Executable as default])],
+-[PIEFLAG=-fPIE], [PIEFLAG=])
+-AC_SUBST([PIEFLAG])
++[PICFLAG=-fPIE], [PICFLAG=])
++
++# Enable --enable-host-pie
++AC_ARG_ENABLE(host-pie,
++[AS_HELP_STRING([--enable-host-pie],
++		[build host code as PIE])],
++[PICFLAG=-fPIE; LD_PICFLAG=-pie], [])
++AC_SUBST(PICFLAG)
++AC_SUBST(LD_PICFLAG)
+ 
+ # Check if O_CLOEXEC is defined by fcntl
+ AC_CACHE_CHECK(for O_CLOEXEC, ac_cv_o_cloexec, [
+diff --git a/configure b/configure
+index 117a7ef23f22..d57e453e7ac6 100755
+--- a/configure
++++ b/configure
+@@ -687,7 +687,9 @@ extra_host_zlib_configure_flags
+ extra_host_libiberty_configure_flags
+ stage1_languages
+ host_libs_picflag
++PICFLAG
+ host_shared
++host_pie
+ extra_linker_plugin_flags
+ extra_linker_plugin_configure_flags
+ islinc
+@@ -830,6 +832,7 @@ enable_isl_version_check
+ enable_lto
+ enable_linker_plugin_configure_flags
+ enable_linker_plugin_flags
++enable_host_pie
+ enable_host_shared
+ enable_stage1_languages
+ enable_objc_gc
+@@ -1558,6 +1561,7 @@ Optional Features:
+   --enable-linker-plugin-flags=FLAGS
+                           additional flags for configuring and building linker
+                           plugins [none]
++  --enable-host-pie       build position independent host executables
+   --enable-host-shared    build host code as shared libraries
+   --enable-stage1-languages[=all]
+                           choose additional languages to build during stage1.
+@@ -8645,6 +8649,30 @@ fi
+ 
+ 
+ 
++# Enable --enable-host-pie.
++# Checked early to determine whether jit is an 'all' language
++# Check whether --enable-host-pie was given.
++if test "${enable_host_pie+set}" = set; then :
++  enableval=$enable_host_pie; host_pie=$enableval
++ case $host in
++   x86_64-*-darwin* | aarch64-*-darwin*)
++     if test x$host_pie != xyes ; then
++       # PIC is the default, and actually cannot be switched off.
++       echo configure.ac: warning: PIC code is required for the configured target, host-shared setting ignored. 1>&2
++       host_pie=yes
++     fi ;;
++  *) ;;
++ esac
++else
++  case $host in
++  *-*-darwin2*) host_pie=yes ;;
++  *) host_pie=no ;;
++ esac
++fi
++
++
++
++
+ # Enable --enable-host-shared.
+ # Checked early to determine whether jit is an 'all' language
+ # Check whether --enable-host-shared was given.
+@@ -8657,23 +8685,40 @@ if test "${enable_host_shared+set}" = set; then :
+        echo configure.ac: warning: PIC code is required for the configured target, host-shared setting ignored. 1>&2
+        host_shared=yes
+      fi ;;
++   *-*-darwin*)
++     if test x$host_pie == xyes ; then
++       echo configure.ac: warning: PIC code is required for PIE executables. 1>&2
++       host_shared=yes
++     fi ;;
+   *) ;;
+  esac
+ else
+   case $host in
+   x86_64-*-darwin* | aarch64-*-darwin*) host_shared=yes ;;
+-  *) host_shared=no ;;
++  # Darwin needs PIC objects to link PIE executables.
++  *-*-darwin*) host_shared=host_pie ;;
++  *) host_shared=no;;
+  esac
+ fi
+ 
+ 
+ 
+ 
++if test x$host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$host_pie = xyes; then
++  PICFLAG=-fPIE
++else
++  PICFLAG=
++fi
++
++
++
+ # If we are building PIC/PIE host executables, and we are building dependent
+ # libs (e.g. GMP) in-tree those libs need to be configured to generate PIC
+ # code.
+ host_libs_picflag=
+-if test "$host_shared" = "yes";then
++if test "$host_shared" = "yes" -o "$host_pie" = "yes"; then
+ host_libs_picflag='--with-pic'
+ fi
+ 
+diff --git a/configure.ac b/configure.ac
+index b3e9bbd2aa51..77ae7c2dd442 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1891,6 +1891,28 @@ AC_ARG_ENABLE(linker-plugin-flags,
+   extra_linker_plugin_flags=)
+ AC_SUBST(extra_linker_plugin_flags)
+ 
++# Enable --enable-host-pie.
++# Checked early to determine whether jit is an 'all' language
++AC_ARG_ENABLE(host-pie,
++[AS_HELP_STRING([--enable-host-pie],
++		[build position independent host executables])],
++[host_pie=$enableval
++ case $host in
++   x86_64-*-darwin* | aarch64-*-darwin*)
++     if test x$host_pie != xyes ; then
++       # PIC is the default, and actually cannot be switched off.
++       echo configure.ac: warning: PIC code is required for the configured target, host-shared setting ignored. 1>&2
++       host_pie=yes
++     fi ;;
++  *) ;;
++ esac],
++[case $host in
++  *-*-darwin2*) host_pie=yes ;;
++  *) host_pie=no ;;
++ esac])
++
++AC_SUBST(host_pie)
++
+ # Enable --enable-host-shared.
+ # Checked early to determine whether jit is an 'all' language
+ AC_ARG_ENABLE(host-shared,
+@@ -1904,20 +1926,37 @@ AC_ARG_ENABLE(host-shared,
+        echo configure.ac: warning: PIC code is required for the configured target, host-shared setting ignored. 1>&2
+        host_shared=yes
+      fi ;;
++   *-*-darwin*)
++     if test x$host_pie == xyes ; then
++       echo configure.ac: warning: PIC code is required for PIE executables. 1>&2
++       host_shared=yes
++     fi ;;
+   *) ;;
+  esac],
+ [case $host in
+   x86_64-*-darwin* | aarch64-*-darwin*) host_shared=yes ;;
+-  *) host_shared=no ;;
++  # Darwin needs PIC objects to link PIE executables.
++  *-*-darwin*) host_shared=host_pie ;;
++  *) host_shared=no;;
+  esac])
+ 
+ AC_SUBST(host_shared)
+ 
++if test x$host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$host_pie = xyes; then
++  PICFLAG=-fPIE
++else
++  PICFLAG=
++fi
++
++AC_SUBST(PICFLAG)
++
+ # If we are building PIC/PIE host executables, and we are building dependent
+ # libs (e.g. GMP) in-tree those libs need to be configured to generate PIC
+ # code.
+ host_libs_picflag=
+-if test "$host_shared" = "yes";then
++if test "$host_shared" = "yes" -o "$host_pie" = "yes"; then
+ host_libs_picflag='--with-pic'
+ fi
+ AC_SUBST(host_libs_picflag)
+diff --git a/fixincludes/Makefile.in b/fixincludes/Makefile.in
+index 1937dcaa32d5..e6ce41dba39d 100644
+--- a/fixincludes/Makefile.in
++++ b/fixincludes/Makefile.in
+@@ -73,7 +73,7 @@ default : all
+ # Now figure out from those variables how to compile and link.
+ 
+ .c.o:
+-	$(CC) -c $(CFLAGS) $(WARN_CFLAGS) $(CPPFLAGS) $(FIXINC_CFLAGS) $<
++	$(CC) -c $(CFLAGS) $(PICFLAG) $(WARN_CFLAGS) $(CPPFLAGS) $(FIXINC_CFLAGS) $<
+ 
+ # The only suffixes we want for implicit rules are .c and .o.
+ .SUFFIXES:
+@@ -87,7 +87,11 @@ default : all
+ ##
+ ## # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+ 
++ifeq ($(PICFLAG),)
+ LIBIBERTY=../libiberty/libiberty.a
++else
++LIBIBERTY=../libiberty/pic/libiberty.a
++endif
+ 
+ ALLOBJ = fixincl.o fixtests.o fixfixes.o server.o procopen.o \
+       fixlib.o fixopts.o
+@@ -107,15 +111,15 @@ oneprocess : full-stamp
+ twoprocess : test-stamp $(AF)
+ 
+ full-stamp : $(ALLOBJ) $(LIBIBERTY)
+-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(FI) $(ALLOBJ) $(LIBIBERTY)
++	$(CC) $(CFLAGS) $(PICFLAG) $(LDFLAGS) $(LD_PICFLAG) -o $(FI) $(ALLOBJ) $(LIBIBERTY)
+ 	$(STAMP) $@
+ 
+ test-stamp : $(TESTOBJ) $(LIBIBERTY)
+-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(FI) $(TESTOBJ) $(LIBIBERTY)
++	$(CC) $(CFLAGS) $(PICFLAG) $(LDFLAGS) $(LD_PICFLAG) -o $(FI) $(TESTOBJ) $(LIBIBERTY)
+ 	$(STAMP) $@
+ 
+ $(AF): $(FIXOBJ) $(LIBIBERTY)
+-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(FIXOBJ) $(LIBIBERTY)
++	$(CC) $(CFLAGS) $(PICFLAG) $(LDFLAGS) $(LD_PICFLAG) -o $@ $(FIXOBJ) $(LIBIBERTY)
+ 
+ $(ALLOBJ)   : $(HDR)
+ fixincl.o   : fixincl.c  $(srcdir)/fixincl.x
+diff --git a/fixincludes/configure b/fixincludes/configure
+index bdcc41f6ddc8..f1748ebef746 100755
+--- a/fixincludes/configure
++++ b/fixincludes/configure
+@@ -623,6 +623,8 @@ ac_subst_vars='LTLIBOBJS
+ LIBOBJS
+ get_gcc_base_ver
+ MAINT
++LD_PICFLAG
++PICFLAG
+ TARGET
+ target_noncanonical
+ WERROR
+@@ -695,6 +697,7 @@ enable_option_checking
+ enable_werror_always
+ with_local_prefix
+ enable_twoprocess
++enable_host_pie
+ enable_maintainer_mode
+ with_gcc_major_version_only
+ '
+@@ -1323,6 +1326,7 @@ Optional Features:
+   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
+   --enable-werror-always  enable -Werror despite compiler version
+   --enable-twoprocess       Use a separate process to apply the fixes
++  --enable-host-pie       build host code as PIE
+   --enable-maintainer-mode enable make rules and dependencies not useful
+                           (and sometimes confusing) to the casual installer
+ 
+@@ -4835,6 +4839,15 @@ $as_echo "#define SEPARATE_FIX_PROC 1" >>confdefs.h
+ 
+ fi
+ 
++# Enable --enable-host-pie.
++# Check whether --enable-host-pie was given.
++if test "${enable_host_pie+set}" = set; then :
++  enableval=$enable_host_pie; PICFLAG=-fPIE; LD_PICFLAG=-pie
++fi
++
++
++
++
+ case $host in
+ 	vax-dec-bsd* )
+ 
+diff --git a/fixincludes/configure.ac b/fixincludes/configure.ac
+index ef2227e3c938..4e78511d20fc 100644
+--- a/fixincludes/configure.ac
++++ b/fixincludes/configure.ac
+@@ -68,6 +68,14 @@ if test $TARGET = twoprocess; then
+ 		  [Define if testing and fixing are done by separate process])
+ fi
+ 
++# Enable --enable-host-pie.
++AC_ARG_ENABLE(host-pie,
++[AS_HELP_STRING([--enable-host-pie],
++       [build host code as PIE])],
++[PICFLAG=-fPIE; LD_PICFLAG=-pie], [])
++AC_SUBST(PICFLAG)
++AC_SUBST(LD_PICFLAG)
++
+ case $host in
+ 	vax-dec-bsd* )
+ 		AC_DEFINE(exit, xexit, [Define to xexit if the host system does not support atexit])
+diff --git a/gcc/Makefile.in b/gcc/Makefile.in
+index 1d9e10127ca5..03eed9708371 100644
+--- a/gcc/Makefile.in
++++ b/gcc/Makefile.in
+@@ -158,6 +158,9 @@ LDFLAGS = @LDFLAGS@
+ # Should we build position-independent host code?
+ PICFLAG = @PICFLAG@
+ 
++# The linker flag for the above.
++LD_PICFLAG = @LD_PICFLAG@
++
+ # Flags to determine code coverage. When coverage is disabled, this will
+ # contain the optimization flags, as you normally want code coverage
+ # without optimization.
+@@ -266,19 +269,19 @@ LINKER = $(CC)
+ LINKER_FLAGS = $(CFLAGS)
+ endif
+ 
++enable_host_pie = @enable_host_pie@
++
+ # Enable Intel CET on Intel CET enabled host if needed.
+ CET_HOST_FLAGS = @CET_HOST_FLAGS@
+ COMPILER += $(CET_HOST_FLAGS)
+ 
+-NO_PIE_CFLAGS = @NO_PIE_CFLAGS@
+-NO_PIE_FLAG = @NO_PIE_FLAG@
+ DO_LINK_MUTEX = @DO_LINK_MUTEX@
+ 
+-# We don't want to compile the compilers with -fPIE, it make PCH fail.
+-COMPILER += $(NO_PIE_CFLAGS)
++# Maybe compile the compilers with -fPIE or -fPIC.
++COMPILER += $(PICFLAG)
+ 
+-# Link with -no-pie since we compile the compiler with -fno-PIE.
+-LINKER += $(NO_PIE_FLAG)
++# Link with -pie, or -no-pie, depending on the above.
++LINKER += $(LD_PICFLAG)
+ 
+ # Like LINKER, but use a mutex for serializing front end links.
+ ifeq (@DO_LINK_MUTEX@,true)
+@@ -1050,7 +1053,7 @@ RTL_SSA_H = $(PRETTY_PRINT_H) insn-config.h splay-tree-utils.h \
+ # programs built during a bootstrap.
+ # autoconf inserts -DCROSS_DIRECTORY_STRUCTURE if we are building a
+ # cross compiler which does not use the native headers and libraries.
+-INTERNAL_CFLAGS = -DIN_GCC $(PICFLAG) @CROSS@
++INTERNAL_CFLAGS = -DIN_GCC @CROSS@
+ 
+ # This is the variable actually used when we compile. If you change this,
+ # you probably want to update BUILD_CFLAGS in configure.ac
+@@ -1068,21 +1071,24 @@ ALL_CXXFLAGS = $(T_CFLAGS) $(CFLAGS-$@) $(CXXFLAGS) $(INTERNAL_CFLAGS) \
+ ALL_CPPFLAGS = $(INCLUDES) $(CPPFLAGS)
+ 
+ # This is the variable to use when using $(COMPILER).
+-ALL_COMPILERFLAGS = $(ALL_CXXFLAGS)
++ALL_COMPILERFLAGS = $(ALL_CXXFLAGS) $(PICFLAG)
+ 
+ # This is the variable to use when using $(LINKER).
+-ALL_LINKERFLAGS = $(ALL_CXXFLAGS)
++ALL_LINKERFLAGS = $(ALL_CXXFLAGS) $(LD_PICFLAG)
+ 
+ # Build and host support libraries.
+ 
+-# Use the "pic" build of libiberty if --enable-host-shared, unless we are
+-# building for mingw.
++# Use the "pic" build of libiberty if --enable-host-shared or --enable-host-pie,
++# unless we are building for mingw.
+ LIBIBERTY_PICDIR=$(if $(findstring mingw,$(target)),,pic)
+-ifeq ($(enable_host_shared),yes)
++ifneq ($(enable_host_shared)$(enable_host_pie),)
+ LIBIBERTY = ../libiberty/$(LIBIBERTY_PICDIR)/libiberty.a
+-BUILD_LIBIBERTY = $(build_libobjdir)/libiberty/$(LIBIBERTY_PICDIR)/libiberty.a
+ else
+ LIBIBERTY = ../libiberty/libiberty.a
++endif
++ifeq ($(enable_host_shared),yes)
++BUILD_LIBIBERTY = $(build_libobjdir)/libiberty/$(LIBIBERTY_PICDIR)/libiberty.a
++else
+ BUILD_LIBIBERTY = $(build_libobjdir)/libiberty/libiberty.a
+ endif
+ 
+diff --git a/gcc/ada/gcc-interface/Make-lang.in b/gcc/ada/gcc-interface/Make-lang.in
+index 9507f2f09203..2b9b0de8273c 100644
+--- a/gcc/ada/gcc-interface/Make-lang.in
++++ b/gcc/ada/gcc-interface/Make-lang.in
+@@ -72,7 +72,8 @@ else
+ endif
+ 
+ ALL_ADAFLAGS = \
+-  $(CFLAGS) $(ADA_CFLAGS) $(ADAFLAGS) $(CHECKING_ADAFLAGS) $(WARN_ADAFLAGS)
++  $(CFLAGS) $(ADA_CFLAGS) $(ADAFLAGS) $(CHECKING_ADAFLAGS) \
++  $(WARN_ADAFLAGS) $(PICFLAG)
+ FORCE_DEBUG_ADAFLAGS = -g
+ ADA_CFLAGS =
+ COMMON_ADA_INCLUDES = -I- -I. -Iada/generated -Iada -I$(srcdir)/ada
+@@ -1109,7 +1110,7 @@ ada/b_gnat1.adb : $(GNAT1_ADA_OBJS)
+ ada/b_gnat1.o : ada/b_gnat1.adb
+         # Do not use ADAFLAGS to get rid of -gnatg which generates a lot
+         # of style messages.
+-	$(CC) -c $(CFLAGS) $(ADA_CFLAGS) -gnatp -gnatws $(ADA_INCLUDES) \
++	$(CC) -c $(CFLAGS) $(ADA_CFLAGS) $(PICFLAG) -gnatp -gnatws $(ADA_INCLUDES) \
+ 	    $< $(ADA_OUTPUT_OPTION)
+ 
+ ada/b_gnatb.adb : $(GNATBIND_OBJS) ada/gnatbind.o
+@@ -1118,7 +1119,7 @@ ada/b_gnatb.adb : $(GNATBIND_OBJS) ada/gnatbind.o
+ 	$(MV) b_gnatb.adb b_gnatb.ads ada/
+ 
+ ada/b_gnatb.o : ada/b_gnatb.adb
+-	$(CC) -c $(CFLAGS) $(ADA_CFLAGS) -gnatp -gnatws $(ADA_INCLUDES) \
++	$(CC) -c $(CFLAGS) $(ADA_CFLAGS) $(PICFLAG) -gnatp -gnatws $(ADA_INCLUDES) \
+ 	    $< $(ADA_OUTPUT_OPTION)
+ 
+ include $(srcdir)/ada/Make-generated.in
+diff --git a/gcc/ada/gcc-interface/Makefile.in b/gcc/ada/gcc-interface/Makefile.in
+index da6a56fcec81..dc0e54f8eb63 100644
+--- a/gcc/ada/gcc-interface/Makefile.in
++++ b/gcc/ada/gcc-interface/Makefile.in
+@@ -91,6 +91,7 @@ LS = ls
+ RANLIB = @RANLIB@
+ RANLIB_FLAGS = @ranlib_flags@
+ AWK = @AWK@
++PICFLAG = @PICFLAG@
+ 
+ COMPILER = $(CC)
+ COMPILER_FLAGS = $(CFLAGS)
+@@ -239,7 +240,11 @@ ALL_CPPFLAGS = $(CPPFLAGS)
+ ALL_COMPILERFLAGS = $(ALL_CFLAGS)
+ 
+ # This is where we get libiberty.a from.
++ifeq ($(PICFLAG),)
+ LIBIBERTY = ../../libiberty/libiberty.a
++else
++LIBIBERTY = ../../libiberty/pic/libiberty.a
++endif
+ 
+ # We need to link against libbacktrace because diagnostic.c in
+ # libcommon.a uses it.
+@@ -256,9 +261,6 @@ TOOLS_LIBS = ../version.o ../link.o ../targext.o ../../ggc-none.o \
+   $(LIBGNAT) $(LIBINTL) $(LIBICONV) ../$(LIBBACKTRACE) ../$(LIBIBERTY) \
+   $(SYSLIBS) $(TGT_LIB)
+ 
+-# Add -no-pie to TOOLS_LIBS since some of them are compiled with -fno-PIE.
+-TOOLS_LIBS += @NO_PIE_FLAG@
+-
+ # Specify the directories to be searched for header files.
+ # Both . and srcdir are used, in that order,
+ # so that tm.h and config.h will be found in the compilation
+diff --git a/gcc/configure b/gcc/configure
+index 6cb58cd6ec60..4d0a6833cb46 100755
+--- a/gcc/configure
++++ b/gcc/configure
+@@ -632,10 +632,10 @@ ac_includes_default="\
+ ac_subst_vars='LTLIBOBJS
+ LIBOBJS
+ CET_HOST_FLAGS
+-NO_PIE_FLAG
+-NO_PIE_CFLAGS
+-enable_default_pie
++LD_PICFLAG
+ PICFLAG
++enable_default_pie
++enable_host_pie
+ enable_host_shared
+ enable_plugin
+ pluginlibs
+@@ -1029,6 +1029,7 @@ enable_link_serialization
+ enable_version_specific_runtime_libs
+ enable_plugin
+ enable_host_shared
++enable_host_pie
+ enable_libquadmath_support
+ with_linker_hash_style
+ with_diagnostics_color
+@@ -1796,6 +1797,7 @@ Optional Features:
+                           in a compiler-specific directory
+   --enable-plugin         enable plugin support
+   --enable-host-shared    build host code as shared libraries
++  --enable-host-pie       build host code as PIE
+   --disable-libquadmath-support
+                           disable libquadmath support for Fortran
+   --enable-default-pie    enable Position Independent Executable as default
+@@ -32305,13 +32307,17 @@ fi
+ # Enable --enable-host-shared
+ # Check whether --enable-host-shared was given.
+ if test "${enable_host_shared+set}" = set; then :
+-  enableval=$enable_host_shared; PICFLAG=-fPIC
+-else
+-  PICFLAG=
++  enableval=$enable_host_shared;
+ fi
+ 
+ 
+ 
++# Enable --enable-host-pie
++# Check whether --enable-host-pie was given.
++if test "${enable_host_pie+set}" = set; then :
++  enableval=$enable_host_pie;
++fi
++
+ 
+ 
+ # Check whether --enable-libquadmath-support was given.
+@@ -32465,10 +32471,6 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+ fi
+ { $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_cv_c_no_fpie" >&5
+ $as_echo "$gcc_cv_c_no_fpie" >&6; }
+-if test "$gcc_cv_c_no_fpie" = "yes"; then
+-  NO_PIE_CFLAGS="-fno-PIE"
+-fi
+-
+ 
+ # Check if -no-pie works.
+ { $as_echo "$as_me:${as_lineno-$LINENO}: checking for -no-pie option" >&5
+@@ -32493,11 +32495,28 @@ rm -f core conftest.err conftest.$ac_objext \
+ fi
+ { $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_cv_no_pie" >&5
+ $as_echo "$gcc_cv_no_pie" >&6; }
+-if test "$gcc_cv_no_pie" = "yes"; then
+-  NO_PIE_FLAG="-no-pie"
++
++if test x$enable_host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$enable_host_pie = xyes; then
++  PICFLAG=-fPIE
++elif test x$gcc_cv_c_no_fpie = xyes; then
++  PICFLAG=-fno-PIE
++else
++  PICFLAG=
++fi
++
++if test x$enable_host_pie = xyes; then
++  LD_PICFLAG=-pie
++elif test x$gcc_cv_no_pie = xyes; then
++  LD_PICFLAG=-no-pie
++else
++  LD_PICFLAG=
+ fi
+ 
+ 
++
++
+ # Enable Intel CET on Intel CET enabled host if jit is enabled.
+  # Check whether --enable-cet was given.
+ if test "${enable_cet+set}" = set; then :
+diff --git a/gcc/configure.ac b/gcc/configure.ac
+index 8382b4e7b3fe..aaa371746ef5 100644
+--- a/gcc/configure.ac
++++ b/gcc/configure.ac
+@@ -7507,11 +7507,14 @@ fi
+ # Enable --enable-host-shared
+ AC_ARG_ENABLE(host-shared,
+ [AS_HELP_STRING([--enable-host-shared],
+-		[build host code as shared libraries])],
+-[PICFLAG=-fPIC], [PICFLAG=])
++		[build host code as shared libraries])])
+ AC_SUBST(enable_host_shared)
+-AC_SUBST(PICFLAG)
+ 
++# Enable --enable-host-pie
++AC_ARG_ENABLE(host-pie,
++[AS_HELP_STRING([--enable-host-pie],
++		[build host code as PIE])])
++AC_SUBST(enable_host_pie)
+ 
+ AC_ARG_ENABLE(libquadmath-support,
+ [AS_HELP_STRING([--disable-libquadmath-support],
+@@ -7633,10 +7636,6 @@ AC_CACHE_CHECK([for -fno-PIE option],
+      [gcc_cv_c_no_fpie=yes],
+      [gcc_cv_c_no_fpie=no])
+    CXXFLAGS="$saved_CXXFLAGS"])
+-if test "$gcc_cv_c_no_fpie" = "yes"; then
+-  NO_PIE_CFLAGS="-fno-PIE"
+-fi
+-AC_SUBST([NO_PIE_CFLAGS])
+ 
+ # Check if -no-pie works.
+ AC_CACHE_CHECK([for -no-pie option],
+@@ -7647,10 +7646,27 @@ AC_CACHE_CHECK([for -no-pie option],
+      [gcc_cv_no_pie=yes],
+      [gcc_cv_no_pie=no])
+    LDFLAGS="$saved_LDFLAGS"])
+-if test "$gcc_cv_no_pie" = "yes"; then
+-  NO_PIE_FLAG="-no-pie"
++
++if test x$enable_host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$enable_host_pie = xyes; then
++  PICFLAG=-fPIE
++elif test x$gcc_cv_c_no_fpie = xyes; then
++  PICFLAG=-fno-PIE
++else
++  PICFLAG=
+ fi
+-AC_SUBST([NO_PIE_FLAG])
++
++if test x$enable_host_pie = xyes; then
++  LD_PICFLAG=-pie
++elif test x$gcc_cv_no_pie = xyes; then
++  LD_PICFLAG=-no-pie
++else
++  LD_PICFLAG=
++fi
++
++AC_SUBST([PICFLAG])
++AC_SUBST([LD_PICFLAG])
+ 
+ # Enable Intel CET on Intel CET enabled host if jit is enabled.
+ GCC_CET_HOST_FLAGS(CET_HOST_FLAGS)
+diff --git a/gcc/d/Make-lang.in b/gcc/d/Make-lang.in
+index f8885bbcfe3c..a8beb432b7ad 100644
+--- a/gcc/d/Make-lang.in
++++ b/gcc/d/Make-lang.in
+@@ -64,7 +64,7 @@ ALL_DFLAGS = $(DFLAGS-$@) $(GDCFLAGS) -fversion=IN_GCC $(CHECKING_DFLAGS) \
+ 	$(PICFLAG) $(ALIASING_FLAGS) $(NOEXCEPTION_DFLAGS) $(COVERAGE_FLAGS) \
+ 	$(WARN_DFLAGS)
+ 
+-DCOMPILE.base = $(GDC) $(NO_PIE_CFLAGS) -c $(ALL_DFLAGS) -o $@
++DCOMPILE.base = $(GDC) -c $(ALL_DFLAGS) -o $@
+ DCOMPILE = $(DCOMPILE.base) -MT $@ -MMD -MP -MF $(@D)/$(DEPDIR)/$(basename $(@F)).TPo
+ DPOSTCOMPILE = @mv $(@D)/$(DEPDIR)/$(basename $(@F)).TPo $(@D)/$(DEPDIR)/$(basename $(@F)).Po
+ DLINKER = $(GDC) $(NO_PIE_FLAG) -lstdc++
+diff --git a/gcc/doc/install.texi b/gcc/doc/install.texi
+index b30d3691fe6f..93d5236f7b3c 100644
+--- a/gcc/doc/install.texi
++++ b/gcc/doc/install.texi
+@@ -1075,14 +1075,26 @@ code.
+ 
+ @item --enable-host-shared
+ Specify that the @emph{host} code should be built into position-independent
+-machine code (with -fPIC), allowing it to be used within shared libraries,
+-but yielding a slightly slower compiler.
++machine code (with @option{-fPIC}), allowing it to be used within shared
++libraries, but yielding a slightly slower compiler.
+ 
+ This option is required when building the libgccjit.so library.
+ 
+ Contrast with @option{--enable-shared}, which affects @emph{target}
+ libraries.
+ 
++@item --enable-host-pie
++Specify that the @emph{host} executables should be built into
++position-independent executables (with @option{-fPIE} and @option{-pie}),
++yielding a slightly slower compiler (but faster than
++@option{--enable-host-shared}).  Position-independent executables are loaded
++at random addresses each time they are executed, therefore provide additional
++protection against Return Oriented Programming (ROP) attacks.
++
++@option{--enable-host-pie}) may be used with @option{--enable-host-shared}),
++in which case @option{-fPIC} is used when compiling, and @option{-pie} when
++linking.
++
+ @item @anchor{with-gnu-as}--with-gnu-as
+ Specify that the compiler should assume that the
+ assembler it finds is the GNU assembler.  However, this does not modify
+diff --git a/intl/Makefile.in b/intl/Makefile.in
+index 409d693c48e8..5beebdc152c5 100644
+--- a/intl/Makefile.in
++++ b/intl/Makefile.in
+@@ -54,7 +54,7 @@ CTAGS = @CTAGS@
+ ETAGS = @ETAGS@
+ MKID = @MKID@
+ 
+-COMPILE = $(CC) -c $(CPPFLAGS) $(CFLAGS) $(DEFS) $(DEFS-$@) $(INCLUDES)
++COMPILE = $(CC) -c $(CPPFLAGS) $(CFLAGS) @PICFLAG@ $(DEFS) $(DEFS-$@) $(INCLUDES)
+ 
+ HEADERS = \
+   gmo.h \
+diff --git a/intl/configure b/intl/configure
+index 03f40487a92b..79bb5831a47c 100755
+--- a/intl/configure
++++ b/intl/configure
+@@ -623,6 +623,8 @@ ac_header_list=
+ ac_subst_vars='LTLIBOBJS
+ LIBOBJS
+ PICFLAG
++enable_host_pie
++enable_host_shared
+ BISON3_NO
+ BISON3_YES
+ INCINTL
+@@ -731,6 +733,7 @@ with_libintl_prefix
+ with_libintl_type
+ enable_maintainer_mode
+ enable_host_shared
++enable_host_pie
+ '
+       ac_precious_vars='build_alias
+ host_alias
+@@ -1356,6 +1359,7 @@ Optional Features:
+   --disable-rpath         do not hardcode runtime library paths
+   --enable-maintainer-mode enable rules only needed by maintainers
+   --enable-host-shared    build host code as shared libraries
++  --enable-host-pie       build host code as PIE
+ 
+ Optional Packages:
+   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
+@@ -6852,15 +6856,31 @@ fi
+ 
+ 
+ 
++# Enable --enable-host-shared.
+ # Check whether --enable-host-shared was given.
+ if test "${enable_host_shared+set}" = set; then :
+-  enableval=$enable_host_shared; PICFLAG=-fPIC
++  enableval=$enable_host_shared;
++fi
++
++
++
++# Enable --enable-host-pie.
++# Check whether --enable-host-pie was given.
++if test "${enable_host_pie+set}" = set; then :
++  enableval=$enable_host_pie;
++fi
++
++
++
++if test x$enable_host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$enable_host_pie = xyes; then
++  PICFLAG=-fPIE
+ else
+   PICFLAG=
+ fi
+ 
+ 
+-
+ ac_config_files="$ac_config_files Makefile config.intl"
+ 
+ cat >confcache <<\_ACEOF
+diff --git a/intl/configure.ac b/intl/configure.ac
+index 16a740aa230a..81aa831f59fd 100644
+--- a/intl/configure.ac
++++ b/intl/configure.ac
+@@ -83,10 +83,25 @@ fi
+ AC_SUBST(BISON3_YES)
+ AC_SUBST(BISON3_NO)
+ 
++# Enable --enable-host-shared.
+ AC_ARG_ENABLE(host-shared,
+ [AS_HELP_STRING([--enable-host-shared],
+-		[build host code as shared libraries])],
+-[PICFLAG=-fPIC], [PICFLAG=])
++       [build host code as shared libraries])])
++AC_SUBST(enable_host_shared)
++
++# Enable --enable-host-pie.
++AC_ARG_ENABLE(host-pie,
++[AS_HELP_STRING([--enable-host-pie],
++       [build host code as PIE])])
++AC_SUBST(enable_host_pie)
++
++if test x$enable_host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$enable_host_pie = xyes; then
++  PICFLAG=-fPIE
++else
++  PICFLAG=
++fi
+ AC_SUBST(PICFLAG)
+ 
+ AC_CONFIG_FILES(Makefile config.intl)
+diff --git a/libcody/Makefile.in b/libcody/Makefile.in
+index bb87468cb9a3..cb01b0092d8e 100644
+--- a/libcody/Makefile.in
++++ b/libcody/Makefile.in
+@@ -31,7 +31,7 @@ endif
+ CXXOPTS += $(filter-out -DHAVE_CONFIG_H,@DEFS@) -include config.h
+ 
+ # Linker options
+-LDFLAGS := @LDFLAGS@
++LDFLAGS := @LDFLAGS@ @LD_PICFLAG@
+ LIBS := @LIBS@
+ 
+ # Per-source & per-directory compile flags (warning: recursive)
+diff --git a/libcody/configure b/libcody/configure
+index da52a5cfca5e..0e536c0ccb06 100755
+--- a/libcody/configure
++++ b/libcody/configure
+@@ -591,7 +591,10 @@ configure_args
+ AR
+ RANLIB
+ EXCEPTIONS
++LD_PICFLAG
+ PICFLAG
++enable_host_pie
++enable_host_shared
+ OBJEXT
+ EXEEXT
+ ac_ct_CXX
+@@ -653,6 +656,7 @@ enable_maintainer_mode
+ with_compiler
+ enable_checking
+ enable_host_shared
++enable_host_pie
+ enable_exceptions
+ '
+       ac_precious_vars='build_alias
+@@ -1286,6 +1290,7 @@ Optional Features:
+                           yes,no,all,none,release. Flags are: misc,valgrind or
+                           other strings
+   --enable-host-shared    build host code as shared libraries
++  --enable-host-pie       build host code as PIE
+   --enable-exceptions     enable exceptions & rtti
+ 
+ Optional Packages:
+@@ -2635,11 +2640,34 @@ fi
+ # Enable --enable-host-shared.
+ # Check whether --enable-host-shared was given.
+ if test "${enable_host_shared+set}" = set; then :
+-  enableval=$enable_host_shared; PICFLAG=-fPIC
++  enableval=$enable_host_shared;
++fi
++
++
++
++# Enable --enable-host-pie.
++# Check whether --enable-host-pie was given.
++if test "${enable_host_pie+set}" = set; then :
++  enableval=$enable_host_pie;
++fi
++
++
++
++if test x$enable_host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$enable_host_pie = xyes; then
++  PICFLAG=-fPIE
+ else
+   PICFLAG=
+ fi
+ 
++if test x$enable_host_pie = xyes; then
++  LD_PICFLAG=-pie
++else
++  LD_PICFLAG=
++fi
++
++
+ 
+ 
+ # Check whether --enable-exceptions was given.
+diff --git a/libcody/configure.ac b/libcody/configure.ac
+index 960191ecb72c..14e8dd4a2260 100644
+--- a/libcody/configure.ac
++++ b/libcody/configure.ac
+@@ -63,9 +63,31 @@ fi
+ # Enable --enable-host-shared.
+ AC_ARG_ENABLE(host-shared,
+ [AS_HELP_STRING([--enable-host-shared],
+-		[build host code as shared libraries])],
+-[PICFLAG=-fPIC], [PICFLAG=])
++		[build host code as shared libraries])])
++AC_SUBST(enable_host_shared)
++
++# Enable --enable-host-pie.
++AC_ARG_ENABLE(host-pie,
++[AS_HELP_STRING([--enable-host-pie],
++		[build host code as PIE])])
++AC_SUBST(enable_host_pie)
++
++if test x$enable_host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$enable_host_pie = xyes; then
++  PICFLAG=-fPIE
++else
++  PICFLAG=
++fi
++
++if test x$enable_host_pie = xyes; then
++  LD_PICFLAG=-pie
++else
++  LD_PICFLAG=
++fi
++
+ AC_SUBST(PICFLAG)
++AC_SUBST(LD_PICFLAG)
+ 
+ NMS_ENABLE_EXCEPTIONS
+ 
+diff --git a/libcpp/configure b/libcpp/configure
+index e9937cde3303..1389ddab5440 100755
+--- a/libcpp/configure
++++ b/libcpp/configure
+@@ -625,6 +625,8 @@ ac_includes_default="\
+ ac_subst_vars='LTLIBOBJS
+ CET_HOST_FLAGS
+ PICFLAG
++enable_host_pie
++enable_host_shared
+ MAINT
+ USED_CATALOGS
+ PACKAGE
+@@ -738,6 +740,7 @@ enable_maintainer_mode
+ enable_checking
+ enable_canonical_system_headers
+ enable_host_shared
++enable_host_pie
+ enable_cet
+ enable_valgrind_annotations
+ '
+@@ -1379,6 +1382,7 @@ Optional Features:
+   --enable-canonical-system-headers
+                           enable or disable system headers canonicalization
+   --enable-host-shared    build host code as shared libraries
++  --enable-host-pie       build host code as PIE
+   --enable-cet            enable Intel CET in host libraries [default=auto]
+   --enable-valgrind-annotations
+                           enable valgrind runtime interaction
+@@ -7605,7 +7609,23 @@ esac
+ # Enable --enable-host-shared.
+ # Check whether --enable-host-shared was given.
+ if test "${enable_host_shared+set}" = set; then :
+-  enableval=$enable_host_shared; PICFLAG=-fPIC
++  enableval=$enable_host_shared;
++fi
++
++
++
++# Enable --enable-host-pie.
++# Check whether --enable-host-pie was given.
++if test "${enable_host_pie+set}" = set; then :
++  enableval=$enable_host_pie;
++fi
++
++
++
++if test x$enable_host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$enable_host_pie = xyes; then
++  PICFLAG=-fPIE
+ else
+   PICFLAG=
+ fi
+diff --git a/libcpp/configure.ac b/libcpp/configure.ac
+index 89ac99b04bdb..b29b4d6acf1f 100644
+--- a/libcpp/configure.ac
++++ b/libcpp/configure.ac
+@@ -211,8 +211,23 @@ esac
+ # Enable --enable-host-shared.
+ AC_ARG_ENABLE(host-shared,
+ [AS_HELP_STRING([--enable-host-shared],
+-		[build host code as shared libraries])],
+-[PICFLAG=-fPIC], [PICFLAG=])
++		[build host code as shared libraries])])
++AC_SUBST(enable_host_shared)
++
++# Enable --enable-host-pie.
++AC_ARG_ENABLE(host-pie,
++[AS_HELP_STRING([--enable-host-pie],
++		[build host code as PIE])])
++AC_SUBST(enable_host_pie)
++
++if test x$enable_host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$enable_host_pie = xyes; then
++  PICFLAG=-fPIE
++else
++  PICFLAG=
++fi
++
+ AC_SUBST(PICFLAG)
+ 
+ # Enable Intel CET on Intel CET enabled host if jit is enabled.
+diff --git a/libdecnumber/configure b/libdecnumber/configure
+index fb6db05565a0..84bc4ffc7673 100755
+--- a/libdecnumber/configure
++++ b/libdecnumber/configure
+@@ -626,6 +626,8 @@ ac_subst_vars='LTLIBOBJS
+ LIBOBJS
+ CET_HOST_FLAGS
+ PICFLAG
++enable_host_pie
++enable_host_shared
+ ADDITIONAL_OBJS
+ enable_decimal_float
+ target_os
+@@ -706,6 +708,7 @@ enable_werror_always
+ enable_maintainer_mode
+ enable_decimal_float
+ enable_host_shared
++enable_host_pie
+ enable_cet
+ '
+       ac_precious_vars='build_alias
+@@ -1338,6 +1341,7 @@ Optional Features:
+ 			or 'dpd' choses which decimal floating point format
+ 			to use
+   --enable-host-shared    build host code as shared libraries
++  --enable-host-pie       build host code as PIE
+   --enable-cet            enable Intel CET in host libraries [default=auto]
+ 
+ Some influential environment variables:
+@@ -5186,7 +5190,23 @@ $as_echo "#define AC_APPLE_UNIVERSAL_BUILD 1" >>confdefs.h
+ # Enable --enable-host-shared.
+ # Check whether --enable-host-shared was given.
+ if test "${enable_host_shared+set}" = set; then :
+-  enableval=$enable_host_shared; PICFLAG=-fPIC
++  enableval=$enable_host_shared;
++fi
++
++
++
++# Enable --enable-host-pie.
++# Check whether --enable-host-pie was given.
++if test "${enable_host_pie+set}" = set; then :
++  enableval=$enable_host_pie;
++fi
++
++
++
++if test x$enable_host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$enable_host_pie = xyes; then
++  PICFLAG=-fPIE
+ else
+   PICFLAG=
+ fi
+diff --git a/libdecnumber/configure.ac b/libdecnumber/configure.ac
+index aafd06f8a64e..30a51ca410b6 100644
+--- a/libdecnumber/configure.ac
++++ b/libdecnumber/configure.ac
+@@ -100,8 +100,23 @@ AC_C_BIGENDIAN
+ # Enable --enable-host-shared.
+ AC_ARG_ENABLE(host-shared,
+ [AS_HELP_STRING([--enable-host-shared],
+-		[build host code as shared libraries])],
+-[PICFLAG=-fPIC], [PICFLAG=])
++		[build host code as shared libraries])])
++AC_SUBST(enable_host_shared)
++
++# Enable --enable-host-pie.
++AC_ARG_ENABLE(host-pie,
++[AS_HELP_STRING([--enable-host-pie],
++		[build host code as PIE])])
++AC_SUBST(enable_host_pie)
++
++if test x$enable_host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$enable_host_pie = xyes; then
++  PICFLAG=-fPIE
++else
++  PICFLAG=
++fi
++
+ AC_SUBST(PICFLAG)
+ 
+ # Enable Intel CET on Intel CET enabled host if jit is enabled.
+diff --git a/libiberty/configure b/libiberty/configure
+index 860f981fa183..b8a19c421108 100755
+--- a/libiberty/configure
++++ b/libiberty/configure
+@@ -5258,8 +5258,8 @@ case "${enable_shared}" in
+   *) shared=yes ;;
+ esac
+ 
+-# ...unless --enable-host-shared was passed from top-level config:
+-if [ "${enable_host_shared}" = "yes" ]; then
++# ...unless --enable-host-{shared,pie} was passed from top-level config:
++if [ "${enable_host_shared}" = "yes" ] || [ "${enable_host_pie}" = "yes" ]; then
+   shared=yes
+ fi
+ 
+diff --git a/libiberty/configure.ac b/libiberty/configure.ac
+index 28d996f9cf7b..6747a7b5cffd 100644
+--- a/libiberty/configure.ac
++++ b/libiberty/configure.ac
+@@ -233,8 +233,8 @@ case "${enable_shared}" in
+   *) shared=yes ;;
+ esac
+ 
+-# ...unless --enable-host-shared was passed from top-level config:
+-if [[ "${enable_host_shared}" = "yes" ]]; then
++# ...unless --enable-host-{shared,pie} was passed from top-level config:
++if [[ "${enable_host_shared}" = "yes" ]] || [[ "${enable_host_pie}" = "yes" ]]; then
+   shared=yes
+ fi
+ 
+diff --git a/zlib/configure b/zlib/configure
+index e35ac6e7e178..77be6c284e3e 100755
+--- a/zlib/configure
++++ b/zlib/configure
+@@ -635,6 +635,8 @@ am__EXEEXT_TRUE
+ LTLIBOBJS
+ LIBOBJS
+ PICFLAG
++enable_host_pie
++enable_host_shared
+ TARGET_LIBRARY_FALSE
+ TARGET_LIBRARY_TRUE
+ toolexeclibdir
+@@ -778,6 +780,7 @@ with_gnu_ld
+ enable_libtool_lock
+ with_toolexeclibdir
+ enable_host_shared
++enable_host_pie
+ '
+       ac_precious_vars='build_alias
+ host_alias
+@@ -1420,6 +1423,7 @@ Optional Features:
+                           optimize for fast installation [default=yes]
+   --disable-libtool-lock  avoid locking (might break parallel builds)
+   --enable-host-shared    build host code as shared libraries
++  --enable-host-pie       build host code as PIE
+ 
+ Optional Packages:
+   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
+@@ -10759,7 +10763,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 10762 "configure"
++#line 10778 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -10865,7 +10869,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 10868 "configure"
++#line 10884 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -11548,15 +11552,31 @@ else
+   multilib_arg=
+ fi
+ 
++# Enable --enable-host-shared.
+ # Check whether --enable-host-shared was given.
+ if test "${enable_host_shared+set}" = set; then :
+-  enableval=$enable_host_shared; PICFLAG=-fPIC
++  enableval=$enable_host_shared;
++fi
++
++
++
++# Enable --enable-host-pie.
++# Check whether --enable-host-pie was given.
++if test "${enable_host_pie+set}" = set; then :
++  enableval=$enable_host_pie;
++fi
++
++
++
++if test x$enable_host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$enable_host_pie = xyes; then
++  PICFLAG=-fPIE
+ else
+   PICFLAG=
+ fi
+ 
+ 
+-
+ ac_config_files="$ac_config_files Makefile"
+ 
+ cat >confcache <<\_ACEOF
+diff --git a/zlib/configure.ac b/zlib/configure.ac
+index be1cfe296512..adf7aad4e510 100644
+--- a/zlib/configure.ac
++++ b/zlib/configure.ac
+@@ -122,11 +122,26 @@ else
+   multilib_arg=
+ fi
+ 
++# Enable --enable-host-shared.
+ AC_ARG_ENABLE(host-shared,
+ [AS_HELP_STRING([--enable-host-shared],
+-		[build host code as shared libraries])],
+-[PICFLAG=-fPIC], [PICFLAG=])
+-AC_SUBST(PICFLAG)
++		[build host code as shared libraries])])
++AC_SUBST(enable_host_shared)
++
++# Enable --enable-host-pie.
++AC_ARG_ENABLE(host-pie,
++[AS_HELP_STRING([--enable-host-pie],
++		[build host code as PIE])])
++AC_SUBST(enable_host_pie)
++
++if test x$enable_host_shared = xyes; then
++  PICFLAG=-fPIC
++elif test x$enable_host_pie = xyes; then
++  PICFLAG=-fPIE
++else
++  PICFLAG=
++fi
+ 
++AC_SUBST(PICFLAG)
+ AC_CONFIG_FILES([Makefile])
+ AC_OUTPUT
+-- 
+2.51.0
+

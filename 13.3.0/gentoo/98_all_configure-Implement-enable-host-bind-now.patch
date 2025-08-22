@@ -1,0 +1,599 @@
+From 109c6558f9d0815c24a4da3bbf621d6a403561d1 Mon Sep 17 00:00:00 2001
+Message-ID: <109c6558f9d0815c24a4da3bbf621d6a403561d1.1755666309.git.sam@gentoo.org>
+In-Reply-To: <6a974df8a779c8220a41919d118e3cf72829bcb9.1755666309.git.sam@gentoo.org>
+References: <6a974df8a779c8220a41919d118e3cf72829bcb9.1755666309.git.sam@gentoo.org>
+From: Marek Polacek <polacek@redhat.com>
+Date: Thu, 22 Jun 2023 11:30:01 -0400
+Subject: [PATCH 2/2] configure: Implement --enable-host-bind-now
+
+As promised in the --enable-host-pie patch, this patch adds another
+configure option, --enable-host-bind-now, which adds -z now when linking
+the compiler executables in order to extend hardening.  BIND_NOW with RELRO
+allows the GOT to be marked RO; this prevents GOT modification attacks.
+
+This option does not affect linking of target libraries; you can use
+LDFLAGS_FOR_TARGET=-Wl,-z,relro,-z,now to enable RELRO/BIND_NOW.
+
+With this patch:
+$ readelf -Wd cc1{,plus,obj,gm2} f951 lto1 cpp  rust1 gnat1 | grep FLAGS
+ 0x000000000000001e (FLAGS)              BIND_NOW
+ 0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+ 0x000000000000001e (FLAGS)              BIND_NOW
+ 0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+ 0x000000000000001e (FLAGS)              BIND_NOW
+ 0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+ 0x000000000000001e (FLAGS)              BIND_NOW
+ 0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+ 0x000000000000001e (FLAGS)              BIND_NOW
+ 0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+ 0x000000000000001e (FLAGS)              BIND_NOW
+ 0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+ 0x000000000000001e (FLAGS)              BIND_NOW
+ 0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+ 0x000000000000001e (FLAGS)              BIND_NOW
+ 0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+ 0x000000000000001e (FLAGS)              BIND_NOW
+ 0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+
+c++tools/ChangeLog:
+
+	* configure.ac (--enable-host-bind-now): New check.
+	* configure: Regenerate.
+
+gcc/ChangeLog:
+
+	* configure.ac (--enable-host-bind-now): New check.  Add
+	-Wl,-z,now to LD_PICFLAG if --enable-host-bind-now.
+	* configure: Regenerate.
+	* doc/install.texi: Document --enable-host-bind-now.
+
+lto-plugin/ChangeLog:
+
+	* configure.ac (--enable-host-bind-now): New check.  Link with
+	-z,now.
+	* configure: Regenerate.
+
+(cherry picked from commit 33ebb0dff9bb022f1e0709e0e73faabfc3df7931)
+---
+ c++tools/configure                        | 11 +++++++++++
+ c++tools/configure.ac                     |  7 +++++++
+ gcc/configure                             | 20 ++++++++++++++++++--
+ gcc/configure.ac                          | 13 ++++++++++++-
+ gcc/doc/install.texi                      |  6 ++++++
+ libgm2/Makefile.in                        | 10 +++++-----
+ libgm2/aclocal.m4                         | 10 +++++-----
+ libgm2/libm2cor/Makefile.in               | 10 +++++-----
+ libgm2/libm2iso/Makefile.in               | 10 +++++-----
+ libgm2/libm2log/Makefile.in               | 10 +++++-----
+ libgm2/libm2min/Makefile.in               | 10 +++++-----
+ libgm2/libm2pim/Makefile.in               | 10 +++++-----
+ libstdc++-v3/src/experimental/Makefile.in |  2 +-
+ lto-plugin/Makefile.in                    |  1 +
+ lto-plugin/configure                      | 20 ++++++++++++++++++--
+ lto-plugin/configure.ac                   | 11 +++++++++++
+ zlib/Makefile.in                          |  2 ++
+ zlib/configure                            |  4 ++--
+ 18 files changed, 124 insertions(+), 43 deletions(-)
+
+diff --git a/c++tools/configure b/c++tools/configure
+index 880870093839..006efe07b354 100755
+--- a/c++tools/configure
++++ b/c++tools/configure
+@@ -628,6 +628,7 @@ EGREP
+ GREP
+ CXXCPP
+ LD_PICFLAG
++enable_host_bind_now
+ PICFLAG
+ MAINTAINER
+ CXX_AUX_TOOLS
+@@ -702,6 +703,7 @@ enable_maintainer_mode
+ enable_checking
+ enable_default_pie
+ enable_host_pie
++enable_host_bind_now
+ with_gcc_major_version_only
+ '
+       ac_precious_vars='build_alias
+@@ -1336,6 +1338,7 @@ Optional Features:
+                           yes,no,all,none,release.
+   --enable-default-pie    enable Position Independent Executable as default
+   --enable-host-pie       build host code as PIE
++  --enable-host-bind-now  link host code as BIND_NOW
+ 
+ Optional Packages:
+   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
+@@ -3007,6 +3010,14 @@ fi
+ 
+ 
+ 
++# Enable --enable-host-bind-now
++# Check whether --enable-host-bind-now was given.
++if test "${enable_host_bind_now+set}" = set; then :
++  enableval=$enable_host_bind_now; LD_PICFLAG="$LD_PICFLAG -Wl,-z,now"
++fi
++
++
++
+ 
+ # Check if O_CLOEXEC is defined by fcntl
+ 
+diff --git a/c++tools/configure.ac b/c++tools/configure.ac
+index 44dfaccbbfaf..c2a16601425c 100644
+--- a/c++tools/configure.ac
++++ b/c++tools/configure.ac
+@@ -110,6 +110,13 @@ AC_ARG_ENABLE(host-pie,
+ 		[build host code as PIE])],
+ [PICFLAG=-fPIE; LD_PICFLAG=-pie], [])
+ AC_SUBST(PICFLAG)
++
++# Enable --enable-host-bind-now
++AC_ARG_ENABLE(host-bind-now,
++[AS_HELP_STRING([--enable-host-bind-now],
++       [link host code as BIND_NOW])],
++[LD_PICFLAG="$LD_PICFLAG -Wl,-z,now"], [])
++AC_SUBST(enable_host_bind_now)
+ AC_SUBST(LD_PICFLAG)
+ 
+ # Check if O_CLOEXEC is defined by fcntl
+diff --git a/gcc/configure b/gcc/configure
+index 4d0a6833cb46..6943cf1a4ab6 100755
+--- a/gcc/configure
++++ b/gcc/configure
+@@ -635,6 +635,7 @@ CET_HOST_FLAGS
+ LD_PICFLAG
+ PICFLAG
+ enable_default_pie
++enable_host_bind_now
+ enable_host_pie
+ enable_host_shared
+ enable_plugin
+@@ -1030,6 +1031,7 @@ enable_version_specific_runtime_libs
+ enable_plugin
+ enable_host_shared
+ enable_host_pie
++enable_host_bind_now
+ enable_libquadmath_support
+ with_linker_hash_style
+ with_diagnostics_color
+@@ -1798,6 +1800,7 @@ Optional Features:
+   --enable-plugin         enable plugin support
+   --enable-host-shared    build host code as shared libraries
+   --enable-host-pie       build host code as PIE
++  --enable-host-bind-now  link host code as BIND_NOW
+   --disable-libquadmath-support
+                           disable libquadmath support for Fortran
+   --enable-default-pie    enable Position Independent Executable as default
+@@ -19909,7 +19912,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 19910 "configure"
++#line 19915 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -20015,7 +20018,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 20016 "configure"
++#line 20021 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -32320,6 +32323,14 @@ fi
+ 
+ 
+ 
++# Enable --enable-host-bind-now
++# Check whether --enable-host-bind-now was given.
++if test "${enable_host_bind_now+set}" = set; then :
++  enableval=$enable_host_bind_now;
++fi
++
++
++
+ # Check whether --enable-libquadmath-support was given.
+ if test "${enable_libquadmath_support+set}" = set; then :
+   enableval=$enable_libquadmath_support; ENABLE_LIBQUADMATH_SUPPORT=$enableval
+@@ -32506,6 +32517,8 @@ else
+   PICFLAG=
+ fi
+ 
++
++
+ if test x$enable_host_pie = xyes; then
+   LD_PICFLAG=-pie
+ elif test x$gcc_cv_no_pie = xyes; then
+@@ -32514,6 +32527,9 @@ else
+   LD_PICFLAG=
+ fi
+ 
++if test x$enable_host_bind_now = xyes; then
++  LD_PICFLAG="$LD_PICFLAG -Wl,-z,now"
++fi
+ 
+ 
+ 
+diff --git a/gcc/configure.ac b/gcc/configure.ac
+index aaa371746ef5..1b84fa5a677b 100644
+--- a/gcc/configure.ac
++++ b/gcc/configure.ac
+@@ -7516,6 +7516,12 @@ AC_ARG_ENABLE(host-pie,
+ 		[build host code as PIE])])
+ AC_SUBST(enable_host_pie)
+ 
++# Enable --enable-host-bind-now
++AC_ARG_ENABLE(host-bind-now,
++[AS_HELP_STRING([--enable-host-bind-now],
++		[link host code as BIND_NOW])])
++AC_SUBST(enable_host_bind_now)
++
+ AC_ARG_ENABLE(libquadmath-support,
+ [AS_HELP_STRING([--disable-libquadmath-support],
+   [disable libquadmath support for Fortran])],
+@@ -7657,6 +7663,8 @@ else
+   PICFLAG=
+ fi
+ 
++AC_SUBST([PICFLAG])
++
+ if test x$enable_host_pie = xyes; then
+   LD_PICFLAG=-pie
+ elif test x$gcc_cv_no_pie = xyes; then
+@@ -7665,7 +7673,10 @@ else
+   LD_PICFLAG=
+ fi
+ 
+-AC_SUBST([PICFLAG])
++if test x$enable_host_bind_now = xyes; then
++  LD_PICFLAG="$LD_PICFLAG -Wl,-z,now"
++fi
++
+ AC_SUBST([LD_PICFLAG])
+ 
+ # Enable Intel CET on Intel CET enabled host if jit is enabled.
+diff --git a/gcc/doc/install.texi b/gcc/doc/install.texi
+index 93d5236f7b3c..1122bc82e0dc 100644
+--- a/gcc/doc/install.texi
++++ b/gcc/doc/install.texi
+@@ -1095,6 +1095,12 @@ protection against Return Oriented Programming (ROP) attacks.
+ in which case @option{-fPIC} is used when compiling, and @option{-pie} when
+ linking.
+ 
++@item --enable-host-bind-now
++Specify that the @emph{host} executables should be linked with the option
++@option{-Wl,-z,now}, which means that the dynamic linker will resolve all
++symbols when the executables are started, and that in turn allows RELRO to
++mark the GOT read-only, resulting in better security.
++
+ @item @anchor{with-gnu-as}--with-gnu-as
+ Specify that the compiler should assume that the
+ assembler it finds is the GNU assembler.  However, this does not modify
+diff --git a/libgm2/Makefile.in b/libgm2/Makefile.in
+index 2b9592b34907..d9950065de19 100644
+--- a/libgm2/Makefile.in
++++ b/libgm2/Makefile.in
+@@ -90,15 +90,15 @@ host_triplet = @host@
+ target_triplet = @target@
+ subdir = .
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+-am__aclocal_m4_deps = $(top_srcdir)/../libtool.m4 \
+-	$(top_srcdir)/../ltoptions.m4 $(top_srcdir)/../ltsugar.m4 \
+-	$(top_srcdir)/../ltversion.m4 $(top_srcdir)/../lt~obsolete.m4 \
+-	$(top_srcdir)/../config/acx.m4 \
++am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/lead-dot.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/no-executables.m4 \
+-	$(top_srcdir)/../config/override.m4 $(top_srcdir)/configure.ac
++	$(top_srcdir)/../config/override.m4 \
++	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
++	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
++	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/configure.ac
+ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
+ 	$(ACLOCAL_M4)
+ DIST_COMMON = $(srcdir)/Makefile.am $(top_srcdir)/configure \
+diff --git a/libgm2/aclocal.m4 b/libgm2/aclocal.m4
+index c352303012d2..832065fbb9be 100644
+--- a/libgm2/aclocal.m4
++++ b/libgm2/aclocal.m4
+@@ -1187,14 +1187,14 @@ AC_SUBST([am__tar])
+ AC_SUBST([am__untar])
+ ]) # _AM_PROG_TAR
+ 
+-m4_include([../libtool.m4])
+-m4_include([../ltoptions.m4])
+-m4_include([../ltsugar.m4])
+-m4_include([../ltversion.m4])
+-m4_include([../lt~obsolete.m4])
+ m4_include([../config/acx.m4])
+ m4_include([../config/depstand.m4])
+ m4_include([../config/lead-dot.m4])
+ m4_include([../config/multi.m4])
+ m4_include([../config/no-executables.m4])
+ m4_include([../config/override.m4])
++m4_include([../libtool.m4])
++m4_include([../ltoptions.m4])
++m4_include([../ltsugar.m4])
++m4_include([../ltversion.m4])
++m4_include([../lt~obsolete.m4])
+diff --git a/libgm2/libm2cor/Makefile.in b/libgm2/libm2cor/Makefile.in
+index 8daf0eaa054e..4d2d86f3c973 100644
+--- a/libgm2/libm2cor/Makefile.in
++++ b/libgm2/libm2cor/Makefile.in
+@@ -107,15 +107,15 @@ host_triplet = @host@
+ target_triplet = @target@
+ subdir = libm2cor
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+-am__aclocal_m4_deps = $(top_srcdir)/../libtool.m4 \
+-	$(top_srcdir)/../ltoptions.m4 $(top_srcdir)/../ltsugar.m4 \
+-	$(top_srcdir)/../ltversion.m4 $(top_srcdir)/../lt~obsolete.m4 \
+-	$(top_srcdir)/../config/acx.m4 \
++am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/lead-dot.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/no-executables.m4 \
+-	$(top_srcdir)/../config/override.m4 $(top_srcdir)/configure.ac
++	$(top_srcdir)/../config/override.m4 \
++	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
++	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
++	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/configure.ac
+ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
+ 	$(ACLOCAL_M4)
+ DIST_COMMON = $(srcdir)/Makefile.am
+diff --git a/libgm2/libm2iso/Makefile.in b/libgm2/libm2iso/Makefile.in
+index 8d6443d39466..dc0c41b17aac 100644
+--- a/libgm2/libm2iso/Makefile.in
++++ b/libgm2/libm2iso/Makefile.in
+@@ -107,15 +107,15 @@ host_triplet = @host@
+ target_triplet = @target@
+ subdir = libm2iso
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+-am__aclocal_m4_deps = $(top_srcdir)/../libtool.m4 \
+-	$(top_srcdir)/../ltoptions.m4 $(top_srcdir)/../ltsugar.m4 \
+-	$(top_srcdir)/../ltversion.m4 $(top_srcdir)/../lt~obsolete.m4 \
+-	$(top_srcdir)/../config/acx.m4 \
++am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/lead-dot.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/no-executables.m4 \
+-	$(top_srcdir)/../config/override.m4 $(top_srcdir)/configure.ac
++	$(top_srcdir)/../config/override.m4 \
++	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
++	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
++	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/configure.ac
+ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
+ 	$(ACLOCAL_M4)
+ DIST_COMMON = $(srcdir)/Makefile.am
+diff --git a/libgm2/libm2log/Makefile.in b/libgm2/libm2log/Makefile.in
+index 2188f9ec0c50..3f26f7bd1e5b 100644
+--- a/libgm2/libm2log/Makefile.in
++++ b/libgm2/libm2log/Makefile.in
+@@ -107,15 +107,15 @@ host_triplet = @host@
+ target_triplet = @target@
+ subdir = libm2log
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+-am__aclocal_m4_deps = $(top_srcdir)/../libtool.m4 \
+-	$(top_srcdir)/../ltoptions.m4 $(top_srcdir)/../ltsugar.m4 \
+-	$(top_srcdir)/../ltversion.m4 $(top_srcdir)/../lt~obsolete.m4 \
+-	$(top_srcdir)/../config/acx.m4 \
++am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/lead-dot.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/no-executables.m4 \
+-	$(top_srcdir)/../config/override.m4 $(top_srcdir)/configure.ac
++	$(top_srcdir)/../config/override.m4 \
++	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
++	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
++	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/configure.ac
+ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
+ 	$(ACLOCAL_M4)
+ DIST_COMMON = $(srcdir)/Makefile.am
+diff --git a/libgm2/libm2min/Makefile.in b/libgm2/libm2min/Makefile.in
+index 42cba0e37b9f..1c0bebdc3044 100644
+--- a/libgm2/libm2min/Makefile.in
++++ b/libgm2/libm2min/Makefile.in
+@@ -107,15 +107,15 @@ host_triplet = @host@
+ target_triplet = @target@
+ subdir = libm2min
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+-am__aclocal_m4_deps = $(top_srcdir)/../libtool.m4 \
+-	$(top_srcdir)/../ltoptions.m4 $(top_srcdir)/../ltsugar.m4 \
+-	$(top_srcdir)/../ltversion.m4 $(top_srcdir)/../lt~obsolete.m4 \
+-	$(top_srcdir)/../config/acx.m4 \
++am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/lead-dot.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/no-executables.m4 \
+-	$(top_srcdir)/../config/override.m4 $(top_srcdir)/configure.ac
++	$(top_srcdir)/../config/override.m4 \
++	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
++	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
++	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/configure.ac
+ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
+ 	$(ACLOCAL_M4)
+ DIST_COMMON = $(srcdir)/Makefile.am
+diff --git a/libgm2/libm2pim/Makefile.in b/libgm2/libm2pim/Makefile.in
+index 4c2d574392b4..f79adb389710 100644
+--- a/libgm2/libm2pim/Makefile.in
++++ b/libgm2/libm2pim/Makefile.in
+@@ -107,15 +107,15 @@ host_triplet = @host@
+ target_triplet = @target@
+ subdir = libm2pim
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+-am__aclocal_m4_deps = $(top_srcdir)/../libtool.m4 \
+-	$(top_srcdir)/../ltoptions.m4 $(top_srcdir)/../ltsugar.m4 \
+-	$(top_srcdir)/../ltversion.m4 $(top_srcdir)/../lt~obsolete.m4 \
+-	$(top_srcdir)/../config/acx.m4 \
++am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/lead-dot.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/no-executables.m4 \
+-	$(top_srcdir)/../config/override.m4 $(top_srcdir)/configure.ac
++	$(top_srcdir)/../config/override.m4 \
++	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
++	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
++	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/configure.ac
+ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
+ 	$(ACLOCAL_M4)
+ DIST_COMMON = $(srcdir)/Makefile.am
+diff --git a/libstdc++-v3/src/experimental/Makefile.in b/libstdc++-v3/src/experimental/Makefile.in
+index 238c96d9f9a8..e5f8fe0d5147 100644
+--- a/libstdc++-v3/src/experimental/Makefile.in
++++ b/libstdc++-v3/src/experimental/Makefile.in
+@@ -712,8 +712,8 @@ distclean-generic:
+ maintainer-clean-generic:
+ 	@echo "This command is intended for maintainers to use"
+ 	@echo "it deletes files that may require special tools to rebuild."
+-@ENABLE_BACKTRACE_FALSE@install-exec-local:
+ @ENABLE_BACKTRACE_FALSE@uninstall-local:
++@ENABLE_BACKTRACE_FALSE@install-exec-local:
+ clean: clean-am
+ 
+ clean-am: clean-generic clean-libtool clean-toolexeclibLTLIBRARIES \
+diff --git a/lto-plugin/Makefile.in b/lto-plugin/Makefile.in
+index cb568e1e09fc..f6f5b020ff5f 100644
+--- a/lto-plugin/Makefile.in
++++ b/lto-plugin/Makefile.in
+@@ -298,6 +298,7 @@ datadir = @datadir@
+ datarootdir = @datarootdir@
+ docdir = @docdir@
+ dvidir = @dvidir@
++enable_host_bind_now = @enable_host_bind_now@
+ exec_prefix = @exec_prefix@
+ gcc_build_dir = @gcc_build_dir@
+ get_gcc_base_ver = @get_gcc_base_ver@
+diff --git a/lto-plugin/configure b/lto-plugin/configure
+index d522bd24c957..675b9cfa522e 100755
+--- a/lto-plugin/configure
++++ b/lto-plugin/configure
+@@ -663,6 +663,7 @@ accel_dir_suffix
+ gcc_build_dir
+ CET_HOST_FLAGS
+ ac_lto_plugin_ldflags
++enable_host_bind_now
+ ac_lto_plugin_warn_cflags
+ EGREP
+ GREP
+@@ -778,6 +779,7 @@ enable_maintainer_mode
+ with_libiberty
+ enable_dependency_tracking
+ enable_largefile
++enable_host_bind_now
+ enable_cet
+ with_gcc_major_version_only
+ enable_shared
+@@ -1425,6 +1427,7 @@ Optional Features:
+   --disable-dependency-tracking
+                           speeds up one-time build
+   --disable-largefile     omit support for large files
++  --enable-host-bind-now  link host code as BIND_NOW
+   --enable-cet            enable Intel CET in host libraries [default=auto]
+   --enable-shared[=PKGS]  build shared libraries [default=yes]
+   --enable-static[=PKGS]  build static libraries [default=yes]
+@@ -5669,6 +5672,19 @@ if test "x$have_static_libgcc" = xyes; then
+    ac_lto_plugin_ldflags="-Wc,-static-libgcc"
+ fi
+ 
++# Enable --enable-host-bind-now
++# Check whether --enable-host-bind-now was given.
++if test "${enable_host_bind_now+set}" = set; then :
++  enableval=$enable_host_bind_now;
++fi
++
++
++
++if test x$enable_host_bind_now = xyes; then
++  ac_lto_plugin_ldflags="$ac_lto_plugin_ldflags -Wl,-z,now"
++fi
++
++
+ 
+  # Check whether --enable-cet was given.
+ if test "${enable_cet+set}" = set; then :
+@@ -12134,7 +12150,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 12137 "configure"
++#line 12153 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -12240,7 +12256,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 12243 "configure"
++#line 12259 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+diff --git a/lto-plugin/configure.ac b/lto-plugin/configure.ac
+index 0a7202782ae4..84f2a60b4800 100644
+--- a/lto-plugin/configure.ac
++++ b/lto-plugin/configure.ac
+@@ -25,6 +25,17 @@ LDFLAGS="$saved_LDFLAGS"
+ if test "x$have_static_libgcc" = xyes; then
+    ac_lto_plugin_ldflags="-Wc,-static-libgcc"
+ fi
++
++# Enable --enable-host-bind-now
++AC_ARG_ENABLE(host-bind-now,
++[AS_HELP_STRING([--enable-host-bind-now],
++       [link host code as BIND_NOW])])
++AC_SUBST(enable_host_bind_now)
++
++if test x$enable_host_bind_now = xyes; then
++  ac_lto_plugin_ldflags="$ac_lto_plugin_ldflags -Wl,-z,now"
++fi
++
+ AC_SUBST(ac_lto_plugin_ldflags)
+ 
+ GCC_CET_HOST_FLAGS(CET_HOST_FLAGS)
+diff --git a/zlib/Makefile.in b/zlib/Makefile.in
+index 3f5102d1b873..80fe3b691166 100644
+--- a/zlib/Makefile.in
++++ b/zlib/Makefile.in
+@@ -353,6 +353,8 @@ datadir = @datadir@
+ datarootdir = @datarootdir@
+ docdir = @docdir@
+ dvidir = @dvidir@
++enable_host_pie = @enable_host_pie@
++enable_host_shared = @enable_host_shared@
+ exec_prefix = @exec_prefix@
+ host = @host@
+ host_alias = @host_alias@
+diff --git a/zlib/configure b/zlib/configure
+index 77be6c284e3e..9308866a636f 100755
+--- a/zlib/configure
++++ b/zlib/configure
+@@ -10763,7 +10763,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 10778 "configure"
++#line 10766 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -10869,7 +10869,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 10884 "configure"
++#line 10872 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+-- 
+2.51.0
+

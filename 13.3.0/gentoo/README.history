@@ -1,3 +1,8 @@
+9	22 August 2025
+
+	+ 97_all_configure-Implement-enable-host-pie.patch
+	+ 98_all_configure-Implement-enable-host-bind-now.patch
+
 8	3 August 2025
 
 	+ 94_all_genoutput-Accelerate-the-place_operands-function.patch
