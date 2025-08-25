@@ -1,20 +1,32 @@
-From 49dee4e109d23a7a2f9644a84909c9dec7896fa5 Mon Sep 17 00:00:00 2001
-Message-ID: <49dee4e109d23a7a2f9644a84909c9dec7896fa5.1756009689.git.sam@gentoo.org>
+From 02616942358bd045b21a69c0c866687150080d12 Mon Sep 17 00:00:00 2001
+Message-ID: <02616942358bd045b21a69c0c866687150080d12.1756094106.git.sam@gentoo.org>
 From: Sam James <sam@gentoo.org>
 Date: Sun, 24 Aug 2025 00:30:45 +0100
 Subject: [PATCH] i386: default to -mtls-dialect=gnu2 if appropriate
 
-For GNU/Linux IA-32/X86-64 targets, check if ld emits GLIBC_ABI_GNU2_TLS and
-use it to decide if we can default to -mtls-dialect=gnu2.
+GNU2 TLS descriptors were introduced in 2006 (r0-73091-g5bf5a10b1ccacf)
+but were only opt-in with -mtls-dialect=gnu2. They are more efficient
+and it's time to enable them by default.
+
+Builds on the --with-tls= machinery from r16-3355-g96a291c4bb0b8a.
+
+We achieve this for GNU/Linux IA-32/X86-64 targets by checking if ld emits
+GLIBC_ABI_GNU2_TLS, using its presence to decide if we can default to
+-mtls-dialect=gnu2.
 
 For PR ld/33130, newer ld will add GLIBC_ABI_GNU2_TLS if either unconfigured
 (auto mode) or if configured with --enable-gnu2-tls-tag. In auto mode,
 GLIBC_ABI_GNU2_TLS is only added if glibc provides it. In explicit mode, the
 user has asked for this behavior and binaries will depend on GLIBC_ABI_GNU2_TLS
 and fixed glibc. Hence the presence of GLIBC_ABI_GNU2_TLS tells us if we can
-safely default to GNU2 TLS descriptors.
+safely default to GNU2 TLS descriptors. We added GLIBC_ABI_GNU2_TLS in glibc
+to indicate that PR dynamic-link/33129 is fixed.
 
-Builds on the --with-tls= machinery from r16-3355-g96a291c4bb0b8a.
+If distributions wish to opt-out of this for systems which meet the above
+conditions, they can either configure GCC using --with-tls=gnu, or configure
+binutils with --disable-gnu2-tls-tag: if this is necessary, it is recommended
+to use --with-tls=gnu instead, to avoid affecting the ecosystem negatively by
+having unmarked binaries.
 
 Some implementation notes:
 * The readelf check had to be moved earlier because we want
@@ -25,6 +37,9 @@ Some implementation notes:
   this as a huge problem. The check is already opportunistic and if it
   fails, it falls back to --with-tls=DIALECT if passed, and failing that,
   the previous and safe default of 'gnu'.
+
+* The change is only made for glibc systems at this time. Enablement and testing
+  can be done for other libcs as future work.
 
 * In future, we may do the same thing for ARM if/when appropriate equivalent
   machinery is added to glibc and bfd. This makes the separate position of
@@ -42,12 +57,12 @@ gcc/ChangeLog:
 	(with_tls): Default to 'gnu2' if --with-tls is not passed and
 	gcc_cv_libc_x86_tlsdesc_call is 'yes'.
 ---
- gcc/configure    | 254 +++++++++++++++++++++++++++++++++--------------
- gcc/configure.ac | 142 +++++++++++++++++++++-----
- 2 files changed, 296 insertions(+), 100 deletions(-)
+ gcc/configure    | 219 +++++++++++++++++++++++++++++++----------------
+ gcc/configure.ac | 114 ++++++++++++++++++------
+ 2 files changed, 233 insertions(+), 100 deletions(-)
 
 diff --git a/gcc/configure b/gcc/configure
-index 4a751d969bab..54b67908e701 100755
+index 4a751d969bab..067e95eeedd2 100755
 --- a/gcc/configure
 +++ b/gcc/configure
 @@ -737,7 +737,6 @@ libgcc_visibility
@@ -66,7 +81,7 @@ index 4a751d969bab..54b67908e701 100755
  objext
  manext
  LIBICONV_DEP
-@@ -12927,6 +12927,182 @@ if test "x$enable_win32_utf8_manifest" != xno; then
+@@ -12927,6 +12927,147 @@ if test "x$enable_win32_utf8_manifest" != xno; then
    host_extra_objs_mingw=utf8-mingw32.o
  fi
  
@@ -144,66 +159,32 @@ index 4a751d969bab..54b67908e701 100755
 +fi
 +
 +case $target in
-+  i[34567]86-*-* | x86_64-*-*)
-+    # PR target/120933
-+    # For GNU/Linux targets, check if ld emits GLIBC_ABI_GNU2_TLS.  For PR ld/33130,
-+    # newer ld will add GLIBC_ABI_GNU2_TLS if either unconfigured (auto mode) or if
-+    # configured with --enable-gnu2-tls-tag.  In auto mode, GLIBC_ABI_GNU2_TLS
-+    # is only added if glibc provides it.  In explicit mode, the user has asked
-+    # for this behavior and binaries will depend on GLIBC_ABI_GNU2_TLS and fixed
-+    # glibc.  Hence the presence of GLIBC_ABI_GNU2_TLS tells us if we can safely
-+    # default to GNU2 TLS descriptors.
-+    case $target in
-+       # TODO: x32
-+       i?86-*-linux*gnu* )
-+	conftest_s='
++  i[34567]86-*-gnu* | x86_64-*-gnu* )
++	# PR target/120933
++	# For GNU/Linux targets, check if ld emits GLIBC_ABI_GNU2_TLS.  For PR ld/33130,
++	# newer ld will add GLIBC_ABI_GNU2_TLS if either unconfigured (auto mode) or if
++	# configured with --enable-gnu2-tls-tag.  In auto mode, GLIBC_ABI_GNU2_TLS
++	# is only added if glibc provides it.  In explicit mode, the user has asked
++	# for this behavior and binaries will depend on GLIBC_ABI_GNU2_TLS and fixed
++	# glibc.  Hence the presence of GLIBC_ABI_GNU2_TLS tells us if we can safely
++	# default to GNU2 TLS descriptors.
++	#
++	# TODO: x32
++	conftest_S='
 +		.section        .text.startup,"ax",@progbits
 +		.p2align 4
 +		.globl  main
 +		.type   main, @function
 +		main:
-+			leal    ld@TLSDESC(%ebx), %eax
-+			call    *ld@TLSCALL(%eax)
-+			addl    %gs:0, %eax
-+			ret
-+			.size   main, .-main
-+			.section        .note.GNU-stack,"",@progbits
-+	'
-+
-+	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking libc has GLIBC_ABI_GNU2_TLS symbol dep and ld emits it" >&5
-+$as_echo_n "checking libc has GLIBC_ABI_GNU2_TLS symbol dep and ld emits it... " >&6; }
-+if ${gcc_cv_libc_x86_tlsdesc_call+:} false; then :
-+  $as_echo_n "(cached) " >&6
-+else
-+
-+		gcc_cv_libc_x86_tlsdesc_call=no
-+		echo "$conftest_s" > conftest.s
-+		if $CC $CFLAGS conftest.s -o conftest -shared > /dev/null 2>&1; then
-+			if test x$gcc_cv_readelf != x; then
-+				if $gcc_cv_readelf --version-info conftest 2>&1 \
-+					| grep "GLIBC_ABI_GNU2_TLS" > /dev/null 2>&1; then
-+					gcc_cv_libc_x86_tlsdesc_call=yes
-+				else
-+					gcc_cv_libc_x86_tlsdesc_call=no
-+				fi
-+			fi
-+		fi
-+		rm -f conftest.*
-+
-+fi
-+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_cv_libc_x86_tlsdesc_call" >&5
-+$as_echo "$gcc_cv_libc_x86_tlsdesc_call" >&6; }
-+	;;
-+       x86_64-*-linux*gnu* )
-+	conftest_s='
-+		.section        .text.startup,"ax",@progbits
-+		.p2align 4
-+		.globl  main
-+		.type   main, @function
-+		main:
++                #ifdef __x86_64__
 +			leaq    foo@TLSDESC(%rip), %rax
 +			call    *foo@TLSCALL(%rax)
 +			movl    %fs:(%rax), %eax
++		#else
++			leal    ld@TLSDESC(%ebx), %eax
++			call    *ld@TLSCALL(%eax)
++			addl    %gs:0, %eax
++		#endif
 +			ret
 +			.size   main, .-main
 +			.section        .note.GNU-stack,"",@progbits
@@ -216,8 +197,8 @@ index 4a751d969bab..54b67908e701 100755
 +else
 +
 +		gcc_cv_libc_x86_tlsdesc_call=no
-+		echo "$conftest_s" > conftest.s
-+		if $CC $CFLAGS conftest.s -o conftest -shared > /dev/null 2>&1; then
++		echo "$conftest_S" > conftest.S
++		if $CC $CFLAGS conftest.S -o conftest -shared > /dev/null 2>&1; then
 +			if test x$gcc_cv_readelf != x; then
 +				if $gcc_cv_readelf --version-info conftest 2>&1 \
 +					| grep "GLIBC_ABI_GNU2_TLS" > /dev/null 2>&1; then
@@ -232,42 +213,41 @@ index 4a751d969bab..54b67908e701 100755
 +fi
 +{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_cv_libc_x86_tlsdesc_call" >&5
 +$as_echo "$gcc_cv_libc_x86_tlsdesc_call" >&6; }
-+	;;
-+  esac
 +
-+  case "$gcc_cv_libc_x86_tlsdesc_call" in
++	# Set with_tls only if it's not already set via --with-tls=DIALECT
++	case "$gcc_cv_libc_x86_tlsdesc_call" in
 +	yes)
 +		with_tls=${with_tls:-gnu2}
 +		;;
 +	*)
 +		with_tls=${with_tls:-gnu}
 +		;;
-+  esac
++	esac
 +  ;;
 +esac
 +
  # --------------------------------------------------------
  # Build, host, and target specific configuration fragments
  # --------------------------------------------------------
-@@ -21484,7 +21660,7 @@ else
+@@ -21484,7 +21625,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
 -#line 21487 "configure"
-+#line 21663 "configure"
++#line 21628 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -21590,7 +21766,7 @@ else
+@@ -21590,7 +21731,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
 -#line 21593 "configure"
-+#line 21769 "configure"
++#line 21734 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -25419,78 +25595,6 @@ else
+@@ -25419,78 +25560,6 @@ else
  $as_echo "$gcc_cv_objdump" >&6; }
  fi
  
@@ -347,10 +327,10 @@ index 4a751d969bab..54b67908e701 100755
  if ${gcc_cv_otool+:} false; then :
  
 diff --git a/gcc/configure.ac b/gcc/configure.ac
-index 4532c5c22fe5..b62cb747ee50 100644
+index 4532c5c22fe5..5c60c47d36be 100644
 --- a/gcc/configure.ac
 +++ b/gcc/configure.ac
-@@ -1886,6 +1886,123 @@ if test "x$enable_win32_utf8_manifest" != xno; then
+@@ -1886,6 +1886,95 @@ if test "x$enable_win32_utf8_manifest" != xno; then
    host_extra_objs_mingw=utf8-mingw32.o
  fi
  
@@ -382,60 +362,33 @@ index 4532c5c22fe5..b62cb747ee50 100644
 +
 +case $target in
 +changequote(,)dnl
-+  i[34567]86-*-* | x86_64-*-*)
++  i[34567]86-*-gnu* | x86_64-*-gnu* )
 +changequote([,])dnl
-+    # PR target/120933
-+    # For GNU/Linux targets, check if ld emits GLIBC_ABI_GNU2_TLS.  For PR ld/33130,
-+    # newer ld will add GLIBC_ABI_GNU2_TLS if either unconfigured (auto mode) or if
-+    # configured with --enable-gnu2-tls-tag.  In auto mode, GLIBC_ABI_GNU2_TLS
-+    # is only added if glibc provides it.  In explicit mode, the user has asked
-+    # for this behavior and binaries will depend on GLIBC_ABI_GNU2_TLS and fixed
-+    # glibc.  Hence the presence of GLIBC_ABI_GNU2_TLS tells us if we can safely
-+    # default to GNU2 TLS descriptors.
-+    case $target in
-+       # TODO: x32
-+       i?86-*-linux*gnu* )
-+	conftest_s='
++	# PR target/120933
++	# For GNU/Linux targets, check if ld emits GLIBC_ABI_GNU2_TLS.  For PR ld/33130,
++	# newer ld will add GLIBC_ABI_GNU2_TLS if either unconfigured (auto mode) or if
++	# configured with --enable-gnu2-tls-tag.  In auto mode, GLIBC_ABI_GNU2_TLS
++	# is only added if glibc provides it.  In explicit mode, the user has asked
++	# for this behavior and binaries will depend on GLIBC_ABI_GNU2_TLS and fixed
++	# glibc.  Hence the presence of GLIBC_ABI_GNU2_TLS tells us if we can safely
++	# default to GNU2 TLS descriptors.
++	#
++	# TODO: x32
++	conftest_S='
 +		.section        .text.startup,"ax",@progbits
 +		.p2align 4
 +		.globl  main
 +		.type   main, @function
 +		main:
-+			leal    ld@TLSDESC(%ebx), %eax
-+			call    *ld@TLSCALL(%eax)
-+			addl    %gs:0, %eax
-+			ret
-+			.size   main, .-main
-+			.section        .note.GNU-stack,"",@progbits
-+	'
-+
-+	AC_CACHE_CHECK([libc has GLIBC_ABI_GNU2_TLS symbol dep and ld emits it],
-+		gcc_cv_libc_x86_tlsdesc_call, [
-+		gcc_cv_libc_x86_tlsdesc_call=no
-+		echo "$conftest_s" > conftest.s
-+		if $CC $CFLAGS conftest.s -o conftest -shared > /dev/null 2>&1; then
-+			if test x$gcc_cv_readelf != x; then
-+				if $gcc_cv_readelf --version-info conftest 2>&1 \
-+					| grep "GLIBC_ABI_GNU2_TLS" > /dev/null 2>&1; then
-+					gcc_cv_libc_x86_tlsdesc_call=yes
-+				else
-+					gcc_cv_libc_x86_tlsdesc_call=no
-+				fi
-+			fi
-+		fi
-+		rm -f conftest.*
-+	])
-+	;;
-+       x86_64-*-linux*gnu* )
-+	conftest_s='
-+		.section        .text.startup,"ax",@progbits
-+		.p2align 4
-+		.globl  main
-+		.type   main, @function
-+		main:
++                #ifdef __x86_64__
 +			leaq    foo@TLSDESC(%rip), %rax
 +			call    *foo@TLSCALL(%rax)
 +			movl    %fs:(%rax), %eax
++		#else
++			leal    ld@TLSDESC(%ebx), %eax
++			call    *ld@TLSCALL(%eax)
++			addl    %gs:0, %eax
++		#endif
 +			ret
 +			.size   main, .-main
 +			.section        .note.GNU-stack,"",@progbits
@@ -444,8 +397,8 @@ index 4532c5c22fe5..b62cb747ee50 100644
 +	AC_CACHE_CHECK([libc has GLIBC_ABI_GNU2_TLS symbol dep and ld emits it],
 +		gcc_cv_libc_x86_tlsdesc_call, [
 +		gcc_cv_libc_x86_tlsdesc_call=no
-+		echo "$conftest_s" > conftest.s
-+		if $CC $CFLAGS conftest.s -o conftest -shared > /dev/null 2>&1; then
++		echo "$conftest_S" > conftest.S
++		if $CC $CFLAGS conftest.S -o conftest -shared > /dev/null 2>&1; then
 +			if test x$gcc_cv_readelf != x; then
 +				if $gcc_cv_readelf --version-info conftest 2>&1 \
 +					| grep "GLIBC_ABI_GNU2_TLS" > /dev/null 2>&1; then
@@ -457,24 +410,23 @@ index 4532c5c22fe5..b62cb747ee50 100644
 +		fi
 +		rm -f conftest.*
 +	])
-+	;;
-+  esac
 +
-+  case "$gcc_cv_libc_x86_tlsdesc_call" in
++	# Set with_tls only if it's not already set via --with-tls=DIALECT
++	case "$gcc_cv_libc_x86_tlsdesc_call" in
 +	yes)
 +		with_tls=${with_tls:-gnu2}
 +		;;
 +	*)
 +		with_tls=${with_tls:-gnu}
 +		;;
-+  esac
++	esac
 +  ;;
 +esac
 +
  # --------------------------------------------------------
  # Build, host, and target specific configuration fragments
  # --------------------------------------------------------
-@@ -2934,31 +3051,6 @@ else
+@@ -2934,31 +3023,6 @@ else
  	AC_MSG_RESULT($gcc_cv_objdump)
  fi
  
