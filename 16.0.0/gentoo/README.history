@@ -1,6 +1,8 @@
 13	????
 
 	U 86_all_PR120933-i386-default-to-mtls-dialect-gnu2-if-appropriate.patch
+	+ 87_all_PR121668-x86-64-Emit-the-TLS-call-after-debug-marker.patch
+	+ 88_all-x86-64-Better-compare-source-operands-of-tls_dynamic.patch
 
 12	24 August 2025
 
