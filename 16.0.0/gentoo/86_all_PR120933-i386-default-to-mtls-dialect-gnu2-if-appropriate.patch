@@ -1,5 +1,5 @@
-From 02616942358bd045b21a69c0c866687150080d12 Mon Sep 17 00:00:00 2001
-Message-ID: <02616942358bd045b21a69c0c866687150080d12.1756094106.git.sam@gentoo.org>
+From 06ade1197723d083766db2ea37af464492795b07 Mon Sep 17 00:00:00 2001
+Message-ID: <06ade1197723d083766db2ea37af464492795b07.1756358799.git.sam@gentoo.org>
 From: Sam James <sam@gentoo.org>
 Date: Sun, 24 Aug 2025 00:30:45 +0100
 Subject: [PATCH] i386: default to -mtls-dialect=gnu2 if appropriate
@@ -45,9 +45,6 @@ Some implementation notes:
   machinery is added to glibc and bfd. This makes the separate position of
   the check (not with some of the others) a bit more palatable IMO.
 
-TODO: Handle -x32
-TODO: Test i686
-
 gcc/ChangeLog:
 	PR target/120933
 	* configure: Regenerate.
@@ -57,12 +54,12 @@ gcc/ChangeLog:
 	(with_tls): Default to 'gnu2' if --with-tls is not passed and
 	gcc_cv_libc_x86_tlsdesc_call is 'yes'.
 ---
- gcc/configure    | 219 +++++++++++++++++++++++++++++++----------------
- gcc/configure.ac | 114 ++++++++++++++++++------
- 2 files changed, 233 insertions(+), 100 deletions(-)
+ gcc/configure    | 217 +++++++++++++++++++++++++++++++----------------
+ gcc/configure.ac | 112 ++++++++++++++++++------
+ 2 files changed, 229 insertions(+), 100 deletions(-)
 
 diff --git a/gcc/configure b/gcc/configure
-index 4a751d969bab..067e95eeedd2 100755
+index 4a751d969bab..ba303469613c 100755
 --- a/gcc/configure
 +++ b/gcc/configure
 @@ -737,7 +737,6 @@ libgcc_visibility
@@ -81,7 +78,7 @@ index 4a751d969bab..067e95eeedd2 100755
  objext
  manext
  LIBICONV_DEP
-@@ -12927,6 +12927,147 @@ if test "x$enable_win32_utf8_manifest" != xno; then
+@@ -12927,6 +12927,145 @@ if test "x$enable_win32_utf8_manifest" != xno; then
    host_extra_objs_mingw=utf8-mingw32.o
  fi
  
@@ -168,15 +165,13 @@ index 4a751d969bab..067e95eeedd2 100755
 +	# for this behavior and binaries will depend on GLIBC_ABI_GNU2_TLS and fixed
 +	# glibc.  Hence the presence of GLIBC_ABI_GNU2_TLS tells us if we can safely
 +	# default to GNU2 TLS descriptors.
-+	#
-+	# TODO: x32
 +	conftest_S='
 +		.section        .text.startup,"ax",@progbits
 +		.p2align 4
 +		.globl  main
 +		.type   main, @function
 +		main:
-+                #ifdef __x86_64__
++		#ifdef __x86_64__
 +			leaq    foo@TLSDESC(%rip), %rax
 +			call    *foo@TLSCALL(%rax)
 +			movl    %fs:(%rax), %eax
@@ -229,25 +224,25 @@ index 4a751d969bab..067e95eeedd2 100755
  # --------------------------------------------------------
  # Build, host, and target specific configuration fragments
  # --------------------------------------------------------
-@@ -21484,7 +21625,7 @@ else
+@@ -21484,7 +21623,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
 -#line 21487 "configure"
-+#line 21628 "configure"
++#line 21626 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -21590,7 +21731,7 @@ else
+@@ -21590,7 +21729,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
 -#line 21593 "configure"
-+#line 21734 "configure"
++#line 21732 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -25419,78 +25560,6 @@ else
+@@ -25419,78 +25558,6 @@ else
  $as_echo "$gcc_cv_objdump" >&6; }
  fi
  
@@ -327,10 +322,10 @@ index 4a751d969bab..067e95eeedd2 100755
  if ${gcc_cv_otool+:} false; then :
  
 diff --git a/gcc/configure.ac b/gcc/configure.ac
-index 4532c5c22fe5..5c60c47d36be 100644
+index 4532c5c22fe5..4c268d565d72 100644
 --- a/gcc/configure.ac
 +++ b/gcc/configure.ac
-@@ -1886,6 +1886,95 @@ if test "x$enable_win32_utf8_manifest" != xno; then
+@@ -1886,6 +1886,93 @@ if test "x$enable_win32_utf8_manifest" != xno; then
    host_extra_objs_mingw=utf8-mingw32.o
  fi
  
@@ -372,15 +367,13 @@ index 4532c5c22fe5..5c60c47d36be 100644
 +	# for this behavior and binaries will depend on GLIBC_ABI_GNU2_TLS and fixed
 +	# glibc.  Hence the presence of GLIBC_ABI_GNU2_TLS tells us if we can safely
 +	# default to GNU2 TLS descriptors.
-+	#
-+	# TODO: x32
 +	conftest_S='
 +		.section        .text.startup,"ax",@progbits
 +		.p2align 4
 +		.globl  main
 +		.type   main, @function
 +		main:
-+                #ifdef __x86_64__
++		#ifdef __x86_64__
 +			leaq    foo@TLSDESC(%rip), %rax
 +			call    *foo@TLSCALL(%rax)
 +			movl    %fs:(%rax), %eax
@@ -426,7 +419,7 @@ index 4532c5c22fe5..5c60c47d36be 100644
  # --------------------------------------------------------
  # Build, host, and target specific configuration fragments
  # --------------------------------------------------------
-@@ -2934,31 +3023,6 @@ else
+@@ -2934,31 +3021,6 @@ else
  	AC_MSG_RESULT($gcc_cv_objdump)
  fi
  
