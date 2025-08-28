@@ -1,0 +1,771 @@
+From 3bbb5c9c356d34f3593d8beb512b13c2f9cae7fe Mon Sep 17 00:00:00 2001
+Message-ID: <3bbb5c9c356d34f3593d8beb512b13c2f9cae7fe.1756403767.git.sam@gentoo.org>
+From: Sam James <sam@gentoo.org>
+Date: Thu, 28 Aug 2025 18:55:53 +0100
+Subject: [PATCH] Revert "PR modula2/121629: adding third party modules"
+
+This reverts commit 69faef01dff124cd2e657b7525ba6cc574626853.
+
+Bug: https://gcc.gnu.org/PR121709
+---
+ gcc/doc/gm2.texi                              |  69 +----
+ gcc/m2/gm2-compiler/PathName.mod              |  21 --
+ gcc/m2/gm2-lang.cc                            | 283 +++++-------------
+ gcc/m2/gm2spec.cc                             |  31 +-
+ gcc/m2/lang.opt                               |  10 +-
+ .../pass/switches-pathnameroot-pass.exp       |  48 ---
+ .../gm2/switches/pathnameroot/pass/test.mod   |   6 -
+ .../pathnameroot/pass/testlib/m2/foo.def      |   7 -
+ .../pathnameroot/pass/testlib/m2/foo.mod      |   3 -
+ 9 files changed, 94 insertions(+), 384 deletions(-)
+ delete mode 100755 gcc/testsuite/gm2/switches/pathnameroot/pass/switches-pathnameroot-pass.exp
+ delete mode 100644 gcc/testsuite/gm2/switches/pathnameroot/pass/test.mod
+ delete mode 100644 gcc/testsuite/gm2/switches/pathnameroot/pass/testlib/m2/foo.def
+ delete mode 100644 gcc/testsuite/gm2/switches/pathnameroot/pass/testlib/m2/foo.mod
+
+diff --git a/gcc/doc/gm2.texi b/gcc/doc/gm2.texi
+index 4147a287c45d..9bd0f0d22142 100644
+--- a/gcc/doc/gm2.texi
++++ b/gcc/doc/gm2.texi
+@@ -143,7 +143,11 @@ available and access to assembly programming is achieved using the
+ same syntax as that used by GCC.
+ 
+ The gm2 driver allows third party libraries to be installed alongside
+-gm2 libraries.  @xref{Module Search Path}.
++gm2 libraries.  For example if the user specifies library @code{foo}
++using @code{-flibs=foo} the driver will check the standard GCC install
++directory for a sub directory @code{foo} containing the library
++contents.  The library module search path is altered accordingly
++for compile and link.
+ 
+ @node Development, Features, Why use GNU Modula-2, Overview
+ @section How to get source code using git
+@@ -225,7 +229,6 @@ such as the AVR and the ARM).
+ * Standard procedures::   Permanently accessible base procedures.
+ * High procedure function:: Behavior of the high procedure function.
+ * Dialect::               GNU Modula-2 supported dialects.
+-* Module Search Path::    How to add library modules.
+ * Exceptions::            Exception implementation
+ * Semantic checking::     How to detect run time problems at compile time.
+ * Extensions::            GNU Modula-2 language extensions.
+@@ -522,15 +525,6 @@ following include paths.
+ for internal use only: used by the driver to copy the user facing @samp{-I}
+ option.
+ 
+-@item -fm2-pathname-root=@file{pathroot}
+-add search paths derived from the specified @file{pathroot}.
+-@xref{Module Search Path} for examples.
+-
+-@item -fm2-pathname-rootI
+-for internal use only: used by the driver to copy every user
+-@samp{-fm2-pathname-root=} facing option in order with all other
+-@samp{-I} options.
+-
+ @item -fm2-plugin
+ insert plugin to identify run time errors at compile time (default on).
+ 
+@@ -1385,7 +1379,7 @@ Actual parameter | HIGH (a) | a[HIGH (a)] = nul
+  str3            | 3        | TRUE
+ @end example
+ 
+-@node Dialect, Module Search Path, High procedure function, Using
++@node Dialect, Exceptions, High procedure function, Using
+ @section GNU Modula-2 supported dialects
+ 
+ This section describes the dialects understood by GNU Modula-2.
+@@ -1450,39 +1444,6 @@ implemented as above, apart from the exception calling in the ISO
+ dialect.  Instead of exception handling the results are the same as the
+ PIM4 dialect.  This is a temporary implementation situation.
+ 
+-@node Module Search Path, Exceptions, Dialect, Using
+-@section Module Search Path
+-
+-This section describes the default module search path and how this
+-might be changed.  By default the compiler will search the current
+-directory, site wide modules and lastly gcc version specific modules.
+-
+-The @samp{-I} option option can be used to introduce new directories
+-in the module search path and for convenience the options @samp{-flibs=}
+-and @samp{-fm2-pathname-root=} are also provided.
+-
+-The site wide modules are located at @var{prefix}@file{/include/m2}
+-whereas the version specific modules are located in
+-@var{libsubdir}@file{/m2}.  Both of these @file{/m2} directories
+-are organized such that the non dialect specific modules are at the
+-top and dialect specific modules are in subdirectories.
+-
+-The @samp{-fm2-pathname-root=} option is equivalent to adding a
+-@samp{-I} path for every library dialect.  For example if the library
+-dialect order is selected by @samp{-flibs=pim,iso,log} and
+-@samp{-fm2-pathname-root=foo} is supplied then this is equivalent to
+-the following pairs of options:
+-
+-@example
+--fm2-pathname=m2pim -I@file{foo/m2/m2pim}
+--fm2-pathname=m2iso -I@file{foo/m2/m2iso}
+--fm2-pathname=m2log -I@file{foo/m2/m2log}
+--fm2-pathname=- -I@file{foo/m2}
+-@end example
+-
+-The option @samp{-fsources} will show the source module, path and
+-pathname for each module parsed.
+-
+ @node Exceptions, Semantic checking, Dialect, Using
+ @section Exception implementation
+ 
+@@ -2062,7 +2023,7 @@ CONST
+ 
+ VAR
+    head: List ;
+-@end group
++@end group   
+ @end example
+ 
+ @example
+@@ -2073,13 +2034,13 @@ VAR
+ BEGIN
+    p := head^.next ;
+    printf ("\nunique data\n");
+-   printf ("===========\n");
++   printf ("===========\n");   
+    WHILE p # NIL DO
+       printf ("%d\n", p^.value);
+       p := p^.next
+    END
+ END Display ;
+-@end group
++@end group   
+ @end example
+ 
+ @example
+@@ -2092,7 +2053,7 @@ BEGIN
+       next := NIL
+    END
+ END Add ;
+-@end group
++@end group   
+ @end example
+ 
+ @example
+@@ -2114,17 +2075,17 @@ EXCEPT
+    THEN
+       printf ("list was empty, add sentinal\n");
+       Add (head, -1) ;
+-      RETRY  (* Jump back to the begin statement.  *)
++      RETRY  (* Jump back to the begin statement.  *)      
+    ELSIF p^.next = NIL
+    THEN
+       printf ("growing the list\n");
+       Add (p^.next, val) ;
+       RETRY  (* Jump back to the begin statement.  *)
+    ELSE
+-      printf ("should never reach here!\n");
++      printf ("should never reach here!\n");   
+    END
+ END Unique ;
+-@end group
++@end group   
+ @end example
+ 
+ @example
+@@ -2143,7 +2104,7 @@ BEGIN
+    head := NIL ;
+    unique
+ END lazyunique.
+-@end group
++@end group   
+ @end example
+ 
+ @example
+@@ -2166,7 +2127,7 @@ unique data
+ 0
+ 2
+ 1
+-@end group
++@end group   
+ @end example
+ 
+ @node Unbounded by reference, Building a shared library, Exception handling, Using
+diff --git a/gcc/m2/gm2-compiler/PathName.mod b/gcc/m2/gm2-compiler/PathName.mod
+index 0ba902408204..6fc7612d08f3 100644
+--- a/gcc/m2/gm2-compiler/PathName.mod
++++ b/gcc/m2/gm2-compiler/PathName.mod
+@@ -1,24 +1,3 @@
+-(* M2PathName.mod maintain a dictionary of named paths.
+-
+-Copyright (C) 2023-2025 Free Software Foundation, Inc.
+-Contributed by Gaius Mulley <gaius.mulley@southwales.ac.uk>.
+-
+-This file is part of GNU Modula-2.
+-
+-GNU Modula-2 is free software; you can redistribute it and/or modify
+-it under the terms of the GNU General Public License as published by
+-the Free Software Foundation; either version 3, or (at your option)
+-any later version.
+-
+-GNU Modula-2 is distributed in the hope that it will be useful, but
+-WITHOUT ANY WARRANTY; without even the implied warranty of
+-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+-General Public License for more details.
+-
+-You should have received a copy of the GNU General Public License
+-along with GNU Modula-2; see the file COPYING3.  If not see
+-<http://www.gnu.org/licenses/>.  *)
+-
+ IMPLEMENTATION MODULE PathName ;
+ 
+ FROM Storage IMPORT ALLOCATE, DEALLOCATE ;
+diff --git a/gcc/m2/gm2-lang.cc b/gcc/m2/gm2-lang.cc
+index d378d1bc2122..31a2e46475dc 100644
+--- a/gcc/m2/gm2-lang.cc
++++ b/gcc/m2/gm2-lang.cc
+@@ -51,7 +51,6 @@ static bool iso = false;
+ typedef struct named_path_s {
+   std::vector<const char*>path;
+   const char *name;
+-  bool lib_root;
+ } named_path;
+ 
+ 
+@@ -373,7 +372,6 @@ push_back_Ipath (const char *arg)
+       named_path np;
+       np.path.push_back (arg);
+       np.name = xstrdup (M2Options_GetM2PathName ());
+-      np.lib_root = false;
+       Ipaths.push_back (np);
+     }
+   else
+@@ -386,205 +384,11 @@ push_back_Ipath (const char *arg)
+ 	  named_path np;
+ 	  np.path.push_back (arg);
+ 	  np.name = xstrdup (M2Options_GetM2PathName ());
+-	  np.lib_root = false;
+ 	  Ipaths.push_back (np);
+ 	}
+     }
+ }
+ 
+-/* push_back_lib_root pushes a lib_root onto the Ipaths vector.
+-   The ordering of the -fm2_add_lib_root=, -I and named paths
+-   must be preserved.  */
+-
+-static void
+-push_back_lib_root (const char *arg)
+-{
+-  named_path np;
+-  np.name = arg;
+-  np.lib_root = true;
+-  Ipaths.push_back (np);
+-}
+-
+-/* get_dir_sep_size return the length of the DIR_SEPARATOR string.  */
+-
+-static size_t
+-get_dir_sep_size (void)
+-{
+-  const char dir_sep[] = {DIR_SEPARATOR, (char)0};
+-  size_t dir_sep_size = strlen (dir_sep);
+-  return dir_sep_size;
+-}
+-
+-/* add_path_component strcats src into dest and adds a directory seperator
+-   if necessary.  */
+-
+-static void
+-add_path_component (char *dest, const char *src)
+-{
+-  size_t len = strlen (dest);
+-  const char dir_sep[] = {DIR_SEPARATOR, (char)0};
+-  size_t dir_sep_size = strlen (dir_sep);
+-
+-  if (len > 0)
+-    {
+-      /* Only add a seperator if dest is not empty and does not end
+-	 with a seperator.  */
+-      if (len >= dir_sep_size
+-	  && (strcmp (&dest[len-dir_sep_size], dir_sep) != 0))
+-	strcat (dest, dir_sep);
+-    }
+-  strcat (dest, src);
+-}
+-
+-/* This prefixes LIBNAME with the current compiler prefix (if it has been
+-   relocated) or the LIBSUBDIR, if not.  */
+-
+-static void
+-add_one_import_path (const char *libpath, const char *libname)
+-{
+-  size_t dir_sep_size = get_dir_sep_size ();
+-  size_t mlib_len = 0;
+-
+-  if (imultilib)
+-    {
+-      mlib_len = strlen (imultilib);
+-      mlib_len += dir_sep_size;
+-    }
+-
+-  char *lib = (char *)alloca (strlen (libpath) + dir_sep_size
+-			      + strlen ("m2") + dir_sep_size
+-			      + strlen (libname) + 1
+-			      + mlib_len + 1);
+-  strcpy (lib, libpath);
+-  if (imultilib)
+-    add_path_component (lib, imultilib);
+-  add_path_component (lib, "m2");
+-  add_path_component (lib, libname);
+-  M2Options_SetM2PathName (libname);
+-  M2Options_SetSearchPath (lib);
+-}
+-
+-/* add_non_dialect_specific_path add non dialect specific includes
+-   given a base libpath.  */
+-
+-static void
+-add_non_dialect_specific_path (const char *libpath)
+-{
+-  char *incpath = (char *)alloca (strlen (libpath)
+-				  + strlen ("m2")
+-				  + get_dir_sep_size ()
+-				  + 1);
+-  strcpy (incpath, libpath);
+-  add_path_component (incpath, "m2");
+-  M2Options_SetM2PathName ("");   /* No pathname for non dialect specific libs.  */
+-  M2Options_SetSearchPath (incpath);
+-}
+-
+-/* For each comma-separated standard library name in LIBLIST, add the
+-   corresponding include path.  */
+-
+-static void
+-foreach_lib_gen_import_path (const char *liblist, const char *libpath)
+-{
+-  while (*liblist != 0 && *liblist != '-')
+-    {
+-      const char *comma = strstr (liblist, ",");
+-      size_t len;
+-      if (comma)
+-	len = comma - liblist;
+-      else
+-	len = strlen (liblist);
+-      char *libname = (char *) alloca (len+1);
+-      strncpy (libname, liblist, len);
+-      libname[len] = 0;
+-      add_one_import_path (libpath, libname);
+-      liblist += len;
+-      if (*liblist == ',')
+-	liblist++;
+-    }
+-  add_non_dialect_specific_path (libpath);
+-}
+-
+-/* get_module_source_dir return the libpath/{multilib/} as a malloc'd
+-   string.  */
+-
+-static const char *
+-get_module_source_dir (void)
+-{
+-  const char *libpath = iprefix ? iprefix : LIBSUBDIR;
+-  const char dir_sep[] = {DIR_SEPARATOR, (char)0};
+-  size_t dir_sep_size = strlen (dir_sep);
+-  unsigned int mlib_len = 0;
+-
+-  if (imultilib)
+-    {
+-      mlib_len = strlen (imultilib);
+-      mlib_len += strlen (dir_sep);
+-    }
+-  char *lib = (char *) xmalloc (strlen (libpath)
+-				+ dir_sep_size
+-				+ mlib_len + 1);
+-  strcpy (lib, libpath);
+-  /* iprefix has a trailing dir separator, LIBSUBDIR does not.  */
+-  if (!iprefix)
+-    strcat (lib, dir_sep);
+-
+-  if (imultilib)
+-    {
+-      strcat (lib, imultilib);
+-      strcat (lib, dir_sep);
+-    }
+-  return lib;
+-}
+-
+-/* add_default_include_paths add include paths for site wide definition modules
+-   and also gcc version specific definition modules.  */
+-
+-static void
+-add_default_include_paths (const char *flibs)
+-{
+-  /* Add the site wide include path.  */
+-  foreach_lib_gen_import_path (flibs, PREFIX_INCLUDE_DIR);
+-  /* Add the gcc version specific include path.  */
+-  foreach_lib_gen_import_path (flibs,
+-			       get_module_source_dir ());
+-}
+-
+-/* assign_flibs assign flibs to a default providing that allow_libraries
+-   is true and flibs has not been set.  */
+-
+-static void
+-assign_flibs (void)
+-{
+-  if (allow_libraries && (flibs == NULL))
+-    {
+-      if (iso)
+-	flibs = "m2iso,m2cor,m2pim,m2log";
+-      else
+-	flibs = "m2pim,m2iso,m2cor,m2log";
+-    }
+-}
+-
+-/* m2_pathname_root creates a new set of include paths for the
+-   subdirectory m2 inside libroot.  The ordering of the paths
+-   follows the dialect library order.  */
+-
+-static void
+-m2_pathname_root (const char *libroot)
+-{
+-  const char *copy_flibs = flibs;
+-
+-  if (copy_flibs == NULL)
+-    {
+-      if (iso)
+-	copy_flibs = "m2iso,m2cor,m2pim,m2log";
+-      else
+-	copy_flibs = "m2pim,m2iso,m2cor,m2log";
+-    }
+-  foreach_lib_gen_import_path (copy_flibs, libroot);
+-}
+-
+-
+ /* Handle gm2 specific options.  Return 0 if we didn't do anything.  */
+ 
+ bool
+@@ -631,9 +435,6 @@ gm2_langhook_handle_option (
+     case OPT_fpositive_mod_floor_div:
+       M2Options_SetPositiveModFloor (value);
+       return 1;
+-    case OPT_fm2_pathname_rootI_:
+-      push_back_lib_root (arg);
+-      return 1;
+     case OPT_flibs_:
+       allow_libraries = value;
+       flibs = arg;
+@@ -909,6 +710,66 @@ gm2_langhook_handle_option (
+   return 0;
+ }
+ 
++/* This prefixes LIBNAME with the current compiler prefix (if it has been
++   relocated) or the LIBSUBDIR, if not.  */
++static void
++add_one_import_path (const char *libname)
++{
++  const char *libpath = iprefix ? iprefix : LIBSUBDIR;
++  const char dir_sep[] = {DIR_SEPARATOR, (char)0};
++  size_t dir_sep_size = strlen (dir_sep);
++  unsigned int mlib_len = 0;
++
++  if (imultilib)
++    {
++      mlib_len = strlen (imultilib);
++      mlib_len += strlen (dir_sep);
++    }
++
++  char *lib = (char *)alloca (strlen (libpath) + dir_sep_size
++			      + strlen ("m2") + dir_sep_size
++			      + strlen (libname) + 1
++			      + mlib_len + 1);
++  strcpy (lib, libpath);
++  /* iprefix has a trailing dir separator, LIBSUBDIR does not.  */
++  if (!iprefix)
++    strcat (lib, dir_sep);
++
++  if (imultilib)
++    {
++      strcat (lib, imultilib);
++      strcat (lib, dir_sep);
++    }
++  strcat (lib, "m2");
++  strcat (lib, dir_sep);
++  strcat (lib, libname);
++  M2Options_SetM2PathName (libname);
++  M2Options_SetSearchPath (lib);
++}
++
++/* For each comma-separated standard library name in LIBLIST, add the
++   corresponding include path.  */
++static void
++add_m2_import_paths (const char *liblist)
++{
++  while (*liblist != 0 && *liblist != '-')
++    {
++      const char *comma = strstr (liblist, ",");
++      size_t len;
++      if (comma)
++	len = comma - liblist;
++      else
++	len = strlen (liblist);
++      char *libname = (char *) alloca (len+1);
++      strncpy (libname, liblist, len);
++      libname[len] = 0;
++      add_one_import_path (libname);
++      liblist += len;
++      if (*liblist == ',')
++	liblist++;
++    }
++}
++
+ /* Run after parsing options.  */
+ 
+ static bool
+@@ -923,7 +784,16 @@ gm2_langhook_post_options (const char **pfilename)
+   /* Add the include paths as per the libraries specified.
+      NOTE: This assumes that the driver has validated the input and makes
+      no attempt to be defensive of nonsense input in flibs=.  */
+-  assign_flibs ();
++  if (allow_libraries)
++    {
++      if (!flibs)
++	{
++	  if (iso)
++	    flibs = "m2iso,m2cor,m2pim,m2log";
++	  else
++	    flibs = "m2pim,m2iso,m2cor,m2log";
++	}
++    }
+ 
+   /* Add search paths.
+      We are not handling all of the cases yet (e.g idirafter).
+@@ -937,14 +807,9 @@ gm2_langhook_post_options (const char **pfilename)
+   iquote.clear();
+   for (auto np : Ipaths)
+     {
+-      if (np.lib_root)
+-	foreach_lib_gen_import_path (flibs, np.name);
+-      else
+-	{
+-	  M2Options_SetM2PathName (np.name);
+-	  for (auto *s : np.path)
+-	    M2Options_SetSearchPath (s);
+-	}
++      M2Options_SetM2PathName (np.name);
++      for (auto *s : np.path)
++	M2Options_SetSearchPath (s);
+     }
+   Ipaths.clear();
+   for (auto *s : isystem)
+@@ -953,7 +818,7 @@ gm2_langhook_post_options (const char **pfilename)
+   /* FIXME: this is not a good way to suppress the addition of the import
+      paths.  */
+   if (allow_libraries)
+-    add_default_include_paths (flibs);
++    add_m2_import_paths (flibs);
+ 
+   /* Returning false means that the backend should be used.  */
+   return M2Options_GetPPOnly ();
+diff --git a/gcc/m2/gm2spec.cc b/gcc/m2/gm2spec.cc
+index 18d9ce7a630b..868e5c5619ed 100644
+--- a/gcc/m2/gm2spec.cc
++++ b/gcc/m2/gm2spec.cc
+@@ -158,12 +158,10 @@ static const char *m2_path_name = "";
+ typedef struct named_path_s {
+   std::vector<const char*>path;
+   const char *name;
+-  bool lib_root;
+ } named_path;
+ 
+ static std::vector<named_path>Ipaths;
+ 
+-/* push_back_Ipath pushes a named path to the Ipaths global variable.  */
+ 
+ static void
+ push_back_Ipath (const char *arg)
+@@ -173,7 +171,6 @@ push_back_Ipath (const char *arg)
+       named_path np;
+       np.path.push_back (arg);
+       np.name = m2_path_name;
+-      np.lib_root = false;
+       Ipaths.push_back (np);
+     }
+   else
+@@ -186,25 +183,11 @@ push_back_Ipath (const char *arg)
+ 	  named_path np;
+ 	  np.path.push_back (arg);
+ 	  np.name = m2_path_name;
+-	  np.lib_root = false;
+ 	  Ipaths.push_back (np);
+ 	}
+     }
+ }
+ 
+-/* push_back_lib_root pushes a lib_root onto the Ipaths vector.
+-   The ordering of the -fm2_add_lib_root=, -I and named paths
+-   must be preserved.  */
+-
+-static void
+-push_back_lib_root (const char *arg)
+-{
+-  named_path np;
+-  np.name = arg;
+-  np.lib_root = true;
+-  Ipaths.push_back (np);
+-}
+-
+ /* Return whether strings S1 and S2 are both NULL or both the same
+    string.  */
+ 
+@@ -396,18 +379,15 @@ convert_abbreviations (const char *libraries)
+   return full_libraries;
+ }
+ 
+-/* add_m2_I_path appends -fm2-pathname, -fm2-pathnameI and -fm2-add-lib-root
+-   options to the command line which are contructed in the saved Ipaths.
+-   The order of these options must be maintained.  */
++/* add_m2_I_path appends -fm2-pathname and -fm2-pathnameI options to
++   the command line which are contructed in the saved Ipaths.  */
+ 
+ static void
+ add_m2_I_path (void)
+ {
+   for (auto np : Ipaths)
+     {
+-      if (np.lib_root)
+-	append_option (OPT_fm2_pathname_rootI_, safe_strdup (np.name), 1);
+-      else if (strcmp (np.name, "") == 0)
++      if (strcmp (np.name, "") == 0)
+ 	append_option (OPT_fm2_pathname_, safe_strdup ("-"), 1);
+       else
+ 	append_option (OPT_fm2_pathname_, safe_strdup (np.name), 1);
+@@ -596,10 +576,6 @@ lang_specific_driver (struct cl_decoded_option **in_decoded_options,
+ 	  args[i] |= SKIPOPT; /* We will add the option if it is needed.  */
+ 	  m2_path_name = decoded_options[i].arg;
+ 	  break;
+-	case OPT_fm2_pathname_root_:
+-	  args[i] |= SKIPOPT; /* We will add the option if it is needed.  */
+-	  push_back_lib_root (decoded_options[i].arg);
+-	  break;
+ 	case OPT__help:
+ 	case OPT__help_:
+ 	  /* Let gcc.cc handle this, as it has a really
+@@ -763,6 +739,7 @@ lang_specific_driver (struct cl_decoded_option **in_decoded_options,
+ 	       "-fgen-module-list=", "-fuse-list=");
+     }
+ 
++
+   /* There's no point adding -shared-libgcc if we don't have a shared
+      libgcc.  */
+ #ifndef ENABLE_SHARED_LIBGCC
+diff --git a/gcc/m2/lang.opt b/gcc/m2/lang.opt
+index 2aea4ccb77eb..48c2380f565b 100644
+--- a/gcc/m2/lang.opt
++++ b/gcc/m2/lang.opt
+@@ -172,15 +172,7 @@ specify the module mangled prefix name for all modules in the following include
+ 
+ fm2-pathnameI
+ Modula-2 Joined
+-; For internal use only: used by the driver to copy the user facing -I option in order
+-
+-fm2-pathname-root=
+-Modula-2 Joined
+-add include paths for all the library names in -flibs= to this directory root
+-
+-fm2-pathname-rootI=
+-Modula-2 Joined
+-; For internal use only: used by the driver to copy the user facing -I option in order
++; For internal use only: used by the driver to copy the user facing -I option
+ 
+ fm2-plugin
+ Modula-2
+diff --git a/gcc/testsuite/gm2/switches/pathnameroot/pass/switches-pathnameroot-pass.exp b/gcc/testsuite/gm2/switches/pathnameroot/pass/switches-pathnameroot-pass.exp
+deleted file mode 100755
+index d2f4d87ae27b..000000000000
+--- a/gcc/testsuite/gm2/switches/pathnameroot/pass/switches-pathnameroot-pass.exp
++++ /dev/null
+@@ -1,48 +0,0 @@
+-# Expect driver script for GCC Regression Tests
+-# Copyright (C) 2025 Free Software Foundation, Inc.
+-
+-# This program is free software; you can redistribute it and/or modify
+-# it under the terms of the GNU General Public License as published by
+-# the Free Software Foundation; either version 3 of the License, or
+-# (at your option) any later version.
+-#
+-# This program is distributed in the hope that it will be useful,
+-# but WITHOUT ANY WARRANTY; without even the implied warranty of
+-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-# GNU General Public License for more details.
+-#
+-# You should have received a copy of the GNU General Public License
+-# along with GCC; see the file COPYING3.  If not see
+-# <http://www.gnu.org/licenses/>.
+-
+-# This file was written by Gaius Mulley (gaius.mulley@southwales.ac.uk)
+-# for GNU Modula-2.
+-
+-load_lib target-supports.exp
+-
+-global TESTING_IN_BUILD_TREE
+-global ENABLE_PLUGIN
+-
+-# The plugin testcases currently only work when the build tree is available.
+-# Also check whether the host supports plugins.
+-if { ![info exists TESTING_IN_BUILD_TREE] || ![info exists ENABLE_PLUGIN] } {
+-    return
+-}
+-
+-if $tracelevel then {
+-    strace $tracelevel
+-}
+-
+-# load support procs
+-load_lib gm2-torture.exp
+-
+-gm2_init_pim "${srcdir}/gm2/switches/pathnameroot/pass" -fm2-pathname-root="${srcdir}/gm2/switches/pathnameroot/pass/testlib"
+-
+-foreach testcase [lsort [glob -nocomplain $srcdir/$subdir/*.mod]] {
+-    # If we're only testing specific files and this isn't one of them, skip it.
+-    if ![runtest_file_p $runtests $testcase] then {
+-	continue
+-    }
+-
+-    gm2-torture-fail $testcase
+-}
+diff --git a/gcc/testsuite/gm2/switches/pathnameroot/pass/test.mod b/gcc/testsuite/gm2/switches/pathnameroot/pass/test.mod
+deleted file mode 100644
+index 0f9cd6fe38b2..000000000000
+--- a/gcc/testsuite/gm2/switches/pathnameroot/pass/test.mod
++++ /dev/null
+@@ -1,6 +0,0 @@
+-MODULE test ;
+-
+-FROM foo IMPORT SomeValue ;
+-
+-BEGIN
+-END test.
+diff --git a/gcc/testsuite/gm2/switches/pathnameroot/pass/testlib/m2/foo.def b/gcc/testsuite/gm2/switches/pathnameroot/pass/testlib/m2/foo.def
+deleted file mode 100644
+index 9fa4973b0de1..000000000000
+--- a/gcc/testsuite/gm2/switches/pathnameroot/pass/testlib/m2/foo.def
++++ /dev/null
+@@ -1,7 +0,0 @@
+-DEFINITION MODULE foo ;
+-
+-CONST
+-   SomeValue = 123 ;
+-
+-
+-END foo.
+diff --git a/gcc/testsuite/gm2/switches/pathnameroot/pass/testlib/m2/foo.mod b/gcc/testsuite/gm2/switches/pathnameroot/pass/testlib/m2/foo.mod
+deleted file mode 100644
+index fcbcf1e9ce70..000000000000
+--- a/gcc/testsuite/gm2/switches/pathnameroot/pass/testlib/m2/foo.mod
++++ /dev/null
+@@ -1,3 +0,0 @@
+-IMPLEMENTATION MODULE foo ;
+-
+-END foo.
+
+base-commit: 59db4ce2df1db33ad361eca06a7aec99b24d0d2f
+-- 
+2.51.0
+

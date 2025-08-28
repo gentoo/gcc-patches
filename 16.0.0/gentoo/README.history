@@ -2,6 +2,7 @@
 
 	U 86_all_PR120933-i386-default-to-mtls-dialect-gnu2-if-appropriate.patch
 	+ 88_all-x86-64-Improve-source-operand-check-for-TLS_CALL.patch
+	+ 89_all_PR121709-Revert-PR-modula2-121629-adding-third-party-modules.patchsam@mop
 
 12	24 August 2025
 
