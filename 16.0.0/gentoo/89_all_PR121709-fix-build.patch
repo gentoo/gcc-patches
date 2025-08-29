@@ -1,6 +1,30 @@
-https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121709#c8
+https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121709#c10
+diff --git a/gcc/doc/gm2.texi b/gcc/doc/gm2.texi
+index 4147a287c45..d908aeaaa05 100644
+--- a/gcc/doc/gm2.texi
++++ b/gcc/doc/gm2.texi
+@@ -1455,13 +1455,17 @@ PIM4 dialect.  This is a temporary implementation situation.
+ 
+ This section describes the default module search path and how this
+ might be changed.  By default the compiler will search the current
+-directory, site wide modules and lastly gcc version specific modules.
++directory, local include dir, prefix include dir, gcc version specific
++modules and lastly native system header dir.  The exact location and
++whether all these directories are used depends upon the configuration
++options used when building GCC.
+ 
+ The @samp{-I} option option can be used to introduce new directories
+ in the module search path and for convenience the options @samp{-flibs=}
+ and @samp{-fm2-pathname-root=} are also provided.
+ 
+-The site wide modules are located at @var{prefix}@file{/include/m2}
++The site wide modules are typically located at
++@var{prefix}@file{/include/m2}
+ whereas the version specific modules are located in
+ @var{libsubdir}@file{/m2}.  Both of these @file{/m2} directories
+ are organized such that the non dialect specific modules are at the
 diff --git a/gcc/m2/gm2-lang.cc b/gcc/m2/gm2-lang.cc
-index d378d1bc212..1b1b94a1f1d 100644
+index d378d1bc212..cc074d550fc 100644
 --- a/gcc/m2/gm2-lang.cc
 +++ b/gcc/m2/gm2-lang.cc
 @@ -40,6 +40,7 @@ along with GCC; see the file COPYING3.  If not see
@@ -19,15 +43,17 @@ index d378d1bc212..1b1b94a1f1d 100644
  static std::vector<named_path>Ipaths;
  static std::vector<const char*>isystem;
  static std::vector<const char*>iquote;
-@@ -537,17 +539,80 @@ get_module_source_dir (void)
+@@ -537,17 +539,86 @@ get_module_source_dir (void)
    return lib;
  }
  
-+/* concat_component returns a string containing the path
-+   left/right.  */
++/* concat_component returns a string containing the path left/right.
++   Pre-requisite, left and right are null terminated strings.  The contents of
++   left and right are held on the heap.  Post-requisite, left and right are
++   freed and a new combined string is malloced.  */
 +
 +static char *
-+concat_component (const char *left, const char *right)
++concat_component (char *left, char *right)
 +{
 +  size_t len = strlen (left)
 +    + strlen (right)
@@ -36,6 +62,8 @@ index d378d1bc212..1b1b94a1f1d 100644
 +  char *new_str = (char *) xmalloc (len);
 +  strcpy (new_str, left);
 +  add_path_component (new_str, right);
++  free (left);
++  free (right);
 +  return new_str;
 +}
 +
@@ -70,10 +98,12 @@ index d378d1bc212..1b1b94a1f1d 100644
 +	full_str = concat_component (xstrdup (sysroot), full_str);
 +      /* Should we append the imultilib component?  */
 +      if (p->multilib == 1 && imultilib)
-+	full_str = concat_component (full_str, imultilib);
++	full_str = concat_component (full_str, xstrdup (imultilib));
 +      /* Or append the imultiarch component?  */
 +      else if (p->multilib == 2 && imultiarch)
-+	full_str = concat_component (full_str, imultiarch);
++	full_str = concat_component (full_str, xstrdup (imultiarch));
++      else
++	full_str = xstrdup (p->fname);
 +      foreach_lib_gen_import_path (flibs, full_str);
 +      free (full_str);
 +    }
@@ -104,7 +134,7 @@ index d378d1bc212..1b1b94a1f1d 100644
  }
  
  /* assign_flibs assign flibs to a default providing that allow_libraries
-@@ -565,26 +630,6 @@ assign_flibs (void)
+@@ -565,26 +636,6 @@ assign_flibs (void)
      }
  }
  
@@ -131,7 +161,7 @@ index d378d1bc212..1b1b94a1f1d 100644
  /* Handle gm2 specific options.  Return 0 if we didn't do anything.  */
  
  bool
-@@ -858,7 +903,7 @@ gm2_langhook_handle_option (
+@@ -858,7 +909,7 @@ gm2_langhook_handle_option (
        return 1;
        break;
      case OPT_isysroot:
