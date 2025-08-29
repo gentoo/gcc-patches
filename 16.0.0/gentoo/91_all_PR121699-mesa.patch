@@ -1,0 +1,39 @@
+    1) Fix predicate of operands[3] in cond_<insn><mode> since only
+    const_vec_dup_operand is excepted for masked operations, and pass real
+    count to ix86_vgf2p8affine_shift_matrix.
+
+    2) Pass operands[2] instead of operands[1] to
+    gen_vgf2p8affineqb_<mode>_mask which excepted the operand to shifted,
+    but operands[1] is mask operand in cond_<insn><mode>.
+--- a/gcc/config/i386/predicates.md
++++ b/gcc/config/i386/predicates.md
+@@ -1319,6 +1319,9 @@ (define_predicate "nonimmediate_or_const_vec_dup_operand"
+   (ior (match_operand 0 "nonimmediate_operand")
+        (match_test "const_vec_duplicate_p (op)")))
+ 
++(define_predicate "const_vec_dup_operand"
++       (match_test "const_vec_duplicate_p (op)"))
++
+ ;; Return true when OP is either register operand, or any
+ ;; CONST_VECTOR.
+ (define_predicate "reg_or_const_vector_operand"
+--- a/gcc/config/i386/sse.md
++++ b/gcc/config/i386/sse.md
+@@ -27007,13 +27007,14 @@ (define_expand "cond_<insn><mode>"
+ 	(vec_merge:VI1_AVX512VL
+ 	  (any_shift:VI1_AVX512VL
+ 	    (match_operand:VI1_AVX512VL 2 "register_operand")
+-	    (match_operand:VI1_AVX512VL 3 "nonimmediate_or_const_vec_dup_operand"))
++	    (match_operand:VI1_AVX512VL 3 "const_vec_dup_operand"))
+ 	  (match_operand:VI1_AVX512VL 4 "nonimm_or_0_operand")
+ 	(match_operand:<avx512fmaskmode> 1 "register_operand")))]
+   "TARGET_GFNI && TARGET_AVX512F"
+ {
+-  rtx matrix = ix86_vgf2p8affine_shift_matrix (operands[0], operands[2], <CODE>);
+-  emit_insn (gen_vgf2p8affineqb_<mode>_mask (operands[0], operands[1], matrix,
++  rtx count = XVECEXP (operands[3], 0, 0);
++  rtx matrix = ix86_vgf2p8affine_shift_matrix (operands[0], count, <CODE>);
++  emit_insn (gen_vgf2p8affineqb_<mode>_mask (operands[0], operands[2], matrix,
+ 					     const0_rtx, operands[4],
+ 					     operands[1]));
+   DONE;
