@@ -1,0 +1,158 @@
+From 04e11f7b467e53c513548d59e0c4ac256adb2c30 Mon Sep 17 00:00:00 2001
+From: "H.J. Lu" <hjl.tools@gmail.com>
+Date: Fri, 29 Aug 2025 12:53:18 -0700
+Subject: [PATCH] x86-64: Use UNSPEC_DTPOFF to check source operand in
+ TLS64_COMBINE
+
+Since the first operand of PLUS in the source of TLS64_COMBINE pattern:
+
+(set (reg/f:DI 128)
+    (plus:DI (unspec:DI [
+                (symbol_ref:DI ("_TLS_MODULE_BASE_") [flags 0x10])
+                (reg:DI 126)
+                (reg/f:DI 7 sp)
+            ] UNSPEC_TLSDESC)
+        (const:DI (unspec:DI [
+                    (symbol_ref:DI ("bfd_error") [flags 0x1a] <var_decl 0x7fffe99d6e40 bfd_error>)
+                ] UNSPEC_DTPOFF))))
+
+is unused, use the second operand of PLUS:
+
+(const:DI (unspec:DI [
+            (symbol_ref:DI ("bfd_error") [flags 0x1a] <var_decl 0x7fffe99d6e40 bfd_error>)
+        ] UNSPEC_DTPOFF))
+
+to check if 2 TLS_COMBINE patterns have the same source.
+
+gcc/
+
+	PR target/121725
+	* config/i386/i386-features.cc
+	(pass_x86_cse::candidate_gnu2_tls_p): Use the UNSPEC_DTPOFF
+	operand to check source operand in TLS64_COMBINE pattern.
+
+gcc/testsuite/
+
+	PR target/121725
+	* gcc.target/i386/pr121725-1a.c: New test.
+	* gcc.target/i386/pr121725-1b.c: Likewise.
+
+Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
+---
+ gcc/config/i386/i386-features.cc            | 32 +++++-----------
+ gcc/testsuite/gcc.target/i386/pr121725-1a.c | 41 +++++++++++++++++++++
+ gcc/testsuite/gcc.target/i386/pr121725-1b.c |  6 +++
+ 3 files changed, 57 insertions(+), 22 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121725-1a.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr121725-1b.c
+
+diff --git a/gcc/config/i386/i386-features.cc b/gcc/config/i386/i386-features.cc
+index 5440a02c442..0608dd2f9ac 100644
+--- a/gcc/config/i386/i386-features.cc
++++ b/gcc/config/i386/i386-features.cc
+@@ -4291,34 +4291,22 @@ pass_x86_cse::candidate_gnu2_tls_p (rtx set, attr_tls64 tls64)
+      */
+ 
+       scalar_mode = mode = GET_MODE (src);
+-      rtx src0 = XEXP (src, 0);
+-      tls_symbol = XVECEXP (src0, 0, 0);
+-      rtx src1 = XVECEXP (src0, 0, 1);
+-      if (REG_P (src1))
+-	{
+-	  set_insn = tls_set_insn_from_symbol (src1, tls_symbol);
+-	  gcc_assert (set_insn);
+-	}
+-      else
+-	{
+-	  set_insn = nullptr;
+-	  gcc_assert (GET_CODE (src1) == UNSPEC
+-		      && XINT (src1, 1) == UNSPEC_TLSDESC
+-		      && SYMBOL_REF_P (XVECEXP (src1, 0, 0))
+-		      && rtx_equal_p (XVECEXP (src1, 0, 0), tls_symbol));
+-	}
+ 
+-      /* Use TLS_SYMBOL and
++      /* Since the first operand of PLUS in the source TLS_COMBINE
++	 pattern is unused, use the second operand of PLUS:
+ 
+ 	 (const:DI (unspec:DI [
+ 		      (symbol_ref:DI ("e") [flags 0x1a])
+ 		   ] UNSPEC_DTPOFF))
+ 
+-	 as VAL to check if 2 patterns have the same source.  */
+-
+-      rtvec vec = gen_rtvec (2, tls_symbol, XEXP (src, 1));
+-      val = gen_rtx_UNSPEC (mode, vec, UNSPEC_TLSDESC);
+-      def_insn = set_insn;
++	 as VAL to check if 2 TLS_COMBINE patterns have the same
++	 source.  */
++      val = XEXP (src, 1);
++      gcc_assert (GET_CODE (val) == CONST
++		  && GET_CODE (XEXP (val, 0)) == UNSPEC
++		      && XINT (XEXP (val, 0), 1) == UNSPEC_DTPOFF
++		      && SYMBOL_REF_P (XVECEXP (XEXP (val, 0), 0, 0)));
++      def_insn = nullptr;
+       return true;
+     }
+ 
+diff --git a/gcc/testsuite/gcc.target/i386/pr121725-1a.c b/gcc/testsuite/gcc.target/i386/pr121725-1a.c
+new file mode 100644
+index 00000000000..d0a498cace9
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121725-1a.c
+@@ -0,0 +1,41 @@
++/* { dg-do compile { target *-*-linux* } } */
++/* { dg-options "-O3 -fpic -fplt -mtls-dialect=gnu" } */
++
++typedef enum
++{
++  bfd_error_invalid_error_code
++} bfd_error_type;
++static thread_local bfd_error_type bfd_error;
++extern int sections;
++extern void *bfd_alloc_ret;
++extern int bfd_alloc___o;
++extern long bfd_alloc_size;
++
++extern void _objalloc_alloc (int *, long);
++
++bfd_error_type
++bfd_get_error ()
++{
++  return bfd_error;
++}
++
++bool
++s7_bfd_score_elf_late_size_sections ()
++{
++  for (; sections;)
++    {
++      if (bfd_alloc_size)
++        {
++          bfd_error_type error_tag;
++          bfd_error = error_tag;
++        }
++      _objalloc_alloc (&bfd_alloc___o, 0);
++      if (bfd_alloc_ret)
++        {
++          bfd_error_type error_tag;
++          bfd_error = error_tag;
++        }
++    }
++}
++
++/* { dg-final { scan-assembler-times "call\[ \t\]__tls_get_addr@PLT" 2 { target { ! ia32 } } } } */
+diff --git a/gcc/testsuite/gcc.target/i386/pr121725-1b.c b/gcc/testsuite/gcc.target/i386/pr121725-1b.c
+new file mode 100644
+index 00000000000..0b97a8a4cb6
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr121725-1b.c
+@@ -0,0 +1,6 @@
++/* { dg-do compile { target *-*-linux* } } */
++/* { dg-options "-O3 -fpic -fplt -mtls-dialect=gnu2" } */
++
++#include "pr121725-1a.c"
++
++/* { dg-final { scan-assembler-times "call\[ \t\]\\*bfd_error@TLSCALL\\(%(?:r|e)ax\\)" 2 { target { ! ia32 } } } } */
+-- 
+2.51.0
