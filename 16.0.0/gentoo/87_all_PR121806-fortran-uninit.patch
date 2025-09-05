@@ -1,0 +1,27 @@
+From a3748f8a02ae510d2631fb7db4829efae12733bb Mon Sep 17 00:00:00 2001
+From: Andre Vehreschild <vehre@gcc.gnu.org>
+Date: Thu, 4 Sep 2025 08:20:04 +0200
+Subject: [PATCH] Fix uninitialized variable in frontend.
+
+gcc/ChangeLog:
+
+	* gcc.cc (for_each_path): Initialize return value.
+---
+ gcc/gcc.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gcc/gcc.cc b/gcc/gcc.cc
+index 722d42c6968..8da821e92ac 100644
+--- a/gcc/gcc.cc
++++ b/gcc/gcc.cc
+@@ -2788,7 +2788,7 @@ for_each_path (const struct path_prefix *paths,
+   const char *multi_suffix;
+   const char *just_multi_suffix;
+   char *path = NULL;
+-  decltype (callback (nullptr)) ret;
++  decltype (callback (nullptr)) ret = nullptr;
+   bool skip_multi_dir = false;
+   bool skip_multi_os_dir = false;
+ 
+-- 
+2.51.0
