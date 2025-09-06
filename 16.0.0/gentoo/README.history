@@ -1,7 +1,6 @@
 14	????
 
 	- 91_all_PR121699-mesa.patch
-	+ 87_all_PR121806-fortran-uninit.patch
 
 13	31 August 2025
 
