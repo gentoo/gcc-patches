@@ -1,6 +1,7 @@
 15	????
 
-	+ 87_all_PR121962-forwprop-hang.patch
+	+ 87_all_PR121962-forwprop-hang-prereq.patch
+	+ 88_all_PR121962-forwprop-hang.patch
 
 14	7 September 2025
 
