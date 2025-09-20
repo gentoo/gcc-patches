@@ -1,3 +1,8 @@
+	2	20 Sep 2025
+
+	- 50_all_libdruntime_mmap_definition.patch
+	+ 50_all_libdruntime_32bit.patch
+
 	1	12 July 2025
 
 	+ 25_all_multilib_pure64.patch
