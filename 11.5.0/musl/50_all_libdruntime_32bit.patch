@@ -1,0 +1,186 @@
+These changes are meant to fix gcc-11 for some musl-32 bit platforms.
+They involve fixing some declarations (e.g define readdir, not
+readdir64) and forcing the usage of 32-bit time_t. This latter choice
+is because libdruntime in <gcc-13 doesn't have the definitions for
+the time64 variants of the functions (e.g. __clock_getres_time64).
+
+Most of these changes come from https://github.com/dlang/dmd/pull/21639
+#######################################################################
+
+From f86a7ea815856bc66d2e6d6cc5b12293763e0445 Mon Sep 17 00:00:00 2001
+From: Iain Buclaw <ibuclaw@gdcproject.org>
+Date: Sun, 3 Aug 2025 12:42:14 +0200
+Subject: [PR-21639] [PATCH] druntime, musl: Remove unused __USE_FILE_OFFSET64 bindings
+
+As pointed out in #21249, Musl doesn't implement *64 versions of these
+functions because off_t is always 64 bits. However there are aliases
+defined if `_USE_LARGEFILE64_SOURCE` is true.
+
+--- a/libphobos/libdruntime/core/sys/posix/dirent.d
++++ b/libphobos/libdruntime/core/sys/posix/dirent.d
+@@ -379,16 +379,14 @@ else version (CRuntime_Musl)
+ 
+     struct DIR
+     {
++        // Managed by OS
+     }
+ 
+-    static if ( __USE_FILE_OFFSET64 )
++    dirent* readdir(DIR*);
++
++    static if (__USE_LARGEFILE64)
+     {
+-        dirent* readdir64(DIR*);
+-        alias   readdir64 readdir;
+-    }
+-    else
+-    {
+-        dirent* readdir(DIR*);
++        alias readdir64 = readdir;
+     }
+ }
+ else version (CRuntime_UClibc)
+--- a/libphobos/libdruntime/core/sys/posix/stdio.d
++++ b/libphobos/libdruntime/core/sys/posix/stdio.d
+@@ -183,33 +183,20 @@ else version (CRuntime_UClibc)
+ }
+ else version (CRuntime_Musl)
+ {
+-    static if ( __USE_FILE_OFFSET64 )
++    int   fgetpos(FILE*, fpos_t *);
++    FILE* fopen(const scope char*, const scope char*);
++    FILE* freopen(const scope char*, const scope char*, FILE*);
++    int   fseek(FILE*, c_long, int);
++    int   fsetpos(FILE*, const scope fpos_t*);
++    FILE* tmpfile();
++
++    static if (__USE_LARGEFILE64)
+     {
+-        int   fgetpos64(FILE*, fpos_t *);
+-        alias fgetpos64 fgetpos;
+-
+-        FILE* fopen64(const scope char*, const scope char*);
+-        alias fopen64 fopen;
+-
+-        FILE* freopen64(const scope char*, const scope char*, FILE*);
+-        alias freopen64 freopen;
+-
+-        int   fseek(FILE*, c_long, int);
+-
+-        int   fsetpos64(FILE*, const scope fpos_t*);
+-        alias fsetpos64 fsetpos;
+-
+-        FILE* tmpfile64();
+-        alias tmpfile64 tmpfile;
+-    }
+-    else
+-    {
+-        int   fgetpos(FILE*, fpos_t *);
+-        FILE* fopen(const scope char*, const scope char*);
+-        FILE* freopen(const scope char*, const scope char*, FILE*);
+-        int   fseek(FILE*, c_long, int);
+-        int   fsetpos(FILE*, const scope fpos_t*);
+-        FILE* tmpfile();
++        alias fgetpos64 = fgetpos;
++        alias fopen64 = fopen;
++        alias freopen64 = freopen;
++        alias fsetpos64 = fsetpos;
++        alias tmpfile64 = tmpfile;
+     }
+ }
+ else version (Solaris)
+@@ -321,24 +308,13 @@ else version (CRuntime_Musl)
+ {
+     enum L_ctermid = 20;
+ 
+-    static if ( __USE_FILE_OFFSET64 )
+-    {
+-        int   fseeko64(FILE*, off_t, int);
+-        alias fseeko64 fseeko;
+-    }
+-    else
+-    {
+-        int   fseeko(FILE*, off_t, int);
+-    }
++    int   fseeko(FILE*, off_t, int);
++    off_t ftello(FILE*);
+ 
+-    static if ( __USE_FILE_OFFSET64 )
++    static if (__USE_LARGEFILE64)
+     {
+-        off_t ftello64(FILE*);
+-        alias ftello64 ftello;
+-    }
+-    else
+-    {
+-        off_t ftello(FILE*);
++        alias fseeko64 = fseeko;
++        alias ftello64 = ftello;
+     }
+ 
+     ssize_t getdelim(char**, size_t*, int, FILE*);
+--- a/libphobos/libdruntime/core/sys/posix/stdlib.d
++++ b/libphobos/libdruntime/core/sys/posix/stdlib.d
+@@ -604,17 +604,12 @@ else version (CRuntime_Musl)
+     void   srand48(c_long);
+     void   srandom(uint);
+     int    unlockpt(int);
+-
+-  static if ( __USE_LARGEFILE64 )
+-  {
+-    int    mkstemp64(char*);
+-    alias  mkstemp64 mkstemp;
+-  }
+-  else
+-  {
+     int    mkstemp(char*);
+-  }
+ 
++    static if (__USE_LARGEFILE64)
++    {
++        alias mkstemp64 = mkstemp;
++    }
+ }
+ else version (Solaris)
+ {
+--- a/libphobos/libdruntime/core/sys/posix/sys/mman.d
++++ b/libphobos/libdruntime/core/sys/posix/sys/mman.d
+@@ -304,12 +304,13 @@ else version (CRuntime_Bionic)
+ }
+ else version (CRuntime_Musl)
+ {
+-    static if (__USE_LARGEFILE64) void* mmap64(void*, size_t, int, int, int, off_t);
+-    static if (__USE_FILE_OFFSET64)
+-        alias mmap = mmap64;
+-    else
+-        void* mmap(void*, size_t, int, int, int, off_t);
++    void* mmap(void*, size_t, int, int, int, off_t);
+     int munmap(void*, size_t);
++
++    static if (__USE_LARGEFILE64)
++    {
++        alias mmap64 = mmap;
++    }
+ }
+ else version (CRuntime_UClibc)
+ {
+
+Author: Andrei Horodniceanu <a.horodniceanu@proton.me>
+Subject: druntime: force pre-time64 Musl
+
+--- a/libphobos/libdruntime/core/sys/posix/sys/types.d
++++ b/libphobos/libdruntime/core/sys/posix/sys/types.d
+@@ -160,12 +160,7 @@ else version (CRuntime_Musl)
+      * In order to be compatible with old versions of Musl,
+      * one can recompile druntime with `CRuntime_Musl_Pre_Time64`.
+      */
+-    version (D_X32)
+-        alias long   time_t;
+-    else version (CRuntime_Musl_Pre_Time64)
+-        alias c_long time_t;
+-    else
+-        alias long   time_t;
++    alias time_t = c_long;
+ 
+     alias c_long     clock_t;
+     alias c_ulong    pthread_t;
