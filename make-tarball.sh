@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -x
+
 XZ_OPT=${XZ_OPT-"-T0"}
 export XZ_OPT
 
@@ -46,8 +46,6 @@ if [[ -z ${ebuild} ]] ; then
 
 	ver_major=$(echo ${ver} | cut -d'.' -f1)
 	ver_minor=$(($(echo ${ver} | cut -d'.' -f2) - 1))
-	[[ ${ver_minor} -lt 0 ]] && ver_minor=0
-
 	ver="${ver_major}.${ver_minor}.1_pre*"
 	ebuild=$(find_ebuild ${ver})
 
@@ -59,8 +57,6 @@ if [[ -z ${ebuild} ]] ; then
 
 	ver_major=$(echo ${ver} | cut -d'.' -f1)
 	ver_minor=$(($(echo ${ver} | cut -d'.' -f2) - 1))
-	[[ ${ver_minor} -lt 0 ]] && ver_minor=0
-
 	ver="${ver_major}.${ver_minor}.0_pre*"
 	ebuild=$(find_ebuild ${ver})
 
@@ -73,32 +69,12 @@ if [[ -z ${ebuild} ]] ; then
 
 	ver_major=$(echo ${ver} | cut -d'.' -f1)
 	ver_minor=$(($(echo ${ver} | cut -d'.' -f2) - 1))
-	[[ ${ver_minor} -lt 0 ]] && ver_minor=0
-
-	#ver="${ver_major}.${ver_minor}.9999*"
 	ver="${ver_major}.${ver_minor}.1_p*"
 
 	ebuild=$(find_ebuild ${ver})
 
 	[[ -n ${ebuild} ]] && had_p=1
 fi
-
-if [[ -z ${ebuild} ]] ; then
-	ver=${orig_ver}
-	ver=${ver%%_p*}
-
-	ver_major=$(echo ${ver} | cut -d'.' -f1)
-	ver_minor=$(($(echo ${ver} | cut -d'.' -f2) - 1))
-	[[ ${ver_minor} -lt 0 ]] && ver_minor=0
-
-	#ver="${ver_major}.${ver_minor}.9999*"
-	ver="${ver_major}.${ver_minor}.0_p*"
-
-	ebuild=$(find_ebuild ${ver})
-
-	[[ -n ${ebuild} ]] && had_p=1
-fi
-
 
 if [[ -z ${ebuild} ]] ; then
 	echo "!!! gcc ebuild '${ver}' does not exist"
@@ -111,16 +87,16 @@ gver=${ebuild##*/gcc/gcc-} # trim leading path
 gver=${gver%%.ebuild}      # trim post .ebuild
 gver=${gver%%-*}           # trim any -r#'s
 gver=${gver%%_pre*}        # trim any _pre.*#'s
+
 # We use the same logic as finding the ebuild above for snapshots too
 gver=${gver%%_p*}
-
 if [[ ${had_pre} -eq 1 ]] ; then
 	gver_major=$(echo ${gver} | cut -d'.' -f1)
-	gver_minor=$(($(echo ${gver} | cut -d'.' -f2) ))
+	gver_minor=$(($(echo ${gver} | cut -d'.' -f2) + 1))
 	gver="${gver_major}.${gver_minor}.0"
 elif [[ ${had_p} -eq 1 ]] ; then
 	gver_major=$(echo ${gver} | cut -d'.' -f1)
-        gver_minor=$(($(echo ${gver} | cut -d'.' -f2)))
+	gver_minor=$(($(echo ${gver} | cut -d'.' -f2) + 1))
 	gver="${gver_major}.${gver_minor}.0"
 fi
 
