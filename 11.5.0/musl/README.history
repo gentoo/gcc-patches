@@ -1,0 +1,7 @@
+4	1 October 2025
+
+	+ 25_all_multilib_pure64.patch
+	+ 50_all_calloc_libgccjit.patch
+	+ 50_all_libdruntime_32bit.patch
+	+ 50_all_libssp_unconditionally.patch
+	+ 50_all_posix_memalign.patch
