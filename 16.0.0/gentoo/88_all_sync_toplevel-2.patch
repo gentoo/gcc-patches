@@ -1,7 +1,23 @@
-From 482893c6a913946c0551138e84018be46768294b Mon Sep 17 00:00:00 2001
+From 70b86bccf2ba094ef4fe3326971e0ed4a904d135 Mon Sep 17 00:00:00 2001
 From: "H.J. Lu" <hjl.tools@gmail.com>
 Date: Thu, 2 Oct 2025 08:08:09 +0800
-Subject: [PATCH 2/2] Sync toplevel files from binutils-gdb
+Subject: [PATCH] Sync toplevel files from binutils-gdb
+
+commit aef88b83384976e96a8fb287a001588a2277ecd5
+Author: H.J. Lu <hjl.tools@gmail.com>
+Date:   Thu Oct 2 08:53:45 2025 +0800
+
+    binutils/GCC: Quote ${COMPILER_FOR_TARGET}
+
+    Replace
+
+    if test x${COMPILER_FOR_TARGET} = x"\$(CC)"; then
+
+    with
+
+    if test x"${COMPILER_FOR_TARGET}" = x"\$(CC)"; then
+
+    since COMPILER_FOR_TARGET may contain spaces when configuring GCC.
 
 commit 76a693c087c30e8108852928c717399011c6166d
 Author: H.J. Lu <hjl.tools@gmail.com>
@@ -40,6 +56,17 @@ Date:   Tue Sep 23 04:24:00 2025 +0800
     clang LTO.  Run CLANG_PLUGIN_FILE before GCC_PLUGIN_OPTION since
     GCC_PLUGIN_OPTION may return the wrong PLUGIN_OPTION with clang.
 
+commit 1fcb94ed750db2ac30d0f0ecc04fa0c7833dd10f
+Author: Rainer Orth <ro@CeBiTec.Uni-Bielefeld.DE>
+Date:   Thu Sep 18 16:17:14 2025 +0200
+
+    Remove remnants of Solaris/PowerPC support
+
+    When removing Solaris/PowerPC support, I missed a couple of references.
+    This patch removes them.
+
+    Tested with crosses to ppc-unknown-linux-gnu and powerpc-ibm-aix7.
+
 	* Makefile.in: Regenerated.
 	* configure: Likewise.
 	* Makefile.tpl: Synced from binutils-gdb.
@@ -75,8 +102,8 @@ Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
  Makefile.tpl             |   8 +-
  config/clang-plugin.m4   | 114 ++++++
  config/gcc-plugin.m4     |  43 +++
- configure                | 754 +++++++++++++++++++++++++++++++++++-
- configure.ac             |  36 +-
+ configure                | 758 +++++++++++++++++++++++++++++++++++-
+ configure.ac             |  40 +-
  libbacktrace/Makefile.in |   3 +
  libbacktrace/aclocal.m4  |   2 +
  libbacktrace/configure   | 405 +++++++++++++++++++-
@@ -87,7 +114,7 @@ Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
  zlib/Makefile.in         |   3 +
  zlib/aclocal.m4          |   2 +
  zlib/configure           | 809 ++++++++++++++++++++++++++++-----------
- 16 files changed, 2410 insertions(+), 418 deletions(-)
+ 16 files changed, 2410 insertions(+), 426 deletions(-)
  create mode 100644 config/clang-plugin.m4
 
 diff --git a/Makefile.in b/Makefile.in
@@ -164,7 +191,7 @@ index 7e74c721929..2ac4d5b4668 100644
  WINDRES_FOR_TARGET=@WINDRES_FOR_TARGET@
 diff --git a/config/clang-plugin.m4 b/config/clang-plugin.m4
 new file mode 100644
-index 00000000000..b6b28ab8d21
+index 00000000000..cc051fe48e3
 --- /dev/null
 +++ b/config/clang-plugin.m4
 @@ -0,0 +1,114 @@
@@ -283,7 +310,7 @@ index 00000000000..b6b28ab8d21
 +  $1="$plugin_file"
 +])
 diff --git a/config/gcc-plugin.m4 b/config/gcc-plugin.m4
-index c30cfdd8fad..687af3e7c17 100644
+index c30cfdd8fad..0382147b381 100644
 --- a/config/gcc-plugin.m4
 +++ b/config/gcc-plugin.m4
 @@ -169,3 +169,46 @@ else
@@ -334,7 +361,7 @@ index c30cfdd8fad..687af3e7c17 100644
 +fi
 +])
 diff --git a/configure b/configure
-index 549aae7f3e3..a960918dcf6 100755
+index 549aae7f3e3..54b71af5d3b 100755
 --- a/configure
 +++ b/configure
 @@ -596,6 +596,10 @@ MAINTAINER_MODE_TRUE
@@ -421,7 +448,18 @@ index 549aae7f3e3..a960918dcf6 100755
  cat >config.log <<_ACEOF
  This file contains any messages produced by compilers while
  running configure, to aid debugging if configure makes a mistake.
-@@ -14221,7 +14269,529 @@ fi
+@@ -4104,10 +4152,6 @@ case "${target}" in
+     # always build newlib.
+     skipdirs=`echo " ${skipdirs} " | sed -e 's/ target-newlib / /'`
+     ;;
+-    # This is temporary until we can link against shared libraries
+-  powerpcle-*-solaris*)
+-    noconfigdirs="$noconfigdirs gdb sim tcl tk itcl"
+-    ;;
+   powerpc-*-beos*)
+     noconfigdirs="$noconfigdirs gdb"
+     ;;
+@@ -14221,7 +14265,529 @@ fi
  GDCFLAGS=${GDCFLAGS-${CFLAGS}}
  
  
@@ -952,7 +990,7 @@ index 549aae7f3e3..a960918dcf6 100755
  $as_echo_n "checking for -plugin option... " >&6; }
  
  plugin_names="liblto_plugin.so liblto_plugin-0.dll cyglto_plugin-0.dll"
-@@ -14348,12 +14918,17 @@ else
+@@ -14348,12 +14914,17 @@ else
  $as_echo "no" >&6; }
  fi
  
@@ -970,7 +1008,7 @@ index 549aae7f3e3..a960918dcf6 100755
    if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
      RANLIB_PLUGIN_OPTION="$PLUGIN_OPTION"
    fi
-@@ -14361,6 +14936,7 @@ fi
+@@ -14361,6 +14932,7 @@ fi
  
  
  
@@ -978,7 +1016,7 @@ index 549aae7f3e3..a960918dcf6 100755
  # Target tools.
  
  # Check whether --with-build-time-tools was given.
-@@ -20024,6 +20600,182 @@ AR_FOR_TARGET=${AR_FOR_TARGET}${extra_arflags_for_target}
+@@ -20024,6 +20596,182 @@ AR_FOR_TARGET=${AR_FOR_TARGET}${extra_arflags_for_target}
  RANLIB_FOR_TARGET=${RANLIB_FOR_TARGET}${extra_ranlibflags_for_target}
  NM_FOR_TARGET=${NM_FOR_TARGET}${extra_nmflags_for_target}
  
@@ -1162,7 +1200,7 @@ index 549aae7f3e3..a960918dcf6 100755
  # the same toolchain as the compiler we just built.
  COMPILER_AS_FOR_TARGET='$(AS_FOR_TARGET)'
 diff --git a/configure.ac b/configure.ac
-index 15dccb65114..49ac5d60514 100644
+index 15dccb65114..2996a124206 100644
 --- a/configure.ac
 +++ b/configure.ac
 @@ -24,6 +24,7 @@ m4_include(config/override.m4)
@@ -1173,7 +1211,18 @@ index 15dccb65114..49ac5d60514 100644
  m4_include(config/gcc-plugin.m4)
  m4_include([libtool.m4])
  m4_include([ltoptions.m4])
-@@ -4016,18 +4017,30 @@ AC_SUBST(GDCFLAGS)
+@@ -1320,10 +1321,6 @@ case "${target}" in
+     # always build newlib.
+     skipdirs=`echo " ${skipdirs} " | sed -e 's/ target-newlib / /'`
+     ;;
+-    # This is temporary until we can link against shared libraries
+-  powerpcle-*-solaris*)
+-    noconfigdirs="$noconfigdirs gdb sim tcl tk itcl"
+-    ;;
+   powerpc-*-beos*)
+     noconfigdirs="$noconfigdirs gdb"
+     ;;
+@@ -4016,18 +4013,30 @@ AC_SUBST(GDCFLAGS)
  GDCFLAGS=${GDCFLAGS-${CFLAGS}}
  AC_SUBST(PKG_CONFIG_PATH)
  
@@ -1205,7 +1254,7 @@ index 15dccb65114..49ac5d60514 100644
  AC_SUBST(RANLIB_PLUGIN_OPTION)
  
  # Target tools.
-@@ -4122,6 +4135,27 @@ AR_FOR_TARGET=${AR_FOR_TARGET}${extra_arflags_for_target}
+@@ -4122,6 +4131,27 @@ AR_FOR_TARGET=${AR_FOR_TARGET}${extra_arflags_for_target}
  RANLIB_FOR_TARGET=${RANLIB_FOR_TARGET}${extra_ranlibflags_for_target}
  NM_FOR_TARGET=${NM_FOR_TARGET}${extra_nmflags_for_target}
  
