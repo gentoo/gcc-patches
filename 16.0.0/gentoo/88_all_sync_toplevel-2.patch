@@ -1,0 +1,3427 @@
+From 482893c6a913946c0551138e84018be46768294b Mon Sep 17 00:00:00 2001
+From: "H.J. Lu" <hjl.tools@gmail.com>
+Date: Thu, 2 Oct 2025 08:08:09 +0800
+Subject: [PATCH 2/2] Sync toplevel files from binutils-gdb
+
+commit 76a693c087c30e8108852928c717399011c6166d
+Author: H.J. Lu <hjl.tools@gmail.com>
+Date:   Tue Sep 30 11:23:58 2025 +0800
+
+    binutils: Use AC_TRY_COMPILE to check target clang/gcc
+
+    Use AC_TRY_COMPILE to check for the working target clang and gcc when
+    configuring for cross tools.
+
+commit 77c74294bfc5005204a2de3cc64bbdb2f877be29
+Author: H.J. Lu <hjl.tools@gmail.com>
+Date:   Fri Sep 26 08:03:01 2025 +0800
+
+    binutils: Pass target plugin file to target ar/nm/ranlib
+
+    There are 2 kinds of binutils tests:
+
+    1. Tests of binutils object files and libraries using the build tools,
+    like CC, AR, NM and RANLIB.
+    2. Tests of binutils programs as the target tools, like CC_FOR_TARGET,
+    AR_FOR_TARGET, NM_FOR_TARGET and RANLIB_FOR_TARGET.
+
+    Set AR_PLUGIN_OPTION_FOR_TARGET, NM_PLUGIN_OPTION_FOR_TARGET and
+    RANLIB_PLUGIN_OPTION_FOR_TARGET to the target compiler plugin file for
+    target ar/nm/ranlib.
+
+commit 10deea6e2fc1b9ec5818b5fa1bc510c63ff5b2e2
+Author: H.J. Lu <hjl.tools@gmail.com>
+Date:   Tue Sep 23 04:24:00 2025 +0800
+
+    Binutils/GCC: Add clang LTO support to AR, NM and RANLIB
+
+    Add CLANG_PLUGIN_FILE to find the clang plugin file and pass it to
+    --plugin for ar, nm and ranlib so that binutils can be built with
+    clang LTO.  Run CLANG_PLUGIN_FILE before GCC_PLUGIN_OPTION since
+    GCC_PLUGIN_OPTION may return the wrong PLUGIN_OPTION with clang.
+
+	* Makefile.in: Regenerated.
+	* configure: Likewise.
+	* Makefile.tpl: Synced from binutils-gdb.
+	* configure.ac: Likewise.
+	* libtool.m4: Likewise.
+
+config/
+
+	* clang-plugin.m4: Synced from binutils-gdb.
+	* gcc-plugin.m4: Likewise.
+
+libbacktrace/
+
+	* Makefile.in: Regenerated.
+	* aclocal.m4: Likewise.
+	* configure: Likewise.
+
+libiberty/
+
+	* aclocal.m4: Regenerated.
+	* configure: Likewise.
+	* configure.ac: Synced from binutils-gdb.
+
+zlib/
+
+	* Makefile.in: Regenerated.
+	* aclocal.m4: Likewise.
+	* configure: Likewise.
+
+Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
+---
+ Makefile.in              |   8 +-
+ Makefile.tpl             |   8 +-
+ config/clang-plugin.m4   | 114 ++++++
+ config/gcc-plugin.m4     |  43 +++
+ configure                | 754 +++++++++++++++++++++++++++++++++++-
+ configure.ac             |  36 +-
+ libbacktrace/Makefile.in |   3 +
+ libbacktrace/aclocal.m4  |   2 +
+ libbacktrace/configure   | 405 +++++++++++++++++++-
+ libiberty/aclocal.m4     |   1 +
+ libiberty/configure      | 548 +++++++++++++++++++-------
+ libiberty/configure.ac   |  43 ++-
+ libtool.m4               |  49 +--
+ zlib/Makefile.in         |   3 +
+ zlib/aclocal.m4          |   2 +
+ zlib/configure           | 809 ++++++++++++++++++++++++++++-----------
+ 16 files changed, 2410 insertions(+), 418 deletions(-)
+ create mode 100644 config/clang-plugin.m4
+
+diff --git a/Makefile.in b/Makefile.in
+index 8d406d124a1..621e8dedc09 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -433,7 +433,7 @@ DLLTOOL = @DLLTOOL@
+ DSYMUTIL = @DSYMUTIL@
+ LD = @LD@
+ LIPO = @LIPO@
+-NM = @NM@
++NM = @NM@ @NM_PLUGIN_OPTION@
+ OBJDUMP = @OBJDUMP@
+ OTOOL = @OTOOL@
+ RANLIB = @RANLIB@ @RANLIB_PLUGIN_OPTION@
+@@ -664,7 +664,7 @@ do-compare3 = $(do-compare)
+ # Programs producing files for the TARGET machine
+ # -----------------------------------------------
+ 
+-AR_FOR_TARGET=@AR_FOR_TARGET@
++AR_FOR_TARGET=@AR_FOR_TARGET@ @AR_PLUGIN_OPTION_FOR_TARGET@
+ AS_FOR_TARGET=@AS_FOR_TARGET@
+ CC_FOR_TARGET=$(STAGE_CC_WRAPPER) @CC_FOR_TARGET@
+ 
+@@ -684,11 +684,11 @@ DSYMUTIL_FOR_TARGET=@DSYMUTIL_FOR_TARGET@
+ LD_FOR_TARGET=@LD_FOR_TARGET@
+ 
+ LIPO_FOR_TARGET=@LIPO_FOR_TARGET@
+-NM_FOR_TARGET=@NM_FOR_TARGET@
++NM_FOR_TARGET=@NM_FOR_TARGET@ @NM_PLUGIN_OPTION_FOR_TARGET@
+ OBJDUMP_FOR_TARGET=@OBJDUMP_FOR_TARGET@
+ OBJCOPY_FOR_TARGET=@OBJCOPY_FOR_TARGET@
+ OTOOL_FOR_TARGET=@OTOOL_FOR_TARGET@
+-RANLIB_FOR_TARGET=@RANLIB_FOR_TARGET@
++RANLIB_FOR_TARGET=@RANLIB_FOR_TARGET@ @RANLIB_PLUGIN_OPTION_FOR_TARGET@
+ READELF_FOR_TARGET=@READELF_FOR_TARGET@
+ STRIP_FOR_TARGET=@STRIP_FOR_TARGET@
+ WINDRES_FOR_TARGET=@WINDRES_FOR_TARGET@
+diff --git a/Makefile.tpl b/Makefile.tpl
+index 7e74c721929..2ac4d5b4668 100644
+--- a/Makefile.tpl
++++ b/Makefile.tpl
+@@ -436,7 +436,7 @@ DLLTOOL = @DLLTOOL@
+ DSYMUTIL = @DSYMUTIL@
+ LD = @LD@
+ LIPO = @LIPO@
+-NM = @NM@
++NM = @NM@ @NM_PLUGIN_OPTION@
+ OBJDUMP = @OBJDUMP@
+ OTOOL = @OTOOL@
+ RANLIB = @RANLIB@ @RANLIB_PLUGIN_OPTION@
+@@ -587,7 +587,7 @@ do-compare3 = $(do-compare)
+ # Programs producing files for the TARGET machine
+ # -----------------------------------------------
+ 
+-AR_FOR_TARGET=@AR_FOR_TARGET@
++AR_FOR_TARGET=@AR_FOR_TARGET@ @AR_PLUGIN_OPTION_FOR_TARGET@
+ AS_FOR_TARGET=@AS_FOR_TARGET@
+ CC_FOR_TARGET=$(STAGE_CC_WRAPPER) @CC_FOR_TARGET@
+ 
+@@ -607,11 +607,11 @@ DSYMUTIL_FOR_TARGET=@DSYMUTIL_FOR_TARGET@
+ LD_FOR_TARGET=@LD_FOR_TARGET@
+ 
+ LIPO_FOR_TARGET=@LIPO_FOR_TARGET@
+-NM_FOR_TARGET=@NM_FOR_TARGET@
++NM_FOR_TARGET=@NM_FOR_TARGET@ @NM_PLUGIN_OPTION_FOR_TARGET@
+ OBJDUMP_FOR_TARGET=@OBJDUMP_FOR_TARGET@
+ OBJCOPY_FOR_TARGET=@OBJCOPY_FOR_TARGET@
+ OTOOL_FOR_TARGET=@OTOOL_FOR_TARGET@
+-RANLIB_FOR_TARGET=@RANLIB_FOR_TARGET@
++RANLIB_FOR_TARGET=@RANLIB_FOR_TARGET@ @RANLIB_PLUGIN_OPTION_FOR_TARGET@
+ READELF_FOR_TARGET=@READELF_FOR_TARGET@
+ STRIP_FOR_TARGET=@STRIP_FOR_TARGET@
+ WINDRES_FOR_TARGET=@WINDRES_FOR_TARGET@
+diff --git a/config/clang-plugin.m4 b/config/clang-plugin.m4
+new file mode 100644
+index 00000000000..b6b28ab8d21
+--- /dev/null
++++ b/config/clang-plugin.m4
+@@ -0,0 +1,114 @@
++# clang-plugin.m4 -*- Autoconf -*-
++# Check clang plugin file.
++
++dnl Copyright (C) 2025 Free Software Foundation, Inc.
++dnl This file is free software, distributed under the terms of the GNU
++dnl General Public License.  As a special exception to the GNU General
++dnl Public License, this file may be distributed as part of a program
++dnl that contains a configuration script generated by Autoconf, under
++dnl the same distribution terms as the rest of that program.
++
++dnl
++dnl
++dnl CLANG_PLUGIN_FILE
++dnl    (SHELL-CODE_HANDLER)
++dnl
++AC_DEFUN([CLANG_PLUGIN_FILE],[dnl
++  AC_CACHE_CHECK([for clang], clang_cv_is_clang, [
++    AC_EGREP_CPP(yes, [
++#ifdef __clang__
++  yes
++#endif
++    ], clang_cv_is_clang=yes, clang_cv_is_clang=no)])
++  plugin_file=
++  if test $clang_cv_is_clang = yes; then
++    AC_MSG_CHECKING([for clang plugin file])
++    plugin_names="LLVMgold.so"
++    for plugin in $plugin_names; do
++      plugin_file=`${CC} ${CFLAGS} --print-file-name $plugin`
++      if test x$plugin_file = x$plugin; then
++	AC_CHECK_TOOL(LLVM_CONFIG, llvm-config)
++	if test "$?" != 0; then
++	  AC_MSG_ERROR([Required tool 'llvm-config' not found on PATH.])
++	fi
++	clang_lib_dir=`$LLVM_CONFIG --libdir`
++	if test -f $clang_lib_dir/$plugin; then
++	  plugin_file=$clang_lib_dir/$plugin
++	fi
++	if test x$plugin_file != x$plugin; then
++	  break;
++	fi
++      fi
++    done
++    if test -z $plugin_file; then
++      AC_MSG_ERROR([Couldn't find clang plugin file for $CC.])
++    fi
++    dnl Check if ${AR} $plugin_option rc works.
++    AC_CHECK_TOOL(AR, ar)
++    if test "${AR}" = "" ; then
++      AC_MSG_ERROR([Required archive tool 'ar' not found on PATH.])
++    fi
++    plugin_option="--plugin $plugin_file"
++    touch conftest.c
++    ${AR} $plugin_option rc conftest.a conftest.c
++    if test "$?" != 0; then
++      AC_MSG_WARN([Failed: $AR $plugin_option rc])
++      plugin_file=
++    fi
++    rm -f conftest.*
++    AC_MSG_RESULT($plugin_file)
++  fi
++  $1="$plugin_file"
++])
++
++dnl
++dnl
++dnl CLANG_PLUGIN_FILE_FOR_TARGET
++dnl    (SHELL-CODE_HANDLER)
++dnl
++AC_DEFUN([CLANG_PLUGIN_FILE_FOR_TARGET],[dnl
++  COMPILER_FOR_TARGET="${CC_FOR_TARGET}"
++  if test x${COMPILER_FOR_TARGET} = x"\$(CC)"; then
++    COMPILER_FOR_TARGET="$CC"
++  fi
++  saved_CC="$CC"
++  CC="$COMPILER_FOR_TARGET"
++  AC_CACHE_CHECK([for clang for target], clang_target_cv_working, [
++    AC_TRY_COMPILE([
++#ifndef __clang__
++#error Not clang
++#endif
++    ],
++    [],
++    clang_target_cv_working=yes, clang_target_cv_working=no)])
++  CC="$saved_CC"
++  plugin_file=
++  if test $clang_target_cv_working = yes; then
++    AC_MSG_CHECKING([for clang plugin file for target])
++    plugin_names="LLVMgold.so"
++    dnl Check if the host compiler is used.
++    for plugin in $plugin_names; do
++      plugin_file=`${COMPILER_FOR_TARGET} ${CFLAGS_FOR_TARGET} --print-file-name $plugin`
++      if test x$plugin_file = x$plugin; then
++	GCC_TARGET_TOOL(llvm-config, LLVM_CONFIG_FOR_TARGET, LLVM_CONFIG)
++	if test "$?" != 0; then
++	  AC_MSG_ERROR([Required target tool 'llvm-config' not found.])
++	fi
++	clang_lib_dir=`$LLVM_CONFIG_FOR_TARGET --libdir`
++	if test -f $clang_lib_dir/$plugin; then
++	  plugin_file=$clang_lib_dir/$plugin
++	fi
++      fi
++      if test x$plugin_file != x$plugin; then
++	break;
++      fi
++      plugin_file=
++    done
++    if test -n $plugin_file; then
++      AC_MSG_RESULT($plugin_file)
++    else
++      AC_MSG_RESULT([no])
++    fi
++  fi
++  $1="$plugin_file"
++])
+diff --git a/config/gcc-plugin.m4 b/config/gcc-plugin.m4
+index c30cfdd8fad..687af3e7c17 100644
+--- a/config/gcc-plugin.m4
++++ b/config/gcc-plugin.m4
+@@ -169,3 +169,46 @@ else
+   AC_MSG_RESULT([no])
+ fi
+ ])
++
++dnl
++dnl
++dnl GCC_PLUGIN_OPTION_FOR_TARGET
++dnl    (SHELL-CODE_HANDLER)
++dnl
++AC_DEFUN([GCC_PLUGIN_OPTION_FOR_TARGET],[dnl
++COMPILER_FOR_TARGET="${CC_FOR_TARGET}"
++dnl Check if the host compiler is used.
++if test x${COMPILER_FOR_TARGET} = x"\$(CC)"; then
++  COMPILER_FOR_TARGET="$CC"
++fi
++saved_CC="$CC"
++CC="$COMPILER_FOR_TARGET"
++AC_CACHE_CHECK([for gcc for target], gcc_target_cv_working, [
++  AC_TRY_COMPILE(
++  [],
++  [],
++  gcc_target_cv_working=yes,
++  gcc_target_cv_working=no)])
++CC="$saved_CC"
++AC_MSG_CHECKING([for -plugin option])
++plugin_option=
++if test $gcc_target_cv_working = yes; then
++  plugin_names="liblto_plugin.so liblto_plugin-0.dll cyglto_plugin-0.dll"
++  for plugin in $plugin_names; do
++    plugin_so=`${COMPILER_FOR_TARGET} ${CFLAGS_FOR_TARGET} --print-prog-name $plugin`
++    if test x$plugin_so = x$plugin; then
++      plugin_so=`${COMPILER_FOR_TARGET} ${CFLAGS_FOR_TARGET} --print-file-name $plugin`
++    fi
++    if test x$plugin_so != x$plugin; then
++      plugin_option="--plugin $plugin_so"
++      break
++    fi
++  done
++fi
++if test -n "$plugin_option"; then
++  $1="$plugin_option"
++  AC_MSG_RESULT($plugin_option)
++else
++  AC_MSG_RESULT([no])
++fi
++])
+diff --git a/configure b/configure
+index 549aae7f3e3..a960918dcf6 100755
+--- a/configure
++++ b/configure
+@@ -596,6 +596,10 @@ MAINTAINER_MODE_TRUE
+ COMPILER_NM_FOR_TARGET
+ COMPILER_LD_FOR_TARGET
+ COMPILER_AS_FOR_TARGET
++RANLIB_PLUGIN_OPTION_FOR_TARGET
++NM_PLUGIN_OPTION_FOR_TARGET
++AR_PLUGIN_OPTION_FOR_TARGET
++LLVM_CONFIG_FOR_TARGET
+ FLAGS_FOR_TARGET
+ RAW_CXX_FOR_TARGET
+ WINDMC_FOR_TARGET
+@@ -621,7 +625,12 @@ GCC_FOR_TARGET
+ CXX_FOR_TARGET
+ CC_FOR_TARGET
+ RANLIB_PLUGIN_OPTION
++NM_PLUGIN_OPTION
+ AR_PLUGIN_OPTION
++LLVM_CONFIG
++EGREP
++GREP
++CPP
+ PKG_CONFIG_PATH
+ GDCFLAGS
+ READELF
+@@ -893,6 +902,7 @@ OBJCOPY
+ OBJDUMP
+ OTOOL
+ READELF
++CPP
+ CC_FOR_TARGET
+ CXX_FOR_TARGET
+ GCC_FOR_TARGET
+@@ -1693,6 +1703,7 @@ Some influential environment variables:
+   OBJDUMP     OBJDUMP for the host
+   OTOOL       OTOOL for the host
+   READELF     READELF for the host
++  CPP         C preprocessor
+   CC_FOR_TARGET
+               CC for the target
+   CXX_FOR_TARGET
+@@ -1985,6 +1996,43 @@ fi
+   as_fn_set_status $ac_retval
+ 
+ } # ac_fn_c_try_link
++
++# ac_fn_c_try_cpp LINENO
++# ----------------------
++# Try to preprocess conftest.$ac_ext, and return whether this succeeded.
++ac_fn_c_try_cpp ()
++{
++  as_lineno=${as_lineno-"$1"} as_lineno_stack=as_lineno_stack=$as_lineno_stack
++  if { { ac_try="$ac_cpp conftest.$ac_ext"
++case "(($ac_try" in
++  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
++  *) ac_try_echo=$ac_try;;
++esac
++eval ac_try_echo="\"\$as_me:${as_lineno-$LINENO}: $ac_try_echo\""
++$as_echo "$ac_try_echo"; } >&5
++  (eval "$ac_cpp conftest.$ac_ext") 2>conftest.err
++  ac_status=$?
++  if test -s conftest.err; then
++    grep -v '^ *+' conftest.err >conftest.er1
++    cat conftest.er1 >&5
++    mv -f conftest.er1 conftest.err
++  fi
++  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
++  test $ac_status = 0; } > conftest.i && {
++	 test -z "$ac_c_preproc_warn_flag$ac_c_werror_flag" ||
++	 test ! -s conftest.err
++       }; then :
++  ac_retval=0
++else
++  $as_echo "$as_me: failed program was:" >&5
++sed 's/^/| /' conftest.$ac_ext >&5
++
++    ac_retval=1
++fi
++  eval $as_lineno_stack; ${as_lineno_stack:+:} unset as_lineno
++  as_fn_set_status $ac_retval
++
++} # ac_fn_c_try_cpp
+ cat >config.log <<_ACEOF
+ This file contains any messages produced by compilers while
+ running configure, to aid debugging if configure makes a mistake.
+@@ -14221,7 +14269,529 @@ fi
+ GDCFLAGS=${GDCFLAGS-${CFLAGS}}
+ 
+ 
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for -plugin option" >&5
++# Try CLANG_PLUGIN_FILE first since GCC_PLUGIN_OPTION may return the
++# wrong PLUGIN_OPTION with clang.
++ac_ext=c
++ac_cpp='$CPP $CPPFLAGS'
++ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
++ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
++ac_compiler_gnu=$ac_cv_c_compiler_gnu
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking how to run the C preprocessor" >&5
++$as_echo_n "checking how to run the C preprocessor... " >&6; }
++# On Suns, sometimes $CPP names a directory.
++if test -n "$CPP" && test -d "$CPP"; then
++  CPP=
++fi
++if test -z "$CPP"; then
++  if ${ac_cv_prog_CPP+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++      # Double quotes because CPP needs to be expanded
++    for CPP in "$CC -E" "$CC -E -traditional-cpp" "/lib/cpp"
++    do
++      ac_preproc_ok=false
++for ac_c_preproc_warn_flag in '' yes
++do
++  # Use a header file that comes with gcc, so configuring glibc
++  # with a fresh cross-compiler works.
++  # Prefer <limits.h> to <assert.h> if __STDC__ is defined, since
++  # <limits.h> exists even on freestanding compilers.
++  # On the NeXT, cc -E runs the code through the compiler's parser,
++  # not just through cpp. "Syntax error" is here to catch this case.
++  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++#ifdef __STDC__
++# include <limits.h>
++#else
++# include <assert.h>
++#endif
++		     Syntax error
++_ACEOF
++if ac_fn_c_try_cpp "$LINENO"; then :
++
++else
++  # Broken: fails on valid input.
++continue
++fi
++rm -f conftest.err conftest.i conftest.$ac_ext
++
++  # OK, works on sane cases.  Now check whether nonexistent headers
++  # can be detected and how.
++  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++#include <ac_nonexistent.h>
++_ACEOF
++if ac_fn_c_try_cpp "$LINENO"; then :
++  # Broken: success on invalid input.
++continue
++else
++  # Passes both tests.
++ac_preproc_ok=:
++break
++fi
++rm -f conftest.err conftest.i conftest.$ac_ext
++
++done
++# Because of `break', _AC_PREPROC_IFELSE's cleaning code was skipped.
++rm -f conftest.i conftest.err conftest.$ac_ext
++if $ac_preproc_ok; then :
++  break
++fi
++
++    done
++    ac_cv_prog_CPP=$CPP
++
++fi
++  CPP=$ac_cv_prog_CPP
++else
++  ac_cv_prog_CPP=$CPP
++fi
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $CPP" >&5
++$as_echo "$CPP" >&6; }
++ac_preproc_ok=false
++for ac_c_preproc_warn_flag in '' yes
++do
++  # Use a header file that comes with gcc, so configuring glibc
++  # with a fresh cross-compiler works.
++  # Prefer <limits.h> to <assert.h> if __STDC__ is defined, since
++  # <limits.h> exists even on freestanding compilers.
++  # On the NeXT, cc -E runs the code through the compiler's parser,
++  # not just through cpp. "Syntax error" is here to catch this case.
++  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++#ifdef __STDC__
++# include <limits.h>
++#else
++# include <assert.h>
++#endif
++		     Syntax error
++_ACEOF
++if ac_fn_c_try_cpp "$LINENO"; then :
++
++else
++  # Broken: fails on valid input.
++continue
++fi
++rm -f conftest.err conftest.i conftest.$ac_ext
++
++  # OK, works on sane cases.  Now check whether nonexistent headers
++  # can be detected and how.
++  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++#include <ac_nonexistent.h>
++_ACEOF
++if ac_fn_c_try_cpp "$LINENO"; then :
++  # Broken: success on invalid input.
++continue
++else
++  # Passes both tests.
++ac_preproc_ok=:
++break
++fi
++rm -f conftest.err conftest.i conftest.$ac_ext
++
++done
++# Because of `break', _AC_PREPROC_IFELSE's cleaning code was skipped.
++rm -f conftest.i conftest.err conftest.$ac_ext
++if $ac_preproc_ok; then :
++
++else
++  { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
++$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
++as_fn_error $? "C preprocessor \"$CPP\" fails sanity check
++See \`config.log' for more details" "$LINENO" 5; }
++fi
++
++ac_ext=c
++ac_cpp='$CPP $CPPFLAGS'
++ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
++ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
++ac_compiler_gnu=$ac_cv_c_compiler_gnu
++
++
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for grep that handles long lines and -e" >&5
++$as_echo_n "checking for grep that handles long lines and -e... " >&6; }
++if ${ac_cv_path_GREP+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -z "$GREP"; then
++  ac_path_GREP_found=false
++  # Loop through the user's path and test for each of PROGNAME-LIST
++  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH$PATH_SEPARATOR/usr/xpg4/bin
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_prog in grep ggrep; do
++    for ac_exec_ext in '' $ac_executable_extensions; do
++      ac_path_GREP="$as_dir/$ac_prog$ac_exec_ext"
++      as_fn_executable_p "$ac_path_GREP" || continue
++# Check for GNU ac_path_GREP and select it if it is found.
++  # Check for GNU $ac_path_GREP
++case `"$ac_path_GREP" --version 2>&1` in
++*GNU*)
++  ac_cv_path_GREP="$ac_path_GREP" ac_path_GREP_found=:;;
++*)
++  ac_count=0
++  $as_echo_n 0123456789 >"conftest.in"
++  while :
++  do
++    cat "conftest.in" "conftest.in" >"conftest.tmp"
++    mv "conftest.tmp" "conftest.in"
++    cp "conftest.in" "conftest.nl"
++    $as_echo 'GREP' >> "conftest.nl"
++    "$ac_path_GREP" -e 'GREP$' -e '-(cannot match)-' < "conftest.nl" >"conftest.out" 2>/dev/null || break
++    diff "conftest.out" "conftest.nl" >/dev/null 2>&1 || break
++    as_fn_arith $ac_count + 1 && ac_count=$as_val
++    if test $ac_count -gt ${ac_path_GREP_max-0}; then
++      # Best one so far, save it but keep looking for a better one
++      ac_cv_path_GREP="$ac_path_GREP"
++      ac_path_GREP_max=$ac_count
++    fi
++    # 10*(2^10) chars as input seems more than enough
++    test $ac_count -gt 10 && break
++  done
++  rm -f conftest.in conftest.tmp conftest.nl conftest.out;;
++esac
++
++      $ac_path_GREP_found && break 3
++    done
++  done
++  done
++IFS=$as_save_IFS
++  if test -z "$ac_cv_path_GREP"; then
++    as_fn_error $? "no acceptable grep could be found in $PATH$PATH_SEPARATOR/usr/xpg4/bin" "$LINENO" 5
++  fi
++else
++  ac_cv_path_GREP=$GREP
++fi
++
++fi
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_path_GREP" >&5
++$as_echo "$ac_cv_path_GREP" >&6; }
++ GREP="$ac_cv_path_GREP"
++
++
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for egrep" >&5
++$as_echo_n "checking for egrep... " >&6; }
++if ${ac_cv_path_EGREP+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if echo a | $GREP -E '(a|b)' >/dev/null 2>&1
++   then ac_cv_path_EGREP="$GREP -E"
++   else
++     if test -z "$EGREP"; then
++  ac_path_EGREP_found=false
++  # Loop through the user's path and test for each of PROGNAME-LIST
++  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH$PATH_SEPARATOR/usr/xpg4/bin
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_prog in egrep; do
++    for ac_exec_ext in '' $ac_executable_extensions; do
++      ac_path_EGREP="$as_dir/$ac_prog$ac_exec_ext"
++      as_fn_executable_p "$ac_path_EGREP" || continue
++# Check for GNU ac_path_EGREP and select it if it is found.
++  # Check for GNU $ac_path_EGREP
++case `"$ac_path_EGREP" --version 2>&1` in
++*GNU*)
++  ac_cv_path_EGREP="$ac_path_EGREP" ac_path_EGREP_found=:;;
++*)
++  ac_count=0
++  $as_echo_n 0123456789 >"conftest.in"
++  while :
++  do
++    cat "conftest.in" "conftest.in" >"conftest.tmp"
++    mv "conftest.tmp" "conftest.in"
++    cp "conftest.in" "conftest.nl"
++    $as_echo 'EGREP' >> "conftest.nl"
++    "$ac_path_EGREP" 'EGREP$' < "conftest.nl" >"conftest.out" 2>/dev/null || break
++    diff "conftest.out" "conftest.nl" >/dev/null 2>&1 || break
++    as_fn_arith $ac_count + 1 && ac_count=$as_val
++    if test $ac_count -gt ${ac_path_EGREP_max-0}; then
++      # Best one so far, save it but keep looking for a better one
++      ac_cv_path_EGREP="$ac_path_EGREP"
++      ac_path_EGREP_max=$ac_count
++    fi
++    # 10*(2^10) chars as input seems more than enough
++    test $ac_count -gt 10 && break
++  done
++  rm -f conftest.in conftest.tmp conftest.nl conftest.out;;
++esac
++
++      $ac_path_EGREP_found && break 3
++    done
++  done
++  done
++IFS=$as_save_IFS
++  if test -z "$ac_cv_path_EGREP"; then
++    as_fn_error $? "no acceptable egrep could be found in $PATH$PATH_SEPARATOR/usr/xpg4/bin" "$LINENO" 5
++  fi
++else
++  ac_cv_path_EGREP=$EGREP
++fi
++
++   fi
++fi
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_path_EGREP" >&5
++$as_echo "$ac_cv_path_EGREP" >&6; }
++ EGREP="$ac_cv_path_EGREP"
++
++
++  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for clang" >&5
++$as_echo_n "checking for clang... " >&6; }
++if ${clang_cv_is_clang+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++
++    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++
++#ifdef __clang__
++  yes
++#endif
++
++_ACEOF
++if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
++  $EGREP "yes" >/dev/null 2>&1; then :
++  clang_cv_is_clang=yes
++else
++  clang_cv_is_clang=no
++fi
++rm -f conftest*
++
++fi
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $clang_cv_is_clang" >&5
++$as_echo "$clang_cv_is_clang" >&6; }
++  plugin_file=
++  if test $clang_cv_is_clang = yes; then
++    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for clang plugin file" >&5
++$as_echo_n "checking for clang plugin file... " >&6; }
++    plugin_names="LLVMgold.so"
++    for plugin in $plugin_names; do
++      plugin_file=`${CC} ${CFLAGS} --print-file-name $plugin`
++      if test x$plugin_file = x$plugin; then
++	if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}llvm-config", so it can be a program name with args.
++set dummy ${ac_tool_prefix}llvm-config; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_LLVM_CONFIG+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$LLVM_CONFIG"; then
++  ac_cv_prog_LLVM_CONFIG="$LLVM_CONFIG" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_LLVM_CONFIG="${ac_tool_prefix}llvm-config"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++LLVM_CONFIG=$ac_cv_prog_LLVM_CONFIG
++if test -n "$LLVM_CONFIG"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $LLVM_CONFIG" >&5
++$as_echo "$LLVM_CONFIG" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++if test -z "$ac_cv_prog_LLVM_CONFIG"; then
++  ac_ct_LLVM_CONFIG=$LLVM_CONFIG
++  # Extract the first word of "llvm-config", so it can be a program name with args.
++set dummy llvm-config; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_ac_ct_LLVM_CONFIG+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$ac_ct_LLVM_CONFIG"; then
++  ac_cv_prog_ac_ct_LLVM_CONFIG="$ac_ct_LLVM_CONFIG" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_ac_ct_LLVM_CONFIG="llvm-config"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++ac_ct_LLVM_CONFIG=$ac_cv_prog_ac_ct_LLVM_CONFIG
++if test -n "$ac_ct_LLVM_CONFIG"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_LLVM_CONFIG" >&5
++$as_echo "$ac_ct_LLVM_CONFIG" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++  if test "x$ac_ct_LLVM_CONFIG" = x; then
++    LLVM_CONFIG=""
++  else
++    case $cross_compiling:$ac_tool_warned in
++yes:)
++{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
++$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
++ac_tool_warned=yes ;;
++esac
++    LLVM_CONFIG=$ac_ct_LLVM_CONFIG
++  fi
++else
++  LLVM_CONFIG="$ac_cv_prog_LLVM_CONFIG"
++fi
++
++	if test "$?" != 0; then
++	  as_fn_error $? "Required tool 'llvm-config' not found on PATH." "$LINENO" 5
++	fi
++	clang_lib_dir=`$LLVM_CONFIG --libdir`
++	if test -f $clang_lib_dir/$plugin; then
++	  plugin_file=$clang_lib_dir/$plugin
++	fi
++	if test x$plugin_file != x$plugin; then
++	  break;
++	fi
++      fi
++    done
++    if test -z $plugin_file; then
++      as_fn_error $? "Couldn't find clang plugin file for $CC." "$LINENO" 5
++    fi
++        if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
++set dummy ${ac_tool_prefix}ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$AR"; then
++  ac_cv_prog_AR="$AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_AR="${ac_tool_prefix}ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++AR=$ac_cv_prog_AR
++if test -n "$AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $AR" >&5
++$as_echo "$AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++if test -z "$ac_cv_prog_AR"; then
++  ac_ct_AR=$AR
++  # Extract the first word of "ar", so it can be a program name with args.
++set dummy ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_ac_ct_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$ac_ct_AR"; then
++  ac_cv_prog_ac_ct_AR="$ac_ct_AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_ac_ct_AR="ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++ac_ct_AR=$ac_cv_prog_ac_ct_AR
++if test -n "$ac_ct_AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_AR" >&5
++$as_echo "$ac_ct_AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++  if test "x$ac_ct_AR" = x; then
++    AR=""
++  else
++    case $cross_compiling:$ac_tool_warned in
++yes:)
++{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
++$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
++ac_tool_warned=yes ;;
++esac
++    AR=$ac_ct_AR
++  fi
++else
++  AR="$ac_cv_prog_AR"
++fi
++
++    if test "${AR}" = "" ; then
++      as_fn_error $? "Required archive tool 'ar' not found on PATH." "$LINENO" 5
++    fi
++    plugin_option="--plugin $plugin_file"
++    touch conftest.c
++    ${AR} $plugin_option rc conftest.a conftest.c
++    if test "$?" != 0; then
++      { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Failed: $AR $plugin_option rc" >&5
++$as_echo "$as_me: WARNING: Failed: $AR $plugin_option rc" >&2;}
++      plugin_file=
++    fi
++    rm -f conftest.*
++    { $as_echo "$as_me:${as_lineno-$LINENO}: result: $plugin_file" >&5
++$as_echo "$plugin_file" >&6; }
++  fi
++  PLUGIN_FILE="$plugin_file"
++
++if test -n "$PLUGIN_FILE"; then
++  PLUGIN_OPTION="--plugin $PLUGIN_FILE"
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for -plugin option" >&5
+ $as_echo_n "checking for -plugin option... " >&6; }
+ 
+ plugin_names="liblto_plugin.so liblto_plugin-0.dll cyglto_plugin-0.dll"
+@@ -14348,12 +14918,17 @@ else
+ $as_echo "no" >&6; }
+ fi
+ 
++fi
+ AR_PLUGIN_OPTION=
++NM_PLUGIN_OPTION=
+ RANLIB_PLUGIN_OPTION=
+ if test -n "$PLUGIN_OPTION"; then
+   if $AR --help 2>&1 | grep -q "\--plugin"; then
+     AR_PLUGIN_OPTION="$PLUGIN_OPTION"
+   fi
++  if $NM --help 2>&1 | grep -q "\--plugin"; then
++    NM_PLUGIN_OPTION="$PLUGIN_OPTION"
++  fi
+   if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
+     RANLIB_PLUGIN_OPTION="$PLUGIN_OPTION"
+   fi
+@@ -14361,6 +14936,7 @@ fi
+ 
+ 
+ 
++
+ # Target tools.
+ 
+ # Check whether --with-build-time-tools was given.
+@@ -20024,6 +20600,182 @@ AR_FOR_TARGET=${AR_FOR_TARGET}${extra_arflags_for_target}
+ RANLIB_FOR_TARGET=${RANLIB_FOR_TARGET}${extra_ranlibflags_for_target}
+ NM_FOR_TARGET=${NM_FOR_TARGET}${extra_nmflags_for_target}
+ 
++# Try CLANG_PLUGIN_FILE_FOR_TARGET first since GCC_PLUGIN_OPTION_FOR_TARGET
++# may return the wrong PLUGIN_OPTION_FOR_TARGET with clang.
++  COMPILER_FOR_TARGET="${CC_FOR_TARGET}"
++  if test x${COMPILER_FOR_TARGET} = x"\$(CC)"; then
++    COMPILER_FOR_TARGET="$CC"
++  fi
++  saved_CC="$CC"
++  CC="$COMPILER_FOR_TARGET"
++  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for clang for target" >&5
++$as_echo_n "checking for clang for target... " >&6; }
++if ${clang_target_cv_working+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++
++    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++
++#ifndef __clang__
++#error Not clang
++#endif
++
++int
++main ()
++{
++
++  ;
++  return 0;
++}
++_ACEOF
++if ac_fn_c_try_compile "$LINENO"; then :
++  clang_target_cv_working=yes
++else
++  clang_target_cv_working=no
++fi
++rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
++fi
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $clang_target_cv_working" >&5
++$as_echo "$clang_target_cv_working" >&6; }
++  CC="$saved_CC"
++  plugin_file=
++  if test $clang_target_cv_working = yes; then
++    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for clang plugin file for target" >&5
++$as_echo_n "checking for clang plugin file for target... " >&6; }
++    plugin_names="LLVMgold.so"
++        for plugin in $plugin_names; do
++      plugin_file=`${COMPILER_FOR_TARGET} ${CFLAGS_FOR_TARGET} --print-file-name $plugin`
++      if test x$plugin_file = x$plugin; then
++	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking where to find the target llvm-config" >&5
++$as_echo_n "checking where to find the target llvm-config... " >&6; }
++if test "x${build}" != "x${host}" ; then
++  if expr "x$LLVM_CONFIG_FOR_TARGET" : "x/" > /dev/null; then
++    # We already found the complete path
++    ac_dir=`dirname $LLVM_CONFIG_FOR_TARGET`
++    { $as_echo "$as_me:${as_lineno-$LINENO}: result: pre-installed in $ac_dir" >&5
++$as_echo "pre-installed in $ac_dir" >&6; }
++  else
++    # Canadian cross, just use what we found
++    { $as_echo "$as_me:${as_lineno-$LINENO}: result: pre-installed" >&5
++$as_echo "pre-installed" >&6; }
++  fi
++else
++  if expr "x$LLVM_CONFIG_FOR_TARGET" : "x/" > /dev/null; then
++    # We already found the complete path
++    ac_dir=`dirname $LLVM_CONFIG_FOR_TARGET`
++    { $as_echo "$as_me:${as_lineno-$LINENO}: result: pre-installed in $ac_dir" >&5
++$as_echo "pre-installed in $ac_dir" >&6; }
++  elif test "x$target" = "x$host"; then
++    # We can use an host tool
++    LLVM_CONFIG_FOR_TARGET='$(LLVM_CONFIG)'
++    { $as_echo "$as_me:${as_lineno-$LINENO}: result: host tool" >&5
++$as_echo "host tool" >&6; }
++  else
++    # We need a cross tool
++    { $as_echo "$as_me:${as_lineno-$LINENO}: result: pre-installed" >&5
++$as_echo "pre-installed" >&6; }
++  fi
++fi
++
++	if test "$?" != 0; then
++	  as_fn_error $? "Required target tool 'llvm-config' not found." "$LINENO" 5
++	fi
++	clang_lib_dir=`$LLVM_CONFIG_FOR_TARGET --libdir`
++	if test -f $clang_lib_dir/$plugin; then
++	  plugin_file=$clang_lib_dir/$plugin
++	fi
++      fi
++      if test x$plugin_file != x$plugin; then
++	break;
++      fi
++      plugin_file=
++    done
++    if test -n $plugin_file; then
++      { $as_echo "$as_me:${as_lineno-$LINENO}: result: $plugin_file" >&5
++$as_echo "$plugin_file" >&6; }
++    else
++      { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++    fi
++  fi
++  PLUGIN_FILE_FOR_TARGET="$plugin_file"
++
++if test -n "$PLUGIN_FILE_FOR_TARGET"; then
++  PLUGIN_OPTION_FOR_TARGET="--plugin $PLUGIN_FILE_FOR_TARGET"
++else
++  COMPILER_FOR_TARGET="${CC_FOR_TARGET}"
++if test x${COMPILER_FOR_TARGET} = x"\$(CC)"; then
++  COMPILER_FOR_TARGET="$CC"
++fi
++saved_CC="$CC"
++CC="$COMPILER_FOR_TARGET"
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for gcc for target" >&5
++$as_echo_n "checking for gcc for target... " >&6; }
++if ${gcc_target_cv_working+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++
++  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++
++int
++main ()
++{
++
++  ;
++  return 0;
++}
++_ACEOF
++if ac_fn_c_try_compile "$LINENO"; then :
++  gcc_target_cv_working=yes
++else
++  gcc_target_cv_working=no
++fi
++rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
++fi
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_target_cv_working" >&5
++$as_echo "$gcc_target_cv_working" >&6; }
++CC="$saved_CC"
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for -plugin option" >&5
++$as_echo_n "checking for -plugin option... " >&6; }
++plugin_option=
++if test $gcc_target_cv_working = yes; then
++  plugin_names="liblto_plugin.so liblto_plugin-0.dll cyglto_plugin-0.dll"
++  for plugin in $plugin_names; do
++    plugin_so=`${COMPILER_FOR_TARGET} ${CFLAGS_FOR_TARGET} --print-prog-name $plugin`
++    if test x$plugin_so = x$plugin; then
++      plugin_so=`${COMPILER_FOR_TARGET} ${CFLAGS_FOR_TARGET} --print-file-name $plugin`
++    fi
++    if test x$plugin_so != x$plugin; then
++      plugin_option="--plugin $plugin_so"
++      break
++    fi
++  done
++fi
++if test -n "$plugin_option"; then
++  PLUGIN_OPTION_FOR_TARGET="$plugin_option"
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $plugin_option" >&5
++$as_echo "$plugin_option" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++fi
++if test -n "$PLUGIN_OPTION_FOR_TARGET"; then
++  AR_PLUGIN_OPTION_FOR_TARGET="$PLUGIN_OPTION_FOR_TARGET"
++  NM_PLUGIN_OPTION_FOR_TARGET="$PLUGIN_OPTION_FOR_TARGET"
++  RANLIB_PLUGIN_OPTION_FOR_TARGET="$PLUGIN_OPTION_FOR_TARGET"
++else
++  AR_PLUGIN_OPTION_FOR_TARGET=
++  NM_PLUGIN_OPTION_FOR_TARGET=
++  RANLIB_PLUGIN_OPTION_FOR_TARGET=
++fi
++
++
++
++
+ # When building target libraries, except in a Canadian cross, we use
+ # the same toolchain as the compiler we just built.
+ COMPILER_AS_FOR_TARGET='$(AS_FOR_TARGET)'
+diff --git a/configure.ac b/configure.ac
+index 15dccb65114..49ac5d60514 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -24,6 +24,7 @@ m4_include(config/override.m4)
+ m4_include(config/proginstall.m4)
+ m4_include(config/elf.m4)
+ m4_include(config/ax_cxx_compile_stdcxx.m4)
++m4_include(config/clang-plugin.m4)
+ m4_include(config/gcc-plugin.m4)
+ m4_include([libtool.m4])
+ m4_include([ltoptions.m4])
+@@ -4016,18 +4017,30 @@ AC_SUBST(GDCFLAGS)
+ GDCFLAGS=${GDCFLAGS-${CFLAGS}}
+ AC_SUBST(PKG_CONFIG_PATH)
+ 
+-GCC_PLUGIN_OPTION(PLUGIN_OPTION)
++# Try CLANG_PLUGIN_FILE first since GCC_PLUGIN_OPTION may return the
++# wrong PLUGIN_OPTION with clang.
++CLANG_PLUGIN_FILE(PLUGIN_FILE)
++if test -n "$PLUGIN_FILE"; then
++  PLUGIN_OPTION="--plugin $PLUGIN_FILE"
++else
++  GCC_PLUGIN_OPTION(PLUGIN_OPTION)
++fi
+ AR_PLUGIN_OPTION=
++NM_PLUGIN_OPTION=
+ RANLIB_PLUGIN_OPTION=
+ if test -n "$PLUGIN_OPTION"; then
+   if $AR --help 2>&1 | grep -q "\--plugin"; then
+     AR_PLUGIN_OPTION="$PLUGIN_OPTION"
+   fi
++  if $NM --help 2>&1 | grep -q "\--plugin"; then
++    NM_PLUGIN_OPTION="$PLUGIN_OPTION"
++  fi
+   if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
+     RANLIB_PLUGIN_OPTION="$PLUGIN_OPTION"
+   fi
+ fi
+ AC_SUBST(AR_PLUGIN_OPTION)
++AC_SUBST(NM_PLUGIN_OPTION)
+ AC_SUBST(RANLIB_PLUGIN_OPTION)
+ 
+ # Target tools.
+@@ -4122,6 +4135,27 @@ AR_FOR_TARGET=${AR_FOR_TARGET}${extra_arflags_for_target}
+ RANLIB_FOR_TARGET=${RANLIB_FOR_TARGET}${extra_ranlibflags_for_target}
+ NM_FOR_TARGET=${NM_FOR_TARGET}${extra_nmflags_for_target}
+ 
++# Try CLANG_PLUGIN_FILE_FOR_TARGET first since GCC_PLUGIN_OPTION_FOR_TARGET
++# may return the wrong PLUGIN_OPTION_FOR_TARGET with clang.
++CLANG_PLUGIN_FILE_FOR_TARGET(PLUGIN_FILE_FOR_TARGET)
++if test -n "$PLUGIN_FILE_FOR_TARGET"; then
++  PLUGIN_OPTION_FOR_TARGET="--plugin $PLUGIN_FILE_FOR_TARGET"
++else
++  GCC_PLUGIN_OPTION_FOR_TARGET(PLUGIN_OPTION_FOR_TARGET)
++fi
++if test -n "$PLUGIN_OPTION_FOR_TARGET"; then
++  AR_PLUGIN_OPTION_FOR_TARGET="$PLUGIN_OPTION_FOR_TARGET"
++  NM_PLUGIN_OPTION_FOR_TARGET="$PLUGIN_OPTION_FOR_TARGET"
++  RANLIB_PLUGIN_OPTION_FOR_TARGET="$PLUGIN_OPTION_FOR_TARGET"
++else
++  AR_PLUGIN_OPTION_FOR_TARGET=
++  NM_PLUGIN_OPTION_FOR_TARGET=
++  RANLIB_PLUGIN_OPTION_FOR_TARGET=
++fi
++AC_SUBST(AR_PLUGIN_OPTION_FOR_TARGET)
++AC_SUBST(NM_PLUGIN_OPTION_FOR_TARGET)
++AC_SUBST(RANLIB_PLUGIN_OPTION_FOR_TARGET)
++
+ # When building target libraries, except in a Canadian cross, we use
+ # the same toolchain as the compiler we just built.
+ COMPILER_AS_FOR_TARGET='$(AS_FOR_TARGET)'
+diff --git a/libbacktrace/Makefile.in b/libbacktrace/Makefile.in
+index 9a9b8a441dd..43d9bb54260 100644
+--- a/libbacktrace/Makefile.in
++++ b/libbacktrace/Makefile.in
+@@ -171,7 +171,9 @@ TESTS = $(am__append_4) $(MAKETESTS) $(am__EXEEXT_17)
+ subdir = .
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+ am__aclocal_m4_deps = $(top_srcdir)/../config/cet.m4 \
++	$(top_srcdir)/../config/clang-plugin.m4 \
+ 	$(top_srcdir)/../config/enable.m4 \
++	$(top_srcdir)/../config/gcc-plugin.m4 \
+ 	$(top_srcdir)/../config/lead-dot.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/override.m4 \
+@@ -904,6 +906,7 @@ LIBOBJS = @LIBOBJS@
+ LIBS = @LIBS@
+ LIBTOOL = @LIBTOOL@
+ LIPO = @LIPO@
++LLVM_CONFIG = @LLVM_CONFIG@
+ LN_S = @LN_S@
+ LTLIBOBJS = @LTLIBOBJS@
+ MAINT = @MAINT@
+diff --git a/libbacktrace/aclocal.m4 b/libbacktrace/aclocal.m4
+index 528e6173930..df92f64c55b 100644
+--- a/libbacktrace/aclocal.m4
++++ b/libbacktrace/aclocal.m4
+@@ -853,7 +853,9 @@ AC_SUBST([am__untar])
+ ]) # _AM_PROG_TAR
+ 
+ m4_include([../config/cet.m4])
++m4_include([../config/clang-plugin.m4])
+ m4_include([../config/enable.m4])
++m4_include([../config/gcc-plugin.m4])
+ m4_include([../config/lead-dot.m4])
+ m4_include([../config/multi.m4])
+ m4_include([../config/override.m4])
+diff --git a/libbacktrace/configure b/libbacktrace/configure
+index f1b68d6731f..b956afe8c34 100755
+--- a/libbacktrace/configure
++++ b/libbacktrace/configure
+@@ -691,6 +691,7 @@ LIPO
+ NMEDIT
+ DSYMUTIL
+ AR
++LLVM_CONFIG
+ OBJDUMP
+ LN_S
+ NM
+@@ -6605,8 +6606,266 @@ test -z "$deplibs_check_method" && deplibs_check_method=unknown
+ 
+ 
+ 
+-plugin_option=
++
++# Try CLANG_PLUGIN_FILE first since GCC_PLUGIN_OPTION may return the
++# wrong plugin_option with clang.
++  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for clang" >&5
++$as_echo_n "checking for clang... " >&6; }
++if ${clang_cv_is_clang+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++
++    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++
++#ifdef __clang__
++  yes
++#endif
++
++_ACEOF
++if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
++  $EGREP "yes" >/dev/null 2>&1; then :
++  clang_cv_is_clang=yes
++else
++  clang_cv_is_clang=no
++fi
++rm -f conftest*
++
++fi
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $clang_cv_is_clang" >&5
++$as_echo "$clang_cv_is_clang" >&6; }
++  plugin_file=
++  if test $clang_cv_is_clang = yes; then
++    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for clang plugin file" >&5
++$as_echo_n "checking for clang plugin file... " >&6; }
++    plugin_names="LLVMgold.so"
++    for plugin in $plugin_names; do
++      plugin_file=`${CC} ${CFLAGS} --print-file-name $plugin`
++      if test x$plugin_file = x$plugin; then
++	if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}llvm-config", so it can be a program name with args.
++set dummy ${ac_tool_prefix}llvm-config; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_LLVM_CONFIG+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$LLVM_CONFIG"; then
++  ac_cv_prog_LLVM_CONFIG="$LLVM_CONFIG" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_LLVM_CONFIG="${ac_tool_prefix}llvm-config"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++LLVM_CONFIG=$ac_cv_prog_LLVM_CONFIG
++if test -n "$LLVM_CONFIG"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $LLVM_CONFIG" >&5
++$as_echo "$LLVM_CONFIG" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++if test -z "$ac_cv_prog_LLVM_CONFIG"; then
++  ac_ct_LLVM_CONFIG=$LLVM_CONFIG
++  # Extract the first word of "llvm-config", so it can be a program name with args.
++set dummy llvm-config; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_ac_ct_LLVM_CONFIG+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$ac_ct_LLVM_CONFIG"; then
++  ac_cv_prog_ac_ct_LLVM_CONFIG="$ac_ct_LLVM_CONFIG" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_ac_ct_LLVM_CONFIG="llvm-config"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++ac_ct_LLVM_CONFIG=$ac_cv_prog_ac_ct_LLVM_CONFIG
++if test -n "$ac_ct_LLVM_CONFIG"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_LLVM_CONFIG" >&5
++$as_echo "$ac_ct_LLVM_CONFIG" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++  if test "x$ac_ct_LLVM_CONFIG" = x; then
++    LLVM_CONFIG=""
++  else
++    case $cross_compiling:$ac_tool_warned in
++yes:)
++{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
++$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
++ac_tool_warned=yes ;;
++esac
++    LLVM_CONFIG=$ac_ct_LLVM_CONFIG
++  fi
++else
++  LLVM_CONFIG="$ac_cv_prog_LLVM_CONFIG"
++fi
++
++	if test "$?" != 0; then
++	  as_fn_error $? "Required tool 'llvm-config' not found on PATH." "$LINENO" 5
++	fi
++	clang_lib_dir=`$LLVM_CONFIG --libdir`
++	if test -f $clang_lib_dir/$plugin; then
++	  plugin_file=$clang_lib_dir/$plugin
++	fi
++	if test x$plugin_file != x$plugin; then
++	  break;
++	fi
++      fi
++    done
++    if test -z $plugin_file; then
++      as_fn_error $? "Couldn't find clang plugin file for $CC." "$LINENO" 5
++    fi
++        if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
++set dummy ${ac_tool_prefix}ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$AR"; then
++  ac_cv_prog_AR="$AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_AR="${ac_tool_prefix}ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++AR=$ac_cv_prog_AR
++if test -n "$AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $AR" >&5
++$as_echo "$AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++if test -z "$ac_cv_prog_AR"; then
++  ac_ct_AR=$AR
++  # Extract the first word of "ar", so it can be a program name with args.
++set dummy ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_ac_ct_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$ac_ct_AR"; then
++  ac_cv_prog_ac_ct_AR="$ac_ct_AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_ac_ct_AR="ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++ac_ct_AR=$ac_cv_prog_ac_ct_AR
++if test -n "$ac_ct_AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_AR" >&5
++$as_echo "$ac_ct_AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++  if test "x$ac_ct_AR" = x; then
++    AR=""
++  else
++    case $cross_compiling:$ac_tool_warned in
++yes:)
++{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
++$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
++ac_tool_warned=yes ;;
++esac
++    AR=$ac_ct_AR
++  fi
++else
++  AR="$ac_cv_prog_AR"
++fi
++
++    if test "${AR}" = "" ; then
++      as_fn_error $? "Required archive tool 'ar' not found on PATH." "$LINENO" 5
++    fi
++    plugin_option="--plugin $plugin_file"
++    touch conftest.c
++    ${AR} $plugin_option rc conftest.a conftest.c
++    if test "$?" != 0; then
++      { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Failed: $AR $plugin_option rc" >&5
++$as_echo "$as_me: WARNING: Failed: $AR $plugin_option rc" >&2;}
++      plugin_file=
++    fi
++    rm -f conftest.*
++    { $as_echo "$as_me:${as_lineno-$LINENO}: result: $plugin_file" >&5
++$as_echo "$plugin_file" >&6; }
++  fi
++  plugin_file="$plugin_file"
++
++if test -n "$plugin_file"; then
++  plugin_option="--plugin $plugin_file"
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for -plugin option" >&5
++$as_echo_n "checking for -plugin option... " >&6; }
++
+ plugin_names="liblto_plugin.so liblto_plugin-0.dll cyglto_plugin-0.dll"
++plugin_option=
+ for plugin in $plugin_names; do
+   plugin_so=`${CC} ${CFLAGS} --print-prog-name $plugin`
+   if test x$plugin_so = x$plugin; then
+@@ -6617,7 +6876,119 @@ for plugin in $plugin_names; do
+     break
+   fi
+ done
++if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
++set dummy ${ac_tool_prefix}ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$AR"; then
++  ac_cv_prog_AR="$AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_AR="${ac_tool_prefix}ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
+ 
++fi
++fi
++AR=$ac_cv_prog_AR
++if test -n "$AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $AR" >&5
++$as_echo "$AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++if test -z "$ac_cv_prog_AR"; then
++  ac_ct_AR=$AR
++  # Extract the first word of "ar", so it can be a program name with args.
++set dummy ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_ac_ct_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$ac_ct_AR"; then
++  ac_cv_prog_ac_ct_AR="$ac_ct_AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_ac_ct_AR="ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++ac_ct_AR=$ac_cv_prog_ac_ct_AR
++if test -n "$ac_ct_AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_AR" >&5
++$as_echo "$ac_ct_AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++  if test "x$ac_ct_AR" = x; then
++    AR=""
++  else
++    case $cross_compiling:$ac_tool_warned in
++yes:)
++{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
++$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
++ac_tool_warned=yes ;;
++esac
++    AR=$ac_ct_AR
++  fi
++else
++  AR="$ac_cv_prog_AR"
++fi
++
++if test "${AR}" = "" ; then
++  as_fn_error $? "Required archive tool 'ar' not found on PATH." "$LINENO" 5
++fi
++touch conftest.c
++${AR} $plugin_option rc conftest.a conftest.c
++if test "$?" != 0; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Failed: $AR $plugin_option rc" >&5
++$as_echo "$as_me: WARNING: Failed: $AR $plugin_option rc" >&2;}
++  plugin_option=
++fi
++rm -f conftest.*
++if test -n "$plugin_option"; then
++  plugin_option="$plugin_option"
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $plugin_option" >&5
++$as_echo "$plugin_option" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++fi
+ if test -n "$ac_tool_prefix"; then
+   # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
+ set dummy ${ac_tool_prefix}ar; ac_word=$2
+@@ -6712,17 +7083,15 @@ fi
+ 
+ test -z "$AR" && AR=ar
+ if test -n "$plugin_option"; then
+-  if $AR --help 2>&1 | grep -q "\--plugin"; then
+-    touch conftest.c
+-    $AR $plugin_option rc conftest.a conftest.c
+-    if test "$?" != 0; then
+-      { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Failed: $AR $plugin_option rc" >&5
+-$as_echo "$as_me: WARNING: Failed: $AR $plugin_option rc" >&2;}
+-    else
++  case "$AR" in
++  *"$plugin_option"*)
++    ;;
++  *)
++    if $AR --help 2>&1 | grep -q "\--plugin"; then
+       AR="$AR $plugin_option"
+     fi
+-    rm -f conftest.*
+-  fi
++    ;;
++  esac
+ fi
+ test -z "$AR_FLAGS" && AR_FLAGS=cru
+ 
+@@ -6929,9 +7298,15 @@ fi
+ 
+ test -z "$RANLIB" && RANLIB=:
+ if test -n "$plugin_option" && test "$RANLIB" != ":"; then
+-  if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
+-    RANLIB="$RANLIB $plugin_option"
+-  fi
++  case "$RANLIB" in
++  *"$plugin_option"*)
++    ;;
++  *)
++    if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
++      RANLIB="$RANLIB $plugin_option"
++    fi
++    ;;
++  esac
+ fi
+ 
+ 
+@@ -11635,7 +12010,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 11638 "configure"
++#line 12013 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -11741,7 +12116,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 11744 "configure"
++#line 12119 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+diff --git a/libiberty/aclocal.m4 b/libiberty/aclocal.m4
+index 364fb6bc3b4..5151f5fee18 100644
+--- a/libiberty/aclocal.m4
++++ b/libiberty/aclocal.m4
+@@ -14,6 +14,7 @@
+ m4_ifndef([AC_CONFIG_MACRO_DIRS], [m4_defun([_AM_CONFIG_MACRO_DIRS], [])m4_defun([AC_CONFIG_MACRO_DIRS], [_AM_CONFIG_MACRO_DIRS($@)])])
+ m4_include([../config/acx.m4])
+ m4_include([../config/cet.m4])
++m4_include([../config/clang-plugin.m4])
+ m4_include([../config/enable.m4])
+ m4_include([../config/gcc-plugin.m4])
+ m4_include([../config/hwcaps.m4])
+diff --git a/libiberty/configure b/libiberty/configure
+index 02fbaabe89e..8996b6ea5e1 100755
+--- a/libiberty/configure
++++ b/libiberty/configure
+@@ -640,6 +640,9 @@ INSTALL_PROGRAM
+ OUTPUT_OPTION
+ NO_MINUS_C_MINUS_O
+ ac_libiberty_warn_cflags
++RANLIB_PLUGIN_OPTION
++AR_PLUGIN_OPTION
++LLVM_CONFIG
+ EGREP
+ GREP
+ CPP
+@@ -650,8 +653,6 @@ CPPFLAGS
+ LDFLAGS
+ CFLAGS
+ CC
+-RANLIB_PLUGIN_OPTION
+-AR_PLUGIN_OPTION
+ RANLIB
+ AR
+ host_os
+@@ -2947,144 +2948,6 @@ else
+ fi
+ 
+ 
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for -plugin option" >&5
+-$as_echo_n "checking for -plugin option... " >&6; }
+-
+-plugin_names="liblto_plugin.so liblto_plugin-0.dll cyglto_plugin-0.dll"
+-plugin_option=
+-for plugin in $plugin_names; do
+-  plugin_so=`${CC} ${CFLAGS} --print-prog-name $plugin`
+-  if test x$plugin_so = x$plugin; then
+-    plugin_so=`${CC} ${CFLAGS} --print-file-name $plugin`
+-  fi
+-  if test x$plugin_so != x$plugin; then
+-    plugin_option="--plugin $plugin_so"
+-    break
+-  fi
+-done
+-if test -n "$ac_tool_prefix"; then
+-  # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
+-set dummy ${ac_tool_prefix}ar; ac_word=$2
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+-$as_echo_n "checking for $ac_word... " >&6; }
+-if ${ac_cv_prog_AR+:} false; then :
+-  $as_echo_n "(cached) " >&6
+-else
+-  if test -n "$AR"; then
+-  ac_cv_prog_AR="$AR" # Let the user override the test.
+-else
+-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+-for as_dir in $PATH
+-do
+-  IFS=$as_save_IFS
+-  test -z "$as_dir" && as_dir=.
+-    for ac_exec_ext in '' $ac_executable_extensions; do
+-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+-    ac_cv_prog_AR="${ac_tool_prefix}ar"
+-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+-    break 2
+-  fi
+-done
+-  done
+-IFS=$as_save_IFS
+-
+-fi
+-fi
+-AR=$ac_cv_prog_AR
+-if test -n "$AR"; then
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $AR" >&5
+-$as_echo "$AR" >&6; }
+-else
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+-$as_echo "no" >&6; }
+-fi
+-
+-
+-fi
+-if test -z "$ac_cv_prog_AR"; then
+-  ac_ct_AR=$AR
+-  # Extract the first word of "ar", so it can be a program name with args.
+-set dummy ar; ac_word=$2
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+-$as_echo_n "checking for $ac_word... " >&6; }
+-if ${ac_cv_prog_ac_ct_AR+:} false; then :
+-  $as_echo_n "(cached) " >&6
+-else
+-  if test -n "$ac_ct_AR"; then
+-  ac_cv_prog_ac_ct_AR="$ac_ct_AR" # Let the user override the test.
+-else
+-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+-for as_dir in $PATH
+-do
+-  IFS=$as_save_IFS
+-  test -z "$as_dir" && as_dir=.
+-    for ac_exec_ext in '' $ac_executable_extensions; do
+-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+-    ac_cv_prog_ac_ct_AR="ar"
+-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+-    break 2
+-  fi
+-done
+-  done
+-IFS=$as_save_IFS
+-
+-fi
+-fi
+-ac_ct_AR=$ac_cv_prog_ac_ct_AR
+-if test -n "$ac_ct_AR"; then
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_AR" >&5
+-$as_echo "$ac_ct_AR" >&6; }
+-else
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+-$as_echo "no" >&6; }
+-fi
+-
+-  if test "x$ac_ct_AR" = x; then
+-    AR=""
+-  else
+-    case $cross_compiling:$ac_tool_warned in
+-yes:)
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
+-$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
+-ac_tool_warned=yes ;;
+-esac
+-    AR=$ac_ct_AR
+-  fi
+-else
+-  AR="$ac_cv_prog_AR"
+-fi
+-
+-if test "${AR}" = "" ; then
+-  as_fn_error $? "Required archive tool 'ar' not found on PATH." "$LINENO" 5
+-fi
+-touch conftest.c
+-${AR} $plugin_option rc conftest.a conftest.c
+-if test "$?" != 0; then
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Failed: $AR $plugin_option rc" >&5
+-$as_echo "$as_me: WARNING: Failed: $AR $plugin_option rc" >&2;}
+-  plugin_option=
+-fi
+-rm -f conftest.*
+-if test -n "$plugin_option"; then
+-  PLUGIN_OPTION="$plugin_option"
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $plugin_option" >&5
+-$as_echo "$plugin_option" >&6; }
+-else
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+-$as_echo "no" >&6; }
+-fi
+-
+-if test -n "$PLUGIN_OPTION"; then
+-  if $AR --help 2>&1 | grep -q "\--plugin"; then
+-    AR_PLUGIN_OPTION="$PLUGIN_OPTION"
+-
+-  fi
+-  if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
+-    RANLIB_PLUGIN_OPTION="$PLUGIN_OPTION"
+-
+-  fi
+-fi
+-
+ # Add --enable-multilib to configure.
+ # Default to --enable-multilib
+ # Check whether --enable-multilib was given.
+@@ -4616,6 +4479,411 @@ fi
+ 
+ ac_c_preproc_warn_flag=yes
+ 
++# Try CLANG_PLUGIN_FILE first since GCC_PLUGIN_OPTION may return the
++# wrong PLUGIN_OPTION with clang.
++  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for clang" >&5
++$as_echo_n "checking for clang... " >&6; }
++if ${clang_cv_is_clang+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++
++    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++
++#ifdef __clang__
++  yes
++#endif
++
++_ACEOF
++if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
++  $EGREP "yes" >/dev/null 2>&1; then :
++  clang_cv_is_clang=yes
++else
++  clang_cv_is_clang=no
++fi
++rm -f conftest*
++
++fi
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $clang_cv_is_clang" >&5
++$as_echo "$clang_cv_is_clang" >&6; }
++  plugin_file=
++  if test $clang_cv_is_clang = yes; then
++    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for clang plugin file" >&5
++$as_echo_n "checking for clang plugin file... " >&6; }
++    plugin_names="LLVMgold.so"
++    for plugin in $plugin_names; do
++      plugin_file=`${CC} ${CFLAGS} --print-file-name $plugin`
++      if test x$plugin_file = x$plugin; then
++	if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}llvm-config", so it can be a program name with args.
++set dummy ${ac_tool_prefix}llvm-config; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_LLVM_CONFIG+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$LLVM_CONFIG"; then
++  ac_cv_prog_LLVM_CONFIG="$LLVM_CONFIG" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_LLVM_CONFIG="${ac_tool_prefix}llvm-config"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++LLVM_CONFIG=$ac_cv_prog_LLVM_CONFIG
++if test -n "$LLVM_CONFIG"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $LLVM_CONFIG" >&5
++$as_echo "$LLVM_CONFIG" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++if test -z "$ac_cv_prog_LLVM_CONFIG"; then
++  ac_ct_LLVM_CONFIG=$LLVM_CONFIG
++  # Extract the first word of "llvm-config", so it can be a program name with args.
++set dummy llvm-config; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_ac_ct_LLVM_CONFIG+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$ac_ct_LLVM_CONFIG"; then
++  ac_cv_prog_ac_ct_LLVM_CONFIG="$ac_ct_LLVM_CONFIG" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_ac_ct_LLVM_CONFIG="llvm-config"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++ac_ct_LLVM_CONFIG=$ac_cv_prog_ac_ct_LLVM_CONFIG
++if test -n "$ac_ct_LLVM_CONFIG"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_LLVM_CONFIG" >&5
++$as_echo "$ac_ct_LLVM_CONFIG" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++  if test "x$ac_ct_LLVM_CONFIG" = x; then
++    LLVM_CONFIG=""
++  else
++    case $cross_compiling:$ac_tool_warned in
++yes:)
++{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
++$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
++ac_tool_warned=yes ;;
++esac
++    LLVM_CONFIG=$ac_ct_LLVM_CONFIG
++  fi
++else
++  LLVM_CONFIG="$ac_cv_prog_LLVM_CONFIG"
++fi
++
++	if test "$?" != 0; then
++	  as_fn_error $? "Required tool 'llvm-config' not found on PATH." "$LINENO" 5
++	fi
++	clang_lib_dir=`$LLVM_CONFIG --libdir`
++	if test -f $clang_lib_dir/$plugin; then
++	  plugin_file=$clang_lib_dir/$plugin
++	fi
++	if test x$plugin_file != x$plugin; then
++	  break;
++	fi
++      fi
++    done
++    if test -z $plugin_file; then
++      as_fn_error $? "Couldn't find clang plugin file for $CC." "$LINENO" 5
++    fi
++        if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
++set dummy ${ac_tool_prefix}ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$AR"; then
++  ac_cv_prog_AR="$AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_AR="${ac_tool_prefix}ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++AR=$ac_cv_prog_AR
++if test -n "$AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $AR" >&5
++$as_echo "$AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++if test -z "$ac_cv_prog_AR"; then
++  ac_ct_AR=$AR
++  # Extract the first word of "ar", so it can be a program name with args.
++set dummy ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_ac_ct_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$ac_ct_AR"; then
++  ac_cv_prog_ac_ct_AR="$ac_ct_AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_ac_ct_AR="ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++ac_ct_AR=$ac_cv_prog_ac_ct_AR
++if test -n "$ac_ct_AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_AR" >&5
++$as_echo "$ac_ct_AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++  if test "x$ac_ct_AR" = x; then
++    AR=""
++  else
++    case $cross_compiling:$ac_tool_warned in
++yes:)
++{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
++$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
++ac_tool_warned=yes ;;
++esac
++    AR=$ac_ct_AR
++  fi
++else
++  AR="$ac_cv_prog_AR"
++fi
++
++    if test "${AR}" = "" ; then
++      as_fn_error $? "Required archive tool 'ar' not found on PATH." "$LINENO" 5
++    fi
++    plugin_option="--plugin $plugin_file"
++    touch conftest.c
++    ${AR} $plugin_option rc conftest.a conftest.c
++    if test "$?" != 0; then
++      { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Failed: $AR $plugin_option rc" >&5
++$as_echo "$as_me: WARNING: Failed: $AR $plugin_option rc" >&2;}
++      plugin_file=
++    fi
++    rm -f conftest.*
++    { $as_echo "$as_me:${as_lineno-$LINENO}: result: $plugin_file" >&5
++$as_echo "$plugin_file" >&6; }
++  fi
++  PLUGIN_FILE="$plugin_file"
++
++if test -n "$PLUGIN_FILE"; then
++  PLUGIN_OPTION="--plugin $PLUGIN_FILE"
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for -plugin option" >&5
++$as_echo_n "checking for -plugin option... " >&6; }
++
++plugin_names="liblto_plugin.so liblto_plugin-0.dll cyglto_plugin-0.dll"
++plugin_option=
++for plugin in $plugin_names; do
++  plugin_so=`${CC} ${CFLAGS} --print-prog-name $plugin`
++  if test x$plugin_so = x$plugin; then
++    plugin_so=`${CC} ${CFLAGS} --print-file-name $plugin`
++  fi
++  if test x$plugin_so != x$plugin; then
++    plugin_option="--plugin $plugin_so"
++    break
++  fi
++done
++if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
++set dummy ${ac_tool_prefix}ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$AR"; then
++  ac_cv_prog_AR="$AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_AR="${ac_tool_prefix}ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++AR=$ac_cv_prog_AR
++if test -n "$AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $AR" >&5
++$as_echo "$AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++if test -z "$ac_cv_prog_AR"; then
++  ac_ct_AR=$AR
++  # Extract the first word of "ar", so it can be a program name with args.
++set dummy ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_ac_ct_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$ac_ct_AR"; then
++  ac_cv_prog_ac_ct_AR="$ac_ct_AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_ac_ct_AR="ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++ac_ct_AR=$ac_cv_prog_ac_ct_AR
++if test -n "$ac_ct_AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_AR" >&5
++$as_echo "$ac_ct_AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++  if test "x$ac_ct_AR" = x; then
++    AR=""
++  else
++    case $cross_compiling:$ac_tool_warned in
++yes:)
++{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
++$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
++ac_tool_warned=yes ;;
++esac
++    AR=$ac_ct_AR
++  fi
++else
++  AR="$ac_cv_prog_AR"
++fi
++
++if test "${AR}" = "" ; then
++  as_fn_error $? "Required archive tool 'ar' not found on PATH." "$LINENO" 5
++fi
++touch conftest.c
++${AR} $plugin_option rc conftest.a conftest.c
++if test "$?" != 0; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Failed: $AR $plugin_option rc" >&5
++$as_echo "$as_me: WARNING: Failed: $AR $plugin_option rc" >&2;}
++  plugin_option=
++fi
++rm -f conftest.*
++if test -n "$plugin_option"; then
++  PLUGIN_OPTION="$plugin_option"
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $plugin_option" >&5
++$as_echo "$plugin_option" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++fi
++if test -n "$PLUGIN_OPTION"; then
++  case "$AR" in
++  *"$PLUGIN_OPTION"*)
++    ;;
++  *)
++    if $AR --help 2>&1 | grep -q "\--plugin"; then
++      AR_PLUGIN_OPTION="$PLUGIN_OPTION"
++
++    fi
++    ;;
++  esac
++  case "$RANLIB" in
++  *"$PLUGIN_OPTION"*)
++    ;;
++  *)
++    if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
++      RANLIB_PLUGIN_OPTION="$PLUGIN_OPTION"
++
++    fi
++    ;;
++  esac
++fi
++
+ ac_ext=c
+ ac_cpp='$CPP $CPPFLAGS'
+ ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+diff --git a/libiberty/configure.ac b/libiberty/configure.ac
+index 3de5eca0df2..199fa192fe4 100644
+--- a/libiberty/configure.ac
++++ b/libiberty/configure.ac
+@@ -114,18 +114,6 @@ dnl to call AC_CHECK_PROG.
+ AC_CHECK_TOOL(AR, ar)
+ AC_CHECK_TOOL(RANLIB, ranlib, :)
+ 
+-GCC_PLUGIN_OPTION(PLUGIN_OPTION)
+-if test -n "$PLUGIN_OPTION"; then
+-  if $AR --help 2>&1 | grep -q "\--plugin"; then
+-    AR_PLUGIN_OPTION="$PLUGIN_OPTION"
+-    AC_SUBST(AR_PLUGIN_OPTION)
+-  fi
+-  if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
+-    RANLIB_PLUGIN_OPTION="$PLUGIN_OPTION"
+-    AC_SUBST(RANLIB_PLUGIN_OPTION)
+-  fi
+-fi
+-
+ dnl When switching to automake, replace the following with AM_ENABLE_MULTILIB.
+ # Add --enable-multilib to configure.
+ # Default to --enable-multilib
+@@ -176,6 +164,37 @@ AC_USE_SYSTEM_EXTENSIONS
+ AC_SYS_LARGEFILE
+ AC_PROG_CPP_WERROR
+ 
++# Try CLANG_PLUGIN_FILE first since GCC_PLUGIN_OPTION may return the
++# wrong PLUGIN_OPTION with clang.
++CLANG_PLUGIN_FILE(PLUGIN_FILE)
++if test -n "$PLUGIN_FILE"; then
++  PLUGIN_OPTION="--plugin $PLUGIN_FILE"
++else
++  GCC_PLUGIN_OPTION(PLUGIN_OPTION)
++fi
++if test -n "$PLUGIN_OPTION"; then
++  case "$AR" in
++  *"$PLUGIN_OPTION"*)
++    ;;
++  *)
++    if $AR --help 2>&1 | grep -q "\--plugin"; then
++      AR_PLUGIN_OPTION="$PLUGIN_OPTION"
++      AC_SUBST(AR_PLUGIN_OPTION)
++    fi
++    ;;
++  esac
++  case "$RANLIB" in
++  *"$PLUGIN_OPTION"*)
++    ;;
++  *)
++    if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
++      RANLIB_PLUGIN_OPTION="$PLUGIN_OPTION"
++      AC_SUBST(RANLIB_PLUGIN_OPTION)
++    fi
++    ;;
++  esac
++fi
++
+ ACX_PROG_CC_WARNING_OPTS([-W -Wall -Wwrite-strings -Wc++-compat \
+ 			  -Wstrict-prototypes \
+ 			  -Wshadow=local], [ac_libiberty_warn_cflags])
+diff --git a/libtool.m4 b/libtool.m4
+index add2d4a1e23..0e639dc98b2 100644
+--- a/libtool.m4
++++ b/libtool.m4
+@@ -1372,32 +1372,27 @@ need_locks="$enable_libtool_lock"
+ # _LT_CMD_OLD_ARCHIVE
+ # -------------------
+ m4_defun([_LT_CMD_OLD_ARCHIVE],
+-[plugin_option=
+-plugin_names="liblto_plugin.so liblto_plugin-0.dll cyglto_plugin-0.dll"
+-for plugin in $plugin_names; do
+-  plugin_so=`${CC} ${CFLAGS} --print-prog-name $plugin`
+-  if test x$plugin_so = x$plugin; then
+-    plugin_so=`${CC} ${CFLAGS} --print-file-name $plugin`
+-  fi
+-  if test x$plugin_so != x$plugin; then
+-    plugin_option="--plugin $plugin_so"
+-    break
+-  fi
+-done
+-
++[
++# Try CLANG_PLUGIN_FILE first since GCC_PLUGIN_OPTION may return the
++# wrong plugin_option with clang.
++CLANG_PLUGIN_FILE(plugin_file)
++if test -n "$plugin_file"; then
++  plugin_option="--plugin $plugin_file"
++else
++  GCC_PLUGIN_OPTION(plugin_option)
++fi
+ AC_CHECK_TOOL(AR, ar, false)
+ test -z "$AR" && AR=ar
+ if test -n "$plugin_option"; then
+-  if $AR --help 2>&1 | grep -q "\--plugin"; then
+-    touch conftest.c
+-    $AR $plugin_option rc conftest.a conftest.c
+-    if test "$?" != 0; then
+-      AC_MSG_WARN([Failed: $AR $plugin_option rc])
+-    else
++  case "$AR" in
++  *"$plugin_option"*)
++    ;;
++  *)
++    if $AR --help 2>&1 | grep -q "\--plugin"; then
+       AR="$AR $plugin_option"
+     fi
+-    rm -f conftest.*
+-  fi
++    ;;
++  esac
+ fi
+ test -z "$AR_FLAGS" && AR_FLAGS=cru
+ _LT_DECL([], [AR], [1], [The archiver])
+@@ -1410,9 +1405,15 @@ _LT_DECL([], [STRIP], [1], [A symbol stripping program])
+ AC_CHECK_TOOL(RANLIB, ranlib, :)
+ test -z "$RANLIB" && RANLIB=:
+ if test -n "$plugin_option" && test "$RANLIB" != ":"; then
+-  if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
+-    RANLIB="$RANLIB $plugin_option"
+-  fi
++  case "$RANLIB" in
++  *"$plugin_option"*)
++    ;;
++  *)
++    if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
++      RANLIB="$RANLIB $plugin_option"
++    fi
++    ;;
++  esac
+ fi
+ _LT_DECL([], [RANLIB], [1],
+     [Commands used to install an old-style archive])
+diff --git a/zlib/Makefile.in b/zlib/Makefile.in
+index 80fe3b69116..23b5afe576d 100644
+--- a/zlib/Makefile.in
++++ b/zlib/Makefile.in
+@@ -93,8 +93,10 @@ target_triplet = @target@
+ subdir = .
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+ am__aclocal_m4_deps = $(top_srcdir)/../config/cet.m4 \
++	$(top_srcdir)/../config/clang-plugin.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/enable.m4 \
++	$(top_srcdir)/../config/gcc-plugin.m4 \
+ 	$(top_srcdir)/../config/lead-dot.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/override.m4 \
+@@ -305,6 +307,7 @@ LIBOBJS = @LIBOBJS@
+ LIBS = @LIBS@
+ LIBTOOL = @LIBTOOL@
+ LIPO = @LIPO@
++LLVM_CONFIG = @LLVM_CONFIG@
+ LN_S = @LN_S@
+ LTLIBOBJS = @LTLIBOBJS@
+ MAINT = @MAINT@
+diff --git a/zlib/aclocal.m4 b/zlib/aclocal.m4
+index f3676e70476..b8f66c52326 100644
+--- a/zlib/aclocal.m4
++++ b/zlib/aclocal.m4
+@@ -1168,8 +1168,10 @@ AC_SUBST([am__untar])
+ ]) # _AM_PROG_TAR
+ 
+ m4_include([../config/cet.m4])
++m4_include([../config/clang-plugin.m4])
+ m4_include([../config/depstand.m4])
+ m4_include([../config/enable.m4])
++m4_include([../config/gcc-plugin.m4])
+ m4_include([../config/lead-dot.m4])
+ m4_include([../config/multi.m4])
+ m4_include([../config/override.m4])
+diff --git a/zlib/configure b/zlib/configure
+index ac76e60ff33..9aae6355102 100755
+--- a/zlib/configure
++++ b/zlib/configure
+@@ -643,7 +643,6 @@ toolexeclibdir
+ toolexecdir
+ ENABLE_DARWIN_AT_RPATH_FALSE
+ ENABLE_DARWIN_AT_RPATH_TRUE
+-CPP
+ OTOOL64
+ OTOOL
+ LIPO
+@@ -651,6 +650,8 @@ NMEDIT
+ DSYMUTIL
+ RANLIB
+ AR
++LLVM_CONFIG
++CPP
+ OBJDUMP
+ LN_S
+ NM
+@@ -1573,6 +1574,43 @@ fi
+ 
+ } # ac_fn_c_try_compile
+ 
++# ac_fn_c_try_cpp LINENO
++# ----------------------
++# Try to preprocess conftest.$ac_ext, and return whether this succeeded.
++ac_fn_c_try_cpp ()
++{
++  as_lineno=${as_lineno-"$1"} as_lineno_stack=as_lineno_stack=$as_lineno_stack
++  if { { ac_try="$ac_cpp conftest.$ac_ext"
++case "(($ac_try" in
++  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
++  *) ac_try_echo=$ac_try;;
++esac
++eval ac_try_echo="\"\$as_me:${as_lineno-$LINENO}: $ac_try_echo\""
++$as_echo "$ac_try_echo"; } >&5
++  (eval "$ac_cpp conftest.$ac_ext") 2>conftest.err
++  ac_status=$?
++  if test -s conftest.err; then
++    grep -v '^ *+' conftest.err >conftest.er1
++    cat conftest.er1 >&5
++    mv -f conftest.er1 conftest.err
++  fi
++  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
++  test $ac_status = 0; } > conftest.i && {
++	 test -z "$ac_c_preproc_warn_flag$ac_c_werror_flag" ||
++	 test ! -s conftest.err
++       }; then :
++  ac_retval=0
++else
++  $as_echo "$as_me: failed program was:" >&5
++sed 's/^/| /' conftest.$ac_ext >&5
++
++    ac_retval=1
++fi
++  eval $as_lineno_stack; ${as_lineno_stack:+:} unset as_lineno
++  as_fn_set_status $ac_retval
++
++} # ac_fn_c_try_cpp
++
+ # ac_fn_c_try_link LINENO
+ # -----------------------
+ # Try to link conftest.$ac_ext, and return whether this succeeded.
+@@ -1650,43 +1688,6 @@ $as_echo "$ac_res" >&6; }
+ 
+ } # ac_fn_c_check_header_compile
+ 
+-# ac_fn_c_try_cpp LINENO
+-# ----------------------
+-# Try to preprocess conftest.$ac_ext, and return whether this succeeded.
+-ac_fn_c_try_cpp ()
+-{
+-  as_lineno=${as_lineno-"$1"} as_lineno_stack=as_lineno_stack=$as_lineno_stack
+-  if { { ac_try="$ac_cpp conftest.$ac_ext"
+-case "(($ac_try" in
+-  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
+-  *) ac_try_echo=$ac_try;;
+-esac
+-eval ac_try_echo="\"\$as_me:${as_lineno-$LINENO}: $ac_try_echo\""
+-$as_echo "$ac_try_echo"; } >&5
+-  (eval "$ac_cpp conftest.$ac_ext") 2>conftest.err
+-  ac_status=$?
+-  if test -s conftest.err; then
+-    grep -v '^ *+' conftest.err >conftest.er1
+-    cat conftest.er1 >&5
+-    mv -f conftest.er1 conftest.err
+-  fi
+-  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
+-  test $ac_status = 0; } > conftest.i && {
+-	 test -z "$ac_c_preproc_warn_flag$ac_c_werror_flag" ||
+-	 test ! -s conftest.err
+-       }; then :
+-  ac_retval=0
+-else
+-  $as_echo "$as_me: failed program was:" >&5
+-sed 's/^/| /' conftest.$ac_ext >&5
+-
+-    ac_retval=1
+-fi
+-  eval $as_lineno_stack; ${as_lineno_stack:+:} unset as_lineno
+-  as_fn_set_status $ac_retval
+-
+-} # ac_fn_c_try_cpp
+-
+ # ac_fn_c_try_run LINENO
+ # ----------------------
+ # Try to link conftest.$ac_ext, and return whether this succeeded. Assumes
+@@ -5523,29 +5524,190 @@ test -z "$deplibs_check_method" && deplibs_check_method=unknown
+ 
+ 
+ 
+-plugin_option=
+-plugin_names="liblto_plugin.so liblto_plugin-0.dll cyglto_plugin-0.dll"
+-for plugin in $plugin_names; do
+-  plugin_so=`${CC} ${CFLAGS} --print-prog-name $plugin`
+-  if test x$plugin_so = x$plugin; then
+-    plugin_so=`${CC} ${CFLAGS} --print-file-name $plugin`
+-  fi
+-  if test x$plugin_so != x$plugin; then
+-    plugin_option="--plugin $plugin_so"
+-    break
+-  fi
++ac_ext=c
++ac_cpp='$CPP $CPPFLAGS'
++ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
++ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
++ac_compiler_gnu=$ac_cv_c_compiler_gnu
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking how to run the C preprocessor" >&5
++$as_echo_n "checking how to run the C preprocessor... " >&6; }
++# On Suns, sometimes $CPP names a directory.
++if test -n "$CPP" && test -d "$CPP"; then
++  CPP=
++fi
++if test -z "$CPP"; then
++  if ${ac_cv_prog_CPP+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++      # Double quotes because CPP needs to be expanded
++    for CPP in "$CC -E" "$CC -E -traditional-cpp" "/lib/cpp"
++    do
++      ac_preproc_ok=false
++for ac_c_preproc_warn_flag in '' yes
++do
++  # Use a header file that comes with gcc, so configuring glibc
++  # with a fresh cross-compiler works.
++  # Prefer <limits.h> to <assert.h> if __STDC__ is defined, since
++  # <limits.h> exists even on freestanding compilers.
++  # On the NeXT, cc -E runs the code through the compiler's parser,
++  # not just through cpp. "Syntax error" is here to catch this case.
++  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++#ifdef __STDC__
++# include <limits.h>
++#else
++# include <assert.h>
++#endif
++		     Syntax error
++_ACEOF
++if ac_fn_c_try_cpp "$LINENO"; then :
++
++else
++  # Broken: fails on valid input.
++continue
++fi
++rm -f conftest.err conftest.i conftest.$ac_ext
++
++  # OK, works on sane cases.  Now check whether nonexistent headers
++  # can be detected and how.
++  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++#include <ac_nonexistent.h>
++_ACEOF
++if ac_fn_c_try_cpp "$LINENO"; then :
++  # Broken: success on invalid input.
++continue
++else
++  # Passes both tests.
++ac_preproc_ok=:
++break
++fi
++rm -f conftest.err conftest.i conftest.$ac_ext
++
+ done
++# Because of `break', _AC_PREPROC_IFELSE's cleaning code was skipped.
++rm -f conftest.i conftest.err conftest.$ac_ext
++if $ac_preproc_ok; then :
++  break
++fi
+ 
+-if test -n "$ac_tool_prefix"; then
+-  # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
+-set dummy ${ac_tool_prefix}ar; ac_word=$2
++    done
++    ac_cv_prog_CPP=$CPP
++
++fi
++  CPP=$ac_cv_prog_CPP
++else
++  ac_cv_prog_CPP=$CPP
++fi
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $CPP" >&5
++$as_echo "$CPP" >&6; }
++ac_preproc_ok=false
++for ac_c_preproc_warn_flag in '' yes
++do
++  # Use a header file that comes with gcc, so configuring glibc
++  # with a fresh cross-compiler works.
++  # Prefer <limits.h> to <assert.h> if __STDC__ is defined, since
++  # <limits.h> exists even on freestanding compilers.
++  # On the NeXT, cc -E runs the code through the compiler's parser,
++  # not just through cpp. "Syntax error" is here to catch this case.
++  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++#ifdef __STDC__
++# include <limits.h>
++#else
++# include <assert.h>
++#endif
++		     Syntax error
++_ACEOF
++if ac_fn_c_try_cpp "$LINENO"; then :
++
++else
++  # Broken: fails on valid input.
++continue
++fi
++rm -f conftest.err conftest.i conftest.$ac_ext
++
++  # OK, works on sane cases.  Now check whether nonexistent headers
++  # can be detected and how.
++  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++#include <ac_nonexistent.h>
++_ACEOF
++if ac_fn_c_try_cpp "$LINENO"; then :
++  # Broken: success on invalid input.
++continue
++else
++  # Passes both tests.
++ac_preproc_ok=:
++break
++fi
++rm -f conftest.err conftest.i conftest.$ac_ext
++
++done
++# Because of `break', _AC_PREPROC_IFELSE's cleaning code was skipped.
++rm -f conftest.i conftest.err conftest.$ac_ext
++if $ac_preproc_ok; then :
++
++else
++  { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
++$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
++as_fn_error $? "C preprocessor \"$CPP\" fails sanity check
++See \`config.log' for more details" "$LINENO" 5; }
++fi
++
++ac_ext=c
++ac_cpp='$CPP $CPPFLAGS'
++ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
++ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
++ac_compiler_gnu=$ac_cv_c_compiler_gnu
++
++
++
++# Try CLANG_PLUGIN_FILE first since GCC_PLUGIN_OPTION may return the
++# wrong plugin_option with clang.
++  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for clang" >&5
++$as_echo_n "checking for clang... " >&6; }
++if ${clang_cv_is_clang+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++
++    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++
++#ifdef __clang__
++  yes
++#endif
++
++_ACEOF
++if (eval "$ac_cpp conftest.$ac_ext") 2>&5 |
++  $EGREP "yes" >/dev/null 2>&1; then :
++  clang_cv_is_clang=yes
++else
++  clang_cv_is_clang=no
++fi
++rm -f conftest*
++
++fi
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $clang_cv_is_clang" >&5
++$as_echo "$clang_cv_is_clang" >&6; }
++  plugin_file=
++  if test $clang_cv_is_clang = yes; then
++    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for clang plugin file" >&5
++$as_echo_n "checking for clang plugin file... " >&6; }
++    plugin_names="LLVMgold.so"
++    for plugin in $plugin_names; do
++      plugin_file=`${CC} ${CFLAGS} --print-file-name $plugin`
++      if test x$plugin_file = x$plugin; then
++	if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}llvm-config", so it can be a program name with args.
++set dummy ${ac_tool_prefix}llvm-config; ac_word=$2
+ { $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+ $as_echo_n "checking for $ac_word... " >&6; }
+-if ${ac_cv_prog_AR+:} false; then :
++if ${ac_cv_prog_LLVM_CONFIG+:} false; then :
+   $as_echo_n "(cached) " >&6
+ else
+-  if test -n "$AR"; then
+-  ac_cv_prog_AR="$AR" # Let the user override the test.
++  if test -n "$LLVM_CONFIG"; then
++  ac_cv_prog_LLVM_CONFIG="$LLVM_CONFIG" # Let the user override the test.
+ else
+ as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+ for as_dir in $PATH
+@@ -5554,7 +5716,7 @@ do
+   test -z "$as_dir" && as_dir=.
+     for ac_exec_ext in '' $ac_executable_extensions; do
+   if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+-    ac_cv_prog_AR="${ac_tool_prefix}ar"
++    ac_cv_prog_LLVM_CONFIG="${ac_tool_prefix}llvm-config"
+     $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+     break 2
+   fi
+@@ -5564,10 +5726,10 @@ IFS=$as_save_IFS
+ 
+ fi
+ fi
+-AR=$ac_cv_prog_AR
+-if test -n "$AR"; then
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $AR" >&5
+-$as_echo "$AR" >&6; }
++LLVM_CONFIG=$ac_cv_prog_LLVM_CONFIG
++if test -n "$LLVM_CONFIG"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $LLVM_CONFIG" >&5
++$as_echo "$LLVM_CONFIG" >&6; }
+ else
+   { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+ $as_echo "no" >&6; }
+@@ -5575,17 +5737,124 @@ fi
+ 
+ 
+ fi
+-if test -z "$ac_cv_prog_AR"; then
+-  ac_ct_AR=$AR
+-  # Extract the first word of "ar", so it can be a program name with args.
+-set dummy ar; ac_word=$2
++if test -z "$ac_cv_prog_LLVM_CONFIG"; then
++  ac_ct_LLVM_CONFIG=$LLVM_CONFIG
++  # Extract the first word of "llvm-config", so it can be a program name with args.
++set dummy llvm-config; ac_word=$2
+ { $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+ $as_echo_n "checking for $ac_word... " >&6; }
+-if ${ac_cv_prog_ac_ct_AR+:} false; then :
++if ${ac_cv_prog_ac_ct_LLVM_CONFIG+:} false; then :
+   $as_echo_n "(cached) " >&6
+ else
+-  if test -n "$ac_ct_AR"; then
+-  ac_cv_prog_ac_ct_AR="$ac_ct_AR" # Let the user override the test.
++  if test -n "$ac_ct_LLVM_CONFIG"; then
++  ac_cv_prog_ac_ct_LLVM_CONFIG="$ac_ct_LLVM_CONFIG" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_ac_ct_LLVM_CONFIG="llvm-config"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++ac_ct_LLVM_CONFIG=$ac_cv_prog_ac_ct_LLVM_CONFIG
++if test -n "$ac_ct_LLVM_CONFIG"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_LLVM_CONFIG" >&5
++$as_echo "$ac_ct_LLVM_CONFIG" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++  if test "x$ac_ct_LLVM_CONFIG" = x; then
++    LLVM_CONFIG=""
++  else
++    case $cross_compiling:$ac_tool_warned in
++yes:)
++{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
++$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
++ac_tool_warned=yes ;;
++esac
++    LLVM_CONFIG=$ac_ct_LLVM_CONFIG
++  fi
++else
++  LLVM_CONFIG="$ac_cv_prog_LLVM_CONFIG"
++fi
++
++	if test "$?" != 0; then
++	  as_fn_error $? "Required tool 'llvm-config' not found on PATH." "$LINENO" 5
++	fi
++	clang_lib_dir=`$LLVM_CONFIG --libdir`
++	if test -f $clang_lib_dir/$plugin; then
++	  plugin_file=$clang_lib_dir/$plugin
++	fi
++	if test x$plugin_file != x$plugin; then
++	  break;
++	fi
++      fi
++    done
++    if test -z $plugin_file; then
++      as_fn_error $? "Couldn't find clang plugin file for $CC." "$LINENO" 5
++    fi
++        if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
++set dummy ${ac_tool_prefix}ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$AR"; then
++  ac_cv_prog_AR="$AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_AR="${ac_tool_prefix}ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++AR=$ac_cv_prog_AR
++if test -n "$AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $AR" >&5
++$as_echo "$AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++if test -z "$ac_cv_prog_AR"; then
++  ac_ct_AR=$AR
++  # Extract the first word of "ar", so it can be a program name with args.
++set dummy ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_ac_ct_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$ac_ct_AR"; then
++  ac_cv_prog_ac_ct_AR="$ac_ct_AR" # Let the user override the test.
+ else
+ as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+ for as_dir in $PATH
+@@ -5614,7 +5883,7 @@ $as_echo "no" >&6; }
+ fi
+ 
+   if test "x$ac_ct_AR" = x; then
+-    AR="false"
++    AR=""
+   else
+     case $cross_compiling:$ac_tool_warned in
+ yes:)
+@@ -5628,19 +5897,257 @@ else
+   AR="$ac_cv_prog_AR"
+ fi
+ 
+-test -z "$AR" && AR=ar
+-if test -n "$plugin_option"; then
+-  if $AR --help 2>&1 | grep -q "\--plugin"; then
++    if test "${AR}" = "" ; then
++      as_fn_error $? "Required archive tool 'ar' not found on PATH." "$LINENO" 5
++    fi
++    plugin_option="--plugin $plugin_file"
+     touch conftest.c
+-    $AR $plugin_option rc conftest.a conftest.c
++    ${AR} $plugin_option rc conftest.a conftest.c
+     if test "$?" != 0; then
+       { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Failed: $AR $plugin_option rc" >&5
+ $as_echo "$as_me: WARNING: Failed: $AR $plugin_option rc" >&2;}
+-    else
+-      AR="$AR $plugin_option"
++      plugin_file=
+     fi
+     rm -f conftest.*
++    { $as_echo "$as_me:${as_lineno-$LINENO}: result: $plugin_file" >&5
++$as_echo "$plugin_file" >&6; }
++  fi
++  plugin_file="$plugin_file"
++
++if test -n "$plugin_file"; then
++  plugin_option="--plugin $plugin_file"
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for -plugin option" >&5
++$as_echo_n "checking for -plugin option... " >&6; }
++
++plugin_names="liblto_plugin.so liblto_plugin-0.dll cyglto_plugin-0.dll"
++plugin_option=
++for plugin in $plugin_names; do
++  plugin_so=`${CC} ${CFLAGS} --print-prog-name $plugin`
++  if test x$plugin_so = x$plugin; then
++    plugin_so=`${CC} ${CFLAGS} --print-file-name $plugin`
++  fi
++  if test x$plugin_so != x$plugin; then
++    plugin_option="--plugin $plugin_so"
++    break
++  fi
++done
++if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
++set dummy ${ac_tool_prefix}ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$AR"; then
++  ac_cv_prog_AR="$AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_AR="${ac_tool_prefix}ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++AR=$ac_cv_prog_AR
++if test -n "$AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $AR" >&5
++$as_echo "$AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++if test -z "$ac_cv_prog_AR"; then
++  ac_ct_AR=$AR
++  # Extract the first word of "ar", so it can be a program name with args.
++set dummy ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_ac_ct_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$ac_ct_AR"; then
++  ac_cv_prog_ac_ct_AR="$ac_ct_AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_ac_ct_AR="ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++ac_ct_AR=$ac_cv_prog_ac_ct_AR
++if test -n "$ac_ct_AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_AR" >&5
++$as_echo "$ac_ct_AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++  if test "x$ac_ct_AR" = x; then
++    AR=""
++  else
++    case $cross_compiling:$ac_tool_warned in
++yes:)
++{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
++$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
++ac_tool_warned=yes ;;
++esac
++    AR=$ac_ct_AR
++  fi
++else
++  AR="$ac_cv_prog_AR"
++fi
++
++if test "${AR}" = "" ; then
++  as_fn_error $? "Required archive tool 'ar' not found on PATH." "$LINENO" 5
++fi
++touch conftest.c
++${AR} $plugin_option rc conftest.a conftest.c
++if test "$?" != 0; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Failed: $AR $plugin_option rc" >&5
++$as_echo "$as_me: WARNING: Failed: $AR $plugin_option rc" >&2;}
++  plugin_option=
++fi
++rm -f conftest.*
++if test -n "$plugin_option"; then
++  plugin_option="$plugin_option"
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $plugin_option" >&5
++$as_echo "$plugin_option" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++fi
++if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
++set dummy ${ac_tool_prefix}ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$AR"; then
++  ac_cv_prog_AR="$AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_AR="${ac_tool_prefix}ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++AR=$ac_cv_prog_AR
++if test -n "$AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $AR" >&5
++$as_echo "$AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++if test -z "$ac_cv_prog_AR"; then
++  ac_ct_AR=$AR
++  # Extract the first word of "ar", so it can be a program name with args.
++set dummy ar; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_prog_ac_ct_AR+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  if test -n "$ac_ct_AR"; then
++  ac_cv_prog_ac_ct_AR="$ac_ct_AR" # Let the user override the test.
++else
++as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_prog_ac_ct_AR="ar"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++fi
++fi
++ac_ct_AR=$ac_cv_prog_ac_ct_AR
++if test -n "$ac_ct_AR"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_AR" >&5
++$as_echo "$ac_ct_AR" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++  if test "x$ac_ct_AR" = x; then
++    AR="false"
++  else
++    case $cross_compiling:$ac_tool_warned in
++yes:)
++{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
++$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
++ac_tool_warned=yes ;;
++esac
++    AR=$ac_ct_AR
+   fi
++else
++  AR="$ac_cv_prog_AR"
++fi
++
++test -z "$AR" && AR=ar
++if test -n "$plugin_option"; then
++  case "$AR" in
++  *"$plugin_option"*)
++    ;;
++  *)
++    if $AR --help 2>&1 | grep -q "\--plugin"; then
++      AR="$AR $plugin_option"
++    fi
++    ;;
++  esac
+ fi
+ test -z "$AR_FLAGS" && AR_FLAGS=cru
+ 
+@@ -5847,9 +6354,15 @@ fi
+ 
+ test -z "$RANLIB" && RANLIB=:
+ if test -n "$plugin_option" && test "$RANLIB" != ":"; then
+-  if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
+-    RANLIB="$RANLIB $plugin_option"
+-  fi
++  case "$RANLIB" in
++  *"$plugin_option"*)
++    ;;
++  *)
++    if $RANLIB --help 2>&1 | grep -q "\--plugin"; then
++      RANLIB="$RANLIB $plugin_option"
++    fi
++    ;;
++  esac
+ fi
+ 
+ 
+@@ -7007,144 +7520,6 @@ $as_echo "$lt_cv_ld_force_load" >&6; }
+     ;;
+   esac
+ 
+-ac_ext=c
+-ac_cpp='$CPP $CPPFLAGS'
+-ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+-ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+-ac_compiler_gnu=$ac_cv_c_compiler_gnu
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking how to run the C preprocessor" >&5
+-$as_echo_n "checking how to run the C preprocessor... " >&6; }
+-# On Suns, sometimes $CPP names a directory.
+-if test -n "$CPP" && test -d "$CPP"; then
+-  CPP=
+-fi
+-if test -z "$CPP"; then
+-  if ${ac_cv_prog_CPP+:} false; then :
+-  $as_echo_n "(cached) " >&6
+-else
+-      # Double quotes because CPP needs to be expanded
+-    for CPP in "$CC -E" "$CC -E -traditional-cpp" "/lib/cpp"
+-    do
+-      ac_preproc_ok=false
+-for ac_c_preproc_warn_flag in '' yes
+-do
+-  # Use a header file that comes with gcc, so configuring glibc
+-  # with a fresh cross-compiler works.
+-  # Prefer <limits.h> to <assert.h> if __STDC__ is defined, since
+-  # <limits.h> exists even on freestanding compilers.
+-  # On the NeXT, cc -E runs the code through the compiler's parser,
+-  # not just through cpp. "Syntax error" is here to catch this case.
+-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+-/* end confdefs.h.  */
+-#ifdef __STDC__
+-# include <limits.h>
+-#else
+-# include <assert.h>
+-#endif
+-		     Syntax error
+-_ACEOF
+-if ac_fn_c_try_cpp "$LINENO"; then :
+-
+-else
+-  # Broken: fails on valid input.
+-continue
+-fi
+-rm -f conftest.err conftest.i conftest.$ac_ext
+-
+-  # OK, works on sane cases.  Now check whether nonexistent headers
+-  # can be detected and how.
+-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+-/* end confdefs.h.  */
+-#include <ac_nonexistent.h>
+-_ACEOF
+-if ac_fn_c_try_cpp "$LINENO"; then :
+-  # Broken: success on invalid input.
+-continue
+-else
+-  # Passes both tests.
+-ac_preproc_ok=:
+-break
+-fi
+-rm -f conftest.err conftest.i conftest.$ac_ext
+-
+-done
+-# Because of `break', _AC_PREPROC_IFELSE's cleaning code was skipped.
+-rm -f conftest.i conftest.err conftest.$ac_ext
+-if $ac_preproc_ok; then :
+-  break
+-fi
+-
+-    done
+-    ac_cv_prog_CPP=$CPP
+-
+-fi
+-  CPP=$ac_cv_prog_CPP
+-else
+-  ac_cv_prog_CPP=$CPP
+-fi
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $CPP" >&5
+-$as_echo "$CPP" >&6; }
+-ac_preproc_ok=false
+-for ac_c_preproc_warn_flag in '' yes
+-do
+-  # Use a header file that comes with gcc, so configuring glibc
+-  # with a fresh cross-compiler works.
+-  # Prefer <limits.h> to <assert.h> if __STDC__ is defined, since
+-  # <limits.h> exists even on freestanding compilers.
+-  # On the NeXT, cc -E runs the code through the compiler's parser,
+-  # not just through cpp. "Syntax error" is here to catch this case.
+-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+-/* end confdefs.h.  */
+-#ifdef __STDC__
+-# include <limits.h>
+-#else
+-# include <assert.h>
+-#endif
+-		     Syntax error
+-_ACEOF
+-if ac_fn_c_try_cpp "$LINENO"; then :
+-
+-else
+-  # Broken: fails on valid input.
+-continue
+-fi
+-rm -f conftest.err conftest.i conftest.$ac_ext
+-
+-  # OK, works on sane cases.  Now check whether nonexistent headers
+-  # can be detected and how.
+-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+-/* end confdefs.h.  */
+-#include <ac_nonexistent.h>
+-_ACEOF
+-if ac_fn_c_try_cpp "$LINENO"; then :
+-  # Broken: success on invalid input.
+-continue
+-else
+-  # Passes both tests.
+-ac_preproc_ok=:
+-break
+-fi
+-rm -f conftest.err conftest.i conftest.$ac_ext
+-
+-done
+-# Because of `break', _AC_PREPROC_IFELSE's cleaning code was skipped.
+-rm -f conftest.i conftest.err conftest.$ac_ext
+-if $ac_preproc_ok; then :
+-
+-else
+-  { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
+-$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
+-as_fn_error $? "C preprocessor \"$CPP\" fails sanity check
+-See \`config.log' for more details" "$LINENO" 5; }
+-fi
+-
+-ac_ext=c
+-ac_cpp='$CPP $CPPFLAGS'
+-ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+-ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+-ac_compiler_gnu=$ac_cv_c_compiler_gnu
+-
+-
+ { $as_echo "$as_me:${as_lineno-$LINENO}: checking for ANSI C header files" >&5
+ $as_echo_n "checking for ANSI C header files... " >&6; }
+ if ${ac_cv_header_stdc+:} false; then :
+@@ -10853,7 +11228,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 10856 "configure"
++#line 11231 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -10959,7 +11334,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 10962 "configure"
++#line 11337 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+-- 
+2.51.0
+
