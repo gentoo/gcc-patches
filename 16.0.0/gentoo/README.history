@@ -2,6 +2,7 @@
 
 	+ 87_all_sync_toplevel-1.patch
 	+ 88_all_sync_toplevel-2.patch
+	+ 89_all_PR81358-autolink-libatomic.patch
 
 14	7 September 2025
 
