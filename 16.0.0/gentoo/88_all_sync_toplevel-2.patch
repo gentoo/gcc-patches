@@ -238,7 +238,7 @@ index 00000000000..b6b28ab8d21
 +dnl
 +AC_DEFUN([CLANG_PLUGIN_FILE_FOR_TARGET],[dnl
 +  COMPILER_FOR_TARGET="${CC_FOR_TARGET}"
-+  if test x${COMPILER_FOR_TARGET} = x"\$(CC)"; then
++  if test x"${COMPILER_FOR_TARGET}" = x"\$(CC)"; then
 +    COMPILER_FOR_TARGET="$CC"
 +  fi
 +  saved_CC="$CC"
@@ -299,7 +299,7 @@ index c30cfdd8fad..687af3e7c17 100644
 +AC_DEFUN([GCC_PLUGIN_OPTION_FOR_TARGET],[dnl
 +COMPILER_FOR_TARGET="${CC_FOR_TARGET}"
 +dnl Check if the host compiler is used.
-+if test x${COMPILER_FOR_TARGET} = x"\$(CC)"; then
++if test x"${COMPILER_FOR_TARGET}" = x"\$(CC)"; then
 +  COMPILER_FOR_TARGET="$CC"
 +fi
 +saved_CC="$CC"
@@ -985,7 +985,7 @@ index 549aae7f3e3..a960918dcf6 100755
 +# Try CLANG_PLUGIN_FILE_FOR_TARGET first since GCC_PLUGIN_OPTION_FOR_TARGET
 +# may return the wrong PLUGIN_OPTION_FOR_TARGET with clang.
 +  COMPILER_FOR_TARGET="${CC_FOR_TARGET}"
-+  if test x${COMPILER_FOR_TARGET} = x"\$(CC)"; then
++  if test x"${COMPILER_FOR_TARGET}" = x"\$(CC)"; then
 +    COMPILER_FOR_TARGET="$CC"
 +  fi
 +  saved_CC="$CC"
@@ -1087,7 +1087,7 @@ index 549aae7f3e3..a960918dcf6 100755
 +  PLUGIN_OPTION_FOR_TARGET="--plugin $PLUGIN_FILE_FOR_TARGET"
 +else
 +  COMPILER_FOR_TARGET="${CC_FOR_TARGET}"
-+if test x${COMPILER_FOR_TARGET} = x"\$(CC)"; then
++if test x"${COMPILER_FOR_TARGET}" = x"\$(CC)"; then
 +  COMPILER_FOR_TARGET="$CC"
 +fi
 +saved_CC="$CC"
