@@ -3485,10 +3485,10 @@ index 2ac4d5b46686..431ce5ceb9c0 100644
  
  CONFIGURE_GDB_TK = @CONFIGURE_GDB_TK@
 diff --git a/configure b/configure
-index a960918dcf6c..6b87bb4641a2 100755
+index 54b71af5d3be..4f2ba5e8a056 100755
 --- a/configure
 +++ b/configure
-@@ -11079,6 +11079,11 @@ if echo " ${target_configdirs} " | grep " libgomp " > /dev/null 2>&1 ; then
+@@ -11075,6 +11075,11 @@ if echo " ${target_configdirs} " | grep " libgomp " > /dev/null 2>&1 ; then
    bootstrap_target_libs=${bootstrap_target_libs}target-libgomp,
  fi
  
@@ -3501,10 +3501,10 @@ index a960918dcf6c..6b87bb4641a2 100755
  # or bootstrap-ubsan, bootstrap it.
  if echo " ${target_configdirs} " | grep " libsanitizer " > /dev/null 2>&1; then
 diff --git a/configure.ac b/configure.ac
-index 49ac5d605146..6f12fe9c306b 100644
+index 2996a124206a..94321ffd20ab 100644
 --- a/configure.ac
 +++ b/configure.ac
-@@ -3255,6 +3255,11 @@ if echo " ${target_configdirs} " | grep " libgomp " > /dev/null 2>&1 ; then
+@@ -3251,6 +3251,11 @@ if echo " ${target_configdirs} " | grep " libgomp " > /dev/null 2>&1 ; then
    bootstrap_target_libs=${bootstrap_target_libs}target-libgomp,
  fi
  
@@ -3713,10 +3713,10 @@ index 68aba07881d9..48ddb3d96c21 100644
  
  #define PTRDIFF_TYPE (TARGET_ARCH64 ? "long int" : "int")
 diff --git a/gcc/configure b/gcc/configure
-index d6cc7fc17ca0..c3b6def04ae8 100755
+index 996f7f7d4644..484231e34abf 100755
 --- a/gcc/configure
 +++ b/gcc/configure
-@@ -33545,6 +33545,12 @@ $as_echo "#define ENABLE_DEFAULT_SSP 1" >>confdefs.h
+@@ -33987,6 +33987,12 @@ $as_echo "#define ENABLE_DEFAULT_SSP 1" >>confdefs.h
  fi
  
  
@@ -3730,10 +3730,10 @@ index d6cc7fc17ca0..c3b6def04ae8 100755
  
  { $as_echo "$as_me:${as_lineno-$LINENO}: checking sys/sdt.h in the target C library" >&5
 diff --git a/gcc/configure.ac b/gcc/configure.ac
-index 19975fa5be5b..403974e091c6 100644
+index 83fbf1fe9d60..f6295fb273e8 100644
 --- a/gcc/configure.ac
 +++ b/gcc/configure.ac
-@@ -7049,6 +7049,11 @@ if test x$enable_default_ssp = xyes ; then
+@@ -7111,6 +7111,11 @@ if test x$enable_default_ssp = xyes ; then
  fi
  AC_SUBST([enable_default_ssp])
  
@@ -3746,7 +3746,7 @@ index 19975fa5be5b..403974e091c6 100644
  GCC_TARGET_TEMPLATE([HAVE_SYS_SDT_H])
  AC_CACHE_CHECK([sys/sdt.h in the target C library], [gcc_cv_sys_sdt_h], [
 diff --git a/gcc/doc/invoke.texi b/gcc/doc/invoke.texi
-index 492ca2914323..2d89f30446bd 100644
+index f93fe43733dc..0dc7333a0df7 100644
 --- a/gcc/doc/invoke.texi
 +++ b/gcc/doc/invoke.texi
 @@ -731,7 +731,7 @@ Objective-C and Objective-C++ Dialects}.
@@ -3758,7 +3758,7 @@ index 492ca2914323..2d89f30446bd 100644
  -nostartfiles  -nodefaultlibs  -nolibc  -nostdlib  -nostdlib++
  -e @var{entry}  --entry=@var{entry}
  -pie  -pthread  -r  -rdynamic
-@@ -19438,6 +19438,12 @@ If any of these options is used, then the linker is not run, and
+@@ -19466,6 +19466,12 @@ If any of these options is used, then the linker is not run, and
  object file names should not be used as arguments.  @xref{Overall
  Options}.
  
@@ -3823,10 +3823,10 @@ index 65dff6ece9ff..6dde874fa388 100644
  -include $(tmake_file)
  
 diff --git a/libatomic/Makefile.in b/libatomic/Makefile.in
-index 4344ac4a2e8f..d07fa1b7e830 100644
+index 5f9de22d6c5a..be06e38e7235 100644
 --- a/libatomic/Makefile.in
 +++ b/libatomic/Makefile.in
-@@ -429,7 +429,7 @@ libatomic_version_info = -version-info $(libtool_VERSION)
+@@ -432,7 +432,7 @@ libatomic_version_info = -version-info $(libtool_VERSION)
  @ENABLE_DARWIN_AT_RPATH_TRUE@	-Wc,-nodefaultrpaths \
  @ENABLE_DARWIN_AT_RPATH_TRUE@	-Wl,-rpath,@loader_path
  libatomic_la_LDFLAGS = $(libatomic_version_info) $(libatomic_version_script) \
@@ -3835,7 +3835,7 @@ index 4344ac4a2e8f..d07fa1b7e830 100644
  
  @PARTIAL_VXWORKS_FALSE@libatomic_la_SOURCES = gload.c gstore.c gcas.c \
  @PARTIAL_VXWORKS_FALSE@	gexch.c glfree.c lock.c init.c fenv.c \
-@@ -471,6 +471,15 @@ libatomic_la_LDFLAGS = $(libatomic_version_info) $(libatomic_version_script) \
+@@ -474,6 +474,15 @@ libatomic_la_LDFLAGS = $(libatomic_version_info) $(libatomic_version_script) \
  @ARCH_X86_64_TRUE@@HAVE_IFUNC_TRUE@@PARTIAL_VXWORKS_FALSE@IFUNC_OPTIONS = -mcx16 -mcx16
  libatomic_convenience_la_SOURCES = $(libatomic_la_SOURCES)
  libatomic_convenience_la_LIBADD = $(libatomic_la_LIBADD)
@@ -3851,7 +3851,7 @@ index 4344ac4a2e8f..d07fa1b7e830 100644
  MULTISRCTOP = 
  MULTIBUILDTOP = 
  MULTIDIRS = 
-@@ -914,6 +923,9 @@ vpath % $(strip $(search_path))
+@@ -917,6 +926,9 @@ vpath % $(strip $(search_path))
  # makefile fragments to avoid broken *.Ppo getting included into the Makefile
  # when it is reloaded during the build of all-multi.
  all-multi: $(libatomic_la_LIBADD)
@@ -3862,10 +3862,10 @@ index 4344ac4a2e8f..d07fa1b7e830 100644
  # target overrides
  -include $(tmake_file)
 diff --git a/libatomic/configure b/libatomic/configure
-index 67b3a6388d7f..6c6eb250b5b5 100755
+index 0945b173f6cc..cd9fcdb15181 100755
 --- a/libatomic/configure
 +++ b/libatomic/configure
-@@ -3417,6 +3417,26 @@ esac
+@@ -3418,6 +3418,26 @@ esac
  # the wrong, non-multilib-adjusted value will be used in multilibs.
  # As a side effect, we have to subst CFLAGS ourselves.
  
@@ -3892,7 +3892,7 @@ index 67b3a6388d7f..6c6eb250b5b5 100755
  
  
  ac_ext=c
-@@ -4595,11 +4615,6 @@ fi
+@@ -4596,11 +4616,6 @@ fi
  
  
  
@@ -3904,25 +3904,25 @@ index 67b3a6388d7f..6c6eb250b5b5 100755
  # Find other programs we need.
  if test -n "$ac_tool_prefix"; then
    # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
-@@ -11458,7 +11473,7 @@ else
+@@ -11833,7 +11848,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 11461 "configure"
-+#line 11476 "configure"
+-#line 11836 "configure"
++#line 11851 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -11564,7 +11579,7 @@ else
+@@ -11939,7 +11954,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 11567 "configure"
-+#line 11582 "configure"
+-#line 11942 "configure"
++#line 11957 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -11958,7 +11973,7 @@ _ACEOF
+@@ -12333,7 +12348,7 @@ _ACEOF
  
  # Disable fallbacks to __sync routines from libgcc.  Otherwise we'll
  # make silly decisions about what the cpu can do.
@@ -3931,7 +3931,7 @@ index 67b3a6388d7f..6c6eb250b5b5 100755
  
  # Check header files.
  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for ANSI C header files" >&5
-@@ -14979,7 +14994,7 @@ _ACEOF
+@@ -15354,7 +15369,7 @@ _ACEOF
  if ac_fn_c_try_link "$LINENO"; then :
    XPCFLAGS=" -pthread"
  else
@@ -3940,7 +3940,7 @@ index 67b3a6388d7f..6c6eb250b5b5 100755
       cat confdefs.h - <<_ACEOF >conftest.$ac_ext
  /* end confdefs.h.  */
  #include <pthread.h>
-@@ -15002,7 +15017,7 @@ rm -f core conftest.err conftest.$ac_objext \
+@@ -15377,7 +15392,7 @@ rm -f core conftest.err conftest.$ac_objext \
  fi
  rm -f core conftest.err conftest.$ac_objext \
      conftest$ac_exeext conftest.$ac_ext
@@ -3949,7 +3949,7 @@ index 67b3a6388d7f..6c6eb250b5b5 100755
    ;;
  esac
  
-@@ -15577,7 +15592,7 @@ $as_echo "$as_me: versioning on shared library symbols is $enable_symvers" >&6;}
+@@ -15952,7 +15967,7 @@ $as_echo "$as_me: versioning on shared library symbols is $enable_symvers" >&6;}
  
  
  # Cleanup and exit.
@@ -4037,10 +4037,3 @@ index 01141f643769..ded382233562 100644
  AC_CACHE_SAVE
  
  AC_ARG_ENABLE([werror],
-
-base-commit: 790bbb9ca6b7ef871a092c6f5622c7eb9c7306bb
-prerequisite-patch-id: e3e90e25301cf73bd7ed26f62ac750b6e5cdb7eb
-prerequisite-patch-id: bdc72fb3b44c9bbff1dc7e7eb6d99ada0fa05581
--- 
-2.51.0
-
