@@ -60,10 +60,10 @@ gcc/ChangeLog:
  2 files changed, 229 insertions(+), 100 deletions(-)
 
 diff --git a/gcc/configure b/gcc/configure
-index 38d8cd919cba..996f7f7d4644 100755
+index c8184de6cf0c..64eb4148a9f1 100755
 --- a/gcc/configure
 +++ b/gcc/configure
-@@ -737,7 +737,6 @@ libgcc_visibility
+@@ -740,7 +740,6 @@ libgcc_visibility
  ORIGINAL_DSYMUTIL_FOR_TARGET
  gcc_cv_dsymutil
  gcc_cv_otool
@@ -71,7 +71,7 @@ index 38d8cd919cba..996f7f7d4644 100755
  gcc_cv_objdump
  ORIGINAL_NM_FOR_TARGET
  gcc_cv_nm
-@@ -802,6 +801,7 @@ HAVE_AUTO_BUILD
+@@ -805,6 +804,7 @@ HAVE_AUTO_BUILD
  extra_opt_files
  extra_modes_file
  NATIVE_SYSTEM_HEADER_DIR
@@ -79,7 +79,7 @@ index 38d8cd919cba..996f7f7d4644 100755
  objext
  manext
  LIBICONV_DEP
-@@ -12928,6 +12928,145 @@ if test "x$enable_win32_utf8_manifest" != xno; then
+@@ -12931,6 +12931,145 @@ if test "x$enable_win32_utf8_manifest" != xno; then
    host_extra_objs_mingw=utf8-mingw32.o
  fi
  
@@ -225,25 +225,25 @@ index 38d8cd919cba..996f7f7d4644 100755
  # --------------------------------------------------------
  # Build, host, and target specific configuration fragments
  # --------------------------------------------------------
-@@ -21859,7 +21998,7 @@ else
+@@ -21873,7 +22012,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 21862 "configure"
-+#line 22001 "configure"
+-#line 21876 "configure"
++#line 22015 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -21965,7 +22104,7 @@ else
+@@ -21979,7 +22118,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 21968 "configure"
-+#line 22107 "configure"
+-#line 21982 "configure"
++#line 22121 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -25794,78 +25933,6 @@ else
+@@ -25808,78 +25947,6 @@ else
  $as_echo "$gcc_cv_objdump" >&6; }
  fi
  
@@ -323,7 +323,7 @@ index 38d8cd919cba..996f7f7d4644 100755
  if ${gcc_cv_otool+:} false; then :
  
 diff --git a/gcc/configure.ac b/gcc/configure.ac
-index 19975fa5be5b..83fbf1fe9d60 100644
+index 684639d4cafd..ae2fc58643ce 100644
 --- a/gcc/configure.ac
 +++ b/gcc/configure.ac
 @@ -1886,6 +1886,93 @@ if test "x$enable_win32_utf8_manifest" != xno; then
@@ -420,7 +420,7 @@ index 19975fa5be5b..83fbf1fe9d60 100644
  # --------------------------------------------------------
  # Build, host, and target specific configuration fragments
  # --------------------------------------------------------
-@@ -2934,31 +3021,6 @@ else
+@@ -2945,31 +3032,6 @@ else
  	AC_MSG_RESULT($gcc_cv_objdump)
  fi
  
@@ -452,8 +452,3 @@ index 19975fa5be5b..83fbf1fe9d60 100644
  # Figure out what otool we will be using.
  AS_VAR_SET_IF(gcc_cv_otool,, [
  if test -x otool$build_exeext; then
-
-base-commit: a3727eb5e821d6a1916805029aeaed092e5e739d
--- 
-2.51.0
-
