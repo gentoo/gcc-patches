@@ -3713,10 +3713,10 @@ index 68aba07881d9..48ddb3d96c21 100644
  
  #define PTRDIFF_TYPE (TARGET_ARCH64 ? "long int" : "int")
 diff --git a/gcc/configure b/gcc/configure
-index 996f7f7d4644..484231e34abf 100755
+index 64eb4148a9f1..9c769132d768 100755
 --- a/gcc/configure
 +++ b/gcc/configure
-@@ -33987,6 +33987,12 @@ $as_echo "#define ENABLE_DEFAULT_SSP 1" >>confdefs.h
+@@ -34001,6 +34001,12 @@ $as_echo "#define ENABLE_DEFAULT_SSP 1" >>confdefs.h
  fi
  
  
@@ -3730,10 +3730,10 @@ index 996f7f7d4644..484231e34abf 100755
  
  { $as_echo "$as_me:${as_lineno-$LINENO}: checking sys/sdt.h in the target C library" >&5
 diff --git a/gcc/configure.ac b/gcc/configure.ac
-index 83fbf1fe9d60..f6295fb273e8 100644
+index ae2fc58643ce..e6140e1dca2a 100644
 --- a/gcc/configure.ac
 +++ b/gcc/configure.ac
-@@ -7111,6 +7111,11 @@ if test x$enable_default_ssp = xyes ; then
+@@ -7122,6 +7122,11 @@ if test x$enable_default_ssp = xyes ; then
  fi
  AC_SUBST([enable_default_ssp])
  
