@@ -1,0 +1,129 @@
+From 215900bc72edfcc5da97c59bb8f53fa3f1bf57d8 Mon Sep 17 00:00:00 2001
+Message-ID: <215900bc72edfcc5da97c59bb8f53fa3f1bf57d8.1760811680.git.sam@gentoo.org>
+From: Sam James <sam@gentoo.org>
+Date: Sat, 18 Oct 2025 19:21:09 +0100
+Subject: [PATCH] Revert "libstdc++: Enable features for RTEMS (based on GCC
+ 15)"
+
+This reverts commit 651bf5126da12488f9af0e42bd9924f1058a7d43.
+---
+ libstdc++-v3/configure    | 44 +--------------------------------------
+ libstdc++-v3/configure.ac | 21 -------------------
+ 2 files changed, 1 insertion(+), 64 deletions(-)
+
+diff --git a/libstdc++-v3/configure b/libstdc++-v3/configure
+index 42b638f09fcb..86ec969aaf15 100755
+--- a/libstdc++-v3/configure
++++ b/libstdc++-v3/configure
+@@ -28744,14 +28744,6 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+ 
+         $as_echo "#define HAVE_LINK 1" >>confdefs.h
+ 
+-        $as_echo "#define HAVE_SYS_IOCT4YL_H 1" >>confdefs.h
+-
+-        $as_echo "#define HAVE_SYS_STAT_H 1" >>confdefs.h
+-
+-        $as_echo "#define HAVE_SYS_TYPES_H 1" >>confdefs.h
+-
+-        $as_echo "#define HAVE_S_ISREG 1" >>confdefs.h
+-
+         $as_echo "#define HAVE_QUICK_EXIT 1" >>confdefs.h
+ 
+         $as_echo "#define HAVE_READLINK 1" >>confdefs.h
+@@ -28766,42 +28758,8 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+ 
+         $as_echo "#define HAVE_SYMLINK 1" >>confdefs.h
+ 
+-        $as_echo "#define HAVE_SYS_IOCT4YL_H 1" >>confdefs.h
+-
+-        $as_echo "#define HAVE_SYS_STAT_H 1" >>confdefs.h
+-
+-        $as_echo "#define HAVE_SYS_TYPES_H 1" >>confdefs.h
+-
+-        $as_echo "#define HAVE_S_ISREG 1" >>confdefs.h
+-
+         $as_echo "#define HAVE_TRUNCATE 1" >>confdefs.h
+ 
+-        $as_echo "#define HAVE_UNISTD_H 1" >>confdefs.h
+-
+-        $as_echo "#define HAVE_UNLINKAT 1" >>confdefs.h
+-
+-        $as_echo "#define HAVE_USLEEP 1" >>confdefs.h
+-
+-        $as_echo "#define _GLIBCXX_USE_CHMOD 1" >>confdefs.h
+-
+-        $as_echo "#define _GLIBCXX_USE_MKDIR 1" >>confdefs.h
+-
+-        $as_echo "#define _GLIBCXX_USE_CHDIR 1" >>confdefs.h
+-
+-        $as_echo "#define _GLIBCXX_USE_GETCWD 1" >>confdefs.h
+-
+-        $as_echo "#define _GLIBCXX_USE_UTIME 1" >>confdefs.h
+-
+-        $as_echo "#define _GLIBCXX_USE_LINK 1" >>confdefs.h
+-
+-        $as_echo "#define _GLIBCXX_USE_READLINK 1" >>confdefs.h
+-
+-        $as_echo "#define _GLIBCXX_USE_SYMLINK 1" >>confdefs.h
+-
+-        $as_echo "#define _GLIBCXX_USE_TRUNCATE 1" >>confdefs.h
+-
+-        $as_echo "#define _GLIBCXX_USE_FDOPENDIR 1" >>confdefs.h
+-
+         $as_echo "#define HAVE_USLEEP 1" >>confdefs.h
+ 
+ 
+@@ -53961,7 +53919,7 @@ $as_echo "$glibcxx_cv_libbacktrace_atomics" >&6; }
+     CXXFLAGS='-O0 -S'
+ 
+     cat > conftest.$ac_ext << EOF
+-#line 53964 "configure"
++#line 53922 "configure"
+ #include <stddef.h>
+ int main()
+ {
+diff --git a/libstdc++-v3/configure.ac b/libstdc++-v3/configure.ac
+index b9d49c3e4364..47813eb95ca6 100644
+--- a/libstdc++-v3/configure.ac
++++ b/libstdc++-v3/configure.ac
+@@ -399,10 +399,6 @@ dnl # rather than hardcoding that information.
+         AC_DEFINE(HAVE_ALIGNED_ALLOC)
+         AC_DEFINE(HAVE_AT_QUICK_EXIT)
+         AC_DEFINE(HAVE_LINK)
+-        AC_DEFINE(HAVE_SYS_IOCT4YL_H)
+-        AC_DEFINE(HAVE_SYS_STAT_H)
+-        AC_DEFINE(HAVE_SYS_TYPES_H)
+-        AC_DEFINE(HAVE_S_ISREG)
+         AC_DEFINE(HAVE_QUICK_EXIT)
+         AC_DEFINE(HAVE_READLINK)
+         AC_DEFINE(HAVE_SETENV)
+@@ -410,24 +406,7 @@ dnl # rather than hardcoding that information.
+         AC_DEFINE(HAVE_SOCKATMARK)
+         AC_DEFINE(HAVE_STRERROR_L)
+         AC_DEFINE(HAVE_SYMLINK)
+-        AC_DEFINE(HAVE_SYS_IOCT4YL_H)
+-        AC_DEFINE(HAVE_SYS_STAT_H)
+-        AC_DEFINE(HAVE_SYS_TYPES_H)
+-        AC_DEFINE(HAVE_S_ISREG)
+         AC_DEFINE(HAVE_TRUNCATE)
+-        AC_DEFINE(HAVE_UNISTD_H)
+-        AC_DEFINE(HAVE_UNLINKAT)
+-        AC_DEFINE(HAVE_USLEEP)
+-        AC_DEFINE(_GLIBCXX_USE_CHMOD)
+-        AC_DEFINE(_GLIBCXX_USE_MKDIR)
+-        AC_DEFINE(_GLIBCXX_USE_CHDIR)
+-        AC_DEFINE(_GLIBCXX_USE_GETCWD)
+-        AC_DEFINE(_GLIBCXX_USE_UTIME)
+-        AC_DEFINE(_GLIBCXX_USE_LINK)
+-        AC_DEFINE(_GLIBCXX_USE_READLINK)
+-        AC_DEFINE(_GLIBCXX_USE_SYMLINK)
+-        AC_DEFINE(_GLIBCXX_USE_TRUNCATE)
+-        AC_DEFINE(_GLIBCXX_USE_FDOPENDIR)
+         AC_DEFINE(HAVE_USLEEP)
+ 
+         # These functions are defined in librtemscpu.  We don't use
+
+base-commit: 515045254f5dbdea5208035a0352acc12c381088
+-- 
+2.51.1
+
