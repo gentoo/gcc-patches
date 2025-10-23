@@ -1,0 +1,52 @@
+From 3f4066aeeabe90f091ac54fcdc4b0e4ba2b0d015 Mon Sep 17 00:00:00 2001
+Message-ID: <3f4066aeeabe90f091ac54fcdc4b0e4ba2b0d015.1761235044.git.sam@gentoo.org>
+From: Josef Melcr <jmelcr02@gmail.com>
+Date: Sat, 18 Oct 2025 19:03:36 +0200
+Subject: [PATCH] ipa: Add early return when the hashed edge is a
+ callback-carrying edge.
+
+The inclusion of this early return statement has been discussed before,
+it was ultimately left out of the original patch, but it turns out to be
+necessary.
+
+When a callback edge is being created, it is first created by
+symbol_table::create_edge, which is where it is added to the call site
+hash.  However, its callback flag is not set at that point, so the early
+return for callback edges doesn't affect it.  This causes the wrong edge
+to be hashed, ultimately leading to segfaults and ICEs. This happens
+many times in the testsuite, the one I noticed first was
+libgomp.fortran/simd7.f90.
+
+gcc/ChangeLog:
+
+	* cgraph.cc (cgraph_add_edge_to_call_site_hash): Add an early
+	return when the hashed edge is a callback-carrying edge.
+
+Signed-off-by: Josef Melcr <jmelcr02@gmail.com>
+---
+ gcc/cgraph.cc | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/gcc/cgraph.cc b/gcc/cgraph.cc
+index d1b2e2a162c0..782c4d87b636 100644
+--- a/gcc/cgraph.cc
++++ b/gcc/cgraph.cc
+@@ -885,9 +885,10 @@ cgraph_add_edge_to_call_site_hash (cgraph_edge *e)
+       gcc_assert (edge->speculative || edge->has_callback);
+       if (edge->has_callback)
+ 	/* If the slot is already occupied, then the hashed edge is the
+-	   callback-carrying edge, which is desired behavior, so we can safely
+-	   return.  */
+-	gcc_checking_assert (edge == e);
++	   callback-carrying edge, which is desired behavior.  If we don't
++	   return now, the slot could be overwritten during callback edge
++	   creation, because the flags are not initialized at that point.  */
++	return;
+       if (e->callee && (!e->prev_callee
+ 			|| !e->prev_callee->speculative
+ 			|| e->prev_callee->call_stmt != e->call_stmt))
+
+base-commit: 5210dc58b43d9f1db2ac21a52a233c55bbeeb657
+-- 
+2.51.1
+
