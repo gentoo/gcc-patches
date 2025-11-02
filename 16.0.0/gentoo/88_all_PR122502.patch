@@ -1,0 +1,314 @@
+From accd9639a67f0774f29514e67e0f79ea88359235 Mon Sep 17 00:00:00 2001
+Message-ID: <accd9639a67f0774f29514e67e0f79ea88359235.1762072263.git.sam@gentoo.org>
+From: Sam James <sam@gentoo.org>
+Date: Sun, 2 Nov 2025 08:30:21 +0000
+Subject: [PATCH] Revert "niter: Use ranger to query ctz range."
+
+This reverts commit 0919526efcb156a17947a2fc68d7aaa487e273ae.
+
+Bug: https://gcc.gnu.org/PR122497
+Bug: https://gcc.gnu.org/PR122502
+---
+ gcc/testsuite/gcc.dg/pr41488.c                |  2 +-
+ gcc/testsuite/gcc.dg/tree-ssa/ctz-ch.c        | 23 -----
+ gcc/testsuite/gcc.dg/tree-ssa/ctz-char.c      |  2 +-
+ .../gcc.dg/tree-ssa/ctz-complement-char.c     |  2 +-
+ .../gcc.dg/tree-ssa/ctz-complement-int.c      |  2 +-
+ .../tree-ssa/ctz-complement-long-long.c       |  2 +-
+ .../gcc.dg/tree-ssa/ctz-complement-long.c     |  2 +-
+ gcc/testsuite/gcc.dg/tree-ssa/ctz-int.c       |  2 +-
+ gcc/testsuite/gcc.dg/tree-ssa/ctz-long-long.c |  2 +-
+ gcc/testsuite/gcc.dg/tree-ssa/ctz-long.c      |  2 +-
+ gcc/tree-ssa-loop-niter.cc                    | 93 +------------------
+ gcc/tree-ssa-loop.cc                          |  5 -
+ 12 files changed, 12 insertions(+), 127 deletions(-)
+ delete mode 100644 gcc/testsuite/gcc.dg/tree-ssa/ctz-ch.c
+
+diff --git a/gcc/testsuite/gcc.dg/pr41488.c b/gcc/testsuite/gcc.dg/pr41488.c
+index a7ba3672efef..1e4bf19c7da9 100644
+--- a/gcc/testsuite/gcc.dg/pr41488.c
++++ b/gcc/testsuite/gcc.dg/pr41488.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -fno-tree-scev-cprop -fdump-tree-ivcanon-scev" } */
++/* { dg-options "-O2 -fdump-tree-ivcanon-scev" } */
+ 
+ struct struct_t
+ {
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/ctz-ch.c b/gcc/testsuite/gcc.dg/tree-ssa/ctz-ch.c
+deleted file mode 100644
+index 5d725979971b..000000000000
+--- a/gcc/testsuite/gcc.dg/tree-ssa/ctz-ch.c
++++ /dev/null
+@@ -1,23 +0,0 @@
+-/* { dg-do compile } */
+-/* { dg-options "-O2 -fdump-tree-optimized" } */
+-
+-typedef unsigned long BITMAP_WORD;
+-
+-bool
+-bmp_iter_set (BITMAP_WORD bits, unsigned *bit_no)
+-{
+-  /* If our current word is nonzero, it contains the bit we want.  */
+-  if (bits)
+-    {
+-      while (!(bits & 1))
+-	{
+-	  bits >>= 1;
+-	  *bit_no += 1;
+-	}
+-      return true;
+-    }
+-
+-  return false;
+-}
+-
+-/* { dg-final { scan-tree-dump-times "__builtin_ctz|\\.CTZ" 1 "optimized" } } */
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/ctz-char.c b/gcc/testsuite/gcc.dg/tree-ssa/ctz-char.c
+index fa8b7f39de4b..3cd166acbd46 100644
+--- a/gcc/testsuite/gcc.dg/tree-ssa/ctz-char.c
++++ b/gcc/testsuite/gcc.dg/tree-ssa/ctz-char.c
+@@ -1,6 +1,6 @@
+ /* { dg-do run } */
+ /* { dg-require-effective-target ctz } */
+-/* { dg-options "-O2 -fdump-tree-optimized" } */
++/* { dg-options "-O2 -fno-tree-ch -fdump-tree-optimized" } */
+ 
+ #define PREC (__CHAR_BIT__)
+ 
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-char.c b/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-char.c
+index 5ebc32131692..b9afe8852d8f 100644
+--- a/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-char.c
++++ b/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-char.c
+@@ -1,6 +1,6 @@
+ /* { dg-do run } */
+ /* { dg-require-effective-target ctz } */
+-/* { dg-options "-O2 -fno-tree-ch -fdump-tree-optimized" } */
++/* { dg-options "-O2 -fdump-tree-optimized" } */
+ 
+ #define PREC (__CHAR_BIT__)
+ 
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-int.c b/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-int.c
+index 0ce4b6beaa7d..d2702a65daf3 100644
+--- a/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-int.c
++++ b/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-int.c
+@@ -1,6 +1,6 @@
+ /* { dg-do run } */
+ /* { dg-require-effective-target ctz } */
+-/* { dg-options "-O2 -fno-tree-ch -fdump-tree-optimized" } */
++/* { dg-options "-O2 -fdump-tree-optimized" } */
+ 
+ #define PREC (__CHAR_BIT__ * __SIZEOF_INT__)
+ 
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-long-long.c b/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-long-long.c
+index f98bec039b35..1ea0d5d7d9f8 100644
+--- a/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-long-long.c
++++ b/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-long-long.c
+@@ -1,6 +1,6 @@
+ /* { dg-do run } */
+ /* { dg-require-effective-target ctzll } */
+-/* { dg-options "-O2 -fno-tree-ch -fdump-tree-optimized" } */
++/* { dg-options "-O2 -fdump-tree-optimized" } */
+ 
+ #define PREC (__CHAR_BIT__ * __SIZEOF_LONG_LONG__)
+ 
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-long.c b/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-long.c
+index 8edb3728131c..80fb02dcfa68 100644
+--- a/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-long.c
++++ b/gcc/testsuite/gcc.dg/tree-ssa/ctz-complement-long.c
+@@ -1,6 +1,6 @@
+ /* { dg-do run } */
+ /* { dg-require-effective-target ctzl } */
+-/* { dg-options "-O2 -fno-tree-ch -fdump-tree-optimized" } */
++/* { dg-options "-O2 -fdump-tree-optimized" } */
+ 
+ #define PREC (__CHAR_BIT__ * __SIZEOF_LONG__)
+ 
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/ctz-int.c b/gcc/testsuite/gcc.dg/tree-ssa/ctz-int.c
+index 2bf3ae69b938..7f63493eb738 100644
+--- a/gcc/testsuite/gcc.dg/tree-ssa/ctz-int.c
++++ b/gcc/testsuite/gcc.dg/tree-ssa/ctz-int.c
+@@ -1,6 +1,6 @@
+ /* { dg-do run } */
+ /* { dg-require-effective-target ctz } */
+-/* { dg-options "-O2 -fdump-tree-optimized" } */
++/* { dg-options "-O2 -fno-tree-ch -fdump-tree-optimized" } */
+ 
+ #define PREC (__CHAR_BIT__ * __SIZEOF_INT__)
+ 
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/ctz-long-long.c b/gcc/testsuite/gcc.dg/tree-ssa/ctz-long-long.c
+index 2e159485cb98..924f61b76f01 100644
+--- a/gcc/testsuite/gcc.dg/tree-ssa/ctz-long-long.c
++++ b/gcc/testsuite/gcc.dg/tree-ssa/ctz-long-long.c
+@@ -1,6 +1,6 @@
+ /* { dg-do run } */
+ /* { dg-require-effective-target ctzll } */
+-/* { dg-options "-O2 -fdump-tree-optimized" } */
++/* { dg-options "-O2 -fno-tree-ch -fdump-tree-optimized" } */
+ 
+ #define PREC (__CHAR_BIT__ * __SIZEOF_LONG_LONG__)
+ 
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/ctz-long.c b/gcc/testsuite/gcc.dg/tree-ssa/ctz-long.c
+index 2e3be652a0bc..178945daa8a2 100644
+--- a/gcc/testsuite/gcc.dg/tree-ssa/ctz-long.c
++++ b/gcc/testsuite/gcc.dg/tree-ssa/ctz-long.c
+@@ -1,6 +1,6 @@
+ /* { dg-do run } */
+ /* { dg-require-effective-target ctzl } */
+-/* { dg-options "-O2 -fdump-tree-optimized" } */
++/* { dg-options "-O2 -fno-tree-ch -fdump-tree-optimized" } */
+ 
+ #define PREC (__CHAR_BIT__ * __SIZEOF_LONG__)
+ 
+diff --git a/gcc/tree-ssa-loop-niter.cc b/gcc/tree-ssa-loop-niter.cc
+index cc763839edcd..6e1308625491 100644
+--- a/gcc/tree-ssa-loop-niter.cc
++++ b/gcc/tree-ssa-loop-niter.cc
+@@ -2321,48 +2321,6 @@ is_rshift_by_1 (gassign *stmt)
+   return false;
+ }
+ 
+-/* Helper for number_of_iterations_cltz that uses ranger to determine
+-   if SRC's range, shifted left (when LEFT_SHIFT is true) or right
+-   by NUM_IGNORED_BITS, is guaranteed to be != 0 on LOOP's preheader
+-   edge.
+-   Return true if so or false otherwise.  */
+-
+-static bool
+-shifted_range_nonzero_p (loop_p loop, tree src,
+-			 bool left_shift, int num_ignored_bits)
+-{
+-  int_range_max r (TREE_TYPE (src));
+-  gcc_assert (num_ignored_bits >= 0);
+-
+-  if (get_range_query (cfun)->range_on_edge
+-      (r, loop_preheader_edge (loop), src)
+-      && !r.varying_p ()
+-      && !r.undefined_p ())
+-    {
+-      if (num_ignored_bits)
+-	{
+-	  range_op_handler op (left_shift ? LSHIFT_EXPR : RSHIFT_EXPR);
+-	  int_range_max shifted_range (TREE_TYPE (src));
+-	  wide_int shift_count = wi::shwi (num_ignored_bits,
+-					   TYPE_PRECISION (TREE_TYPE
+-							   (src)));
+-	  int_range_max shift_amount
+-	    (TREE_TYPE (src), shift_count, shift_count);
+-
+-	  if (op.fold_range (shifted_range, TREE_TYPE (src), r,
+-			     shift_amount))
+-	    r = shifted_range;
+-	}
+-
+-      /* If the range does not contain zero we are good.  */
+-      if (!range_includes_zero_p (r))
+-	return true;
+-    }
+-
+-  return false;
+-}
+-
+-
+ /* See comment below for number_of_iterations_bitcount.
+    For c[lt]z, we have:
+ 
+@@ -2480,9 +2438,6 @@ number_of_iterations_cltz (loop_p loop, edge exit,
+   tree src = gimple_phi_arg_def (phi, loop_preheader_edge (loop)->dest_idx);
+   int src_precision = TYPE_PRECISION (TREE_TYPE (src));
+ 
+-  /* Save the original SSA name before preprocessing for ranger queries.  */
+-  tree unshifted_src = src;
+-
+   /* Apply any needed preprocessing to src.  */
+   int num_ignored_bits;
+   if (left_shift)
+@@ -2508,52 +2463,10 @@ number_of_iterations_cltz (loop_p loop, edge exit,
+ 
+   expr = fold_convert (unsigned_type_node, expr);
+ 
+-  /* If the copy-header (ch) pass peeled one iteration we're shifting
+-     SRC by preprocessing it above.
+-
+-     A loop like
+-      if (bits)
+-	{
+-	  while (!(bits & 1))
+-	    {
+-	      bits >>= 1;
+-	      cnt += 1;
+-	    }
+-	  return cnt;
+-	}
+-     ch (roughly) transforms into:
+-      if (bits)
+-	{
+-	  if (!(bits & 1)
+-	    {
+-	      do
+-		{
+-		  bits >>= 1;
+-		  cnt += 1;
+-		} while (!(bits & 1));
+-	    }
+-	   else
+-	     cnt = 1;
+-	  return cnt;
+-	}
+-
+-     Then, our preprocessed SRC (that is used for c[tl]z computation)
+-     will be bits >> 1, and the assumption is bits >> 1 != 0.  */
+-
+-  tree assumptions;
+-  if (shifted_range_nonzero_p (loop, unshifted_src,
+-			       left_shift, num_ignored_bits))
+-    assumptions = boolean_true_node;
+-  else
+-    {
+-      /* If ranger couldn't prove the assumption, try
+-	 simplify_using_initial_conditions.  */
+-      assumptions = fold_build2 (NE_EXPR, boolean_type_node, src,
+-				 build_zero_cst (TREE_TYPE (src)));
+-      assumptions = simplify_using_initial_conditions (loop, assumptions);
+-    }
++  tree assumptions = fold_build2 (NE_EXPR, boolean_type_node, src,
++				  build_zero_cst (TREE_TYPE (src)));
+ 
+-  niter->assumptions = assumptions;
++  niter->assumptions = simplify_using_initial_conditions (loop, assumptions);
+   niter->may_be_zero = boolean_false_node;
+   niter->niter = simplify_using_initial_conditions (loop, expr);
+ 
+diff --git a/gcc/tree-ssa-loop.cc b/gcc/tree-ssa-loop.cc
+index dc4b560e9245..5629524afb2f 100644
+--- a/gcc/tree-ssa-loop.cc
++++ b/gcc/tree-ssa-loop.cc
+@@ -28,7 +28,6 @@ along with GCC; see the file COPYING3.  If not see
+ #include "tm_p.h"
+ #include "fold-const.h"
+ #include "gimple-iterator.h"
+-#include "gimple-range.h"
+ #include "tree-ssa-loop-ivopts.h"
+ #include "tree-ssa-loop-manip.h"
+ #include "tree-ssa-loop-niter.h"
+@@ -405,15 +404,11 @@ pass_scev_cprop::execute (function *)
+ {
+   bool any = false;
+ 
+-  enable_ranger (cfun);
+-
+   /* Perform final value replacement in loops, in case the replacement
+      expressions are cheap.  */
+   for (auto loop : loops_list (cfun, LI_FROM_INNERMOST))
+     any |= final_value_replacement_loop (loop);
+ 
+-  disable_ranger (cfun);
+-
+   return any ? TODO_cleanup_cfg | TODO_update_ssa_only_virtuals : 0;
+ }
+ 
+
+base-commit: 6b6696fa3dfc13d26fbb01856757b73df80fe161
+-- 
+2.51.2
+
