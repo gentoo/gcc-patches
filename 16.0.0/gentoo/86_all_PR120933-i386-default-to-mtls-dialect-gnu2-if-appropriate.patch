@@ -1,5 +1,5 @@
-From d05f32416543cc2050dd259e958bbc62f4120c6f Mon Sep 17 00:00:00 2001
-Message-ID: <d05f32416543cc2050dd259e958bbc62f4120c6f.1759705126.git.sam@gentoo.org>
+From 1204e549862f65526eb17ab8da9c83bb93f8a289 Mon Sep 17 00:00:00 2001
+Message-ID: <1204e549862f65526eb17ab8da9c83bb93f8a289.1762204121.git.sam@gentoo.org>
 From: Sam James <sam@gentoo.org>
 Date: Sun, 24 Aug 2025 00:30:45 +0100
 Subject: [PATCH] i386: default to -mtls-dialect=gnu2 if appropriate
@@ -14,32 +14,55 @@ We achieve this for GNU/Linux IA-32/X86-64 targets by checking if ld emits
 GLIBC_ABI_GNU2_TLS, using its presence to decide if we can default to
 -mtls-dialect=gnu2.
 
-For PR ld/33130, newer ld will add GLIBC_ABI_GNU2_TLS if either unconfigured
-(auto mode) or if configured with --enable-gnu2-tls-tag. In auto mode,
-GLIBC_ABI_GNU2_TLS is only added if glibc provides it. In explicit mode, the
-user has asked for this behavior and binaries will depend on GLIBC_ABI_GNU2_TLS
-and fixed glibc. Hence the presence of GLIBC_ABI_GNU2_TLS tells us if we can
-safely default to GNU2 TLS descriptors. We added GLIBC_ABI_GNU2_TLS in glibc
-to indicate that PR dynamic-link/33129 is fixed.
+Background:
+ For PR ld/33130, newer ld will add GLIBC_ABI_GNU2_TLS if either unconfigured
+ (auto mode) or if configured with --enable-gnu2-tls-tag. In auto mode,
+ GLIBC_ABI_GNU2_TLS is only added if glibc provides it. In explicit mode, the
+ user has asked for this behavior and binaries will depend on GLIBC_ABI_GNU2_TLS
+ and fixed glibc. Hence the presence of GLIBC_ABI_GNU2_TLS tells us if we can
+ safely default to GNU2 TLS descriptors. We added GLIBC_ABI_GNU2_TLS in glibc
+ to indicate that PR dynamic-link/33129 is fixed.
 
-If distributions wish to opt-out of this for systems which meet the above
-conditions, they can either configure GCC using --with-tls=gnu, or configure
-binutils with --disable-gnu2-tls-tag: if this is necessary, it is recommended
-to use --with-tls=gnu instead, to avoid affecting the ecosystem negatively by
-having unmarked binaries.
+ GLIBC_ABI_GNU2_TLS has been backported to several older glibc branches. If
+ upgrading major glibc versions isn't an option, users are encouraged to
+ track the release branch for the version in use.
+
+Scheme:
+ After some discussion, it was decided that it was simplest to default to
+ -mtls-dialect=gnu2 and error out if it's not safe to do so, i.e.
+
+ * --with-glibc-version=unspecified,       linker test fails   => error out
+ * --with-glibc-version=unspecified,       linker test passes  => GNU2 TLS
+ * --with-glibc-version=2.43 (new enough), linker test skipped => GNU2 TLS
+ * --with-glibc-version=2.42 (too old),    linker test passes  => GNU2 TLS
+ * --with-glibc-version=2.42 (too old),    linker test fails   => error out
+ * --with-glibc-version=ANYTHING with
+   --with-tls=DIALECT                                          => honour DIALECT
+
+ ... in other words: we always do default GNU2 TLS if safe, and we error out
+ if not.
+
+ If we error out, it's up to the user to decide if they want to use
+  --with-tls=gnu, try to force it with --with-tls=gnu2, or to upgrade
+ glibc (either major versions or just to the latest commits on the branch
+ they're already using).
+
+ This makes documenting the behaviour much easier and it's more predictable
+ for distributions.
 
 Some implementation notes:
-* The readelf check had to be moved earlier because we want
+* The as, ld, readelf checks had to be moved earlier because we want
   to set `with_tls` before `config.gcc` is processed (which has default
   machinery for TLS).
 
-* The check doesn't really handle cross, but I don't see
-  this as a huge problem. The check is already opportunistic and if it
-  fails, it falls back to --with-tls=DIALECT if passed, and failing that,
-  the previous and safe default of 'gnu'.
+* Ditto glibc version checks which had to be split into two because the
+  host header variable is populated by config.gcc.
 
 * The change is only made for glibc systems at this time. Enablement and testing
   can be done for other libcs as future work.
+
+* Some of the configure check logic is verbose to ease maintenance and
+  facilitate tweaking later if we need to.
 
 * In future, we may do the same thing for ARM if/when appropriate equivalent
   machinery is added to glibc and bfd. This makes the separate position of
@@ -53,14 +76,13 @@ gcc/ChangeLog:
 	glibc has the GLIBC_ABI_GNU2_TLS version tag and ld emits it.
 	(with_tls): Default to 'gnu2' if --with-tls is not passed and
 	gcc_cv_libc_x86_tlsdesc_call is 'yes'.
-
 ---
- gcc/configure    | 217 +++++++++++++++++++++++++++++++----------------
- gcc/configure.ac | 112 ++++++++++++++++++------
- 2 files changed, 229 insertions(+), 100 deletions(-)
+ gcc/configure    | 720 +++++++++++++++++++++++++++--------------------
+ gcc/configure.ac | 399 +++++++++++++++++---------
+ 2 files changed, 681 insertions(+), 438 deletions(-)
 
 diff --git a/gcc/configure b/gcc/configure
-index c8184de6cf0c..64eb4148a9f1 100755
+index 611f691d7a7c..9aa2886ae4bc 100755
 --- a/gcc/configure
 +++ b/gcc/configure
 @@ -740,7 +740,6 @@ libgcc_visibility
@@ -71,15 +93,91 @@ index c8184de6cf0c..64eb4148a9f1 100755
  gcc_cv_objdump
  ORIGINAL_NM_FOR_TARGET
  gcc_cv_nm
-@@ -805,6 +804,7 @@ HAVE_AUTO_BUILD
+@@ -748,9 +747,6 @@ ORIGINAL_LD_GOLD_FOR_TARGET
+ ORIGINAL_LD_BFD_FOR_TARGET
+ ORIGINAL_LD_FOR_TARGET
+ ORIGINAL_PLUGIN_LD_FOR_TARGET
+-gcc_cv_ld
+-ORIGINAL_AS_FOR_TARGET
+-gcc_cv_as
+ ENABLE_DARWIN_AT_RPATH_FALSE
+ ENABLE_DARWIN_AT_RPATH_TRUE
+ enable_fast_install
+@@ -805,6 +801,10 @@ HAVE_AUTO_BUILD
  extra_opt_files
  extra_modes_file
  NATIVE_SYSTEM_HEADER_DIR
++gcc_cv_ld
++ORIGINAL_AS_FOR_TARGET
++gcc_cv_as
 +gcc_cv_readelf
  objext
  manext
  LIBICONV_DEP
-@@ -12931,6 +12931,145 @@ if test "x$enable_win32_utf8_manifest" != xno; then
+@@ -1014,6 +1014,9 @@ with_libiconv_prefix
+ with_libiconv_type
+ enable_sjlj_exceptions
+ enable_win32_utf8_manifest
++enable_ld
++enable_gold
++with_glibc_version
+ with_gcc_major_version_only
+ enable_nls
+ with_libintl_prefix
+@@ -1031,8 +1034,6 @@ enable_fast_install
+ enable_libtool_lock
+ enable_darwin_at_rpath
+ with_darwin_extra_rpath
+-enable_ld
+-enable_gold
+ with_plugin_ld
+ enable_gnu_indirect_function
+ enable_initfini_array
+@@ -1041,7 +1042,6 @@ enable_newlib_nano_formatted_io
+ enable_standard_branch_protection
+ enable_fix_cortex_a53_835769
+ enable_fix_cortex_a53_843419
+-with_glibc_version
+ enable_gnu_unique_object
+ enable_linker_build_id
+ enable_libssp
+@@ -1753,6 +1753,8 @@ Optional Features:
+   --enable-win32-utf8-manifest
+                           enable embedding a utf8 manifest on mingw hosts
+                           (default)
++  --enable-ld[=ARG]       build ld [ARG={default,yes,no}]
++  --enable-gold[=ARG]     build gold [ARG={default,yes,no}]
+   --disable-nls           do not use Native Language Support
+   --enable-secureplt      enable -msecure-plt by default for PowerPC
+   --enable-mingw-wildcard Set whether to expand wildcard on command-line.
+@@ -1778,8 +1780,6 @@ Optional Features:
+   --enable-darwin-at-rpath
+                           install libraries with @rpath/library-name, requires
+                           rpaths to be added to executables
+-  --enable-ld[=ARG]       build ld [ARG={default,yes,no}]
+-  --enable-gold[=ARG]     build gold [ARG={default,yes,no}]
+   --enable-gnu-indirect-function
+                           enable the use of the @gnu_indirect_function to
+                           glibc systems
+@@ -1905,6 +1905,8 @@ Optional Packages:
+   --with-libiconv-prefix[=DIR]  search for libiconv in DIR/include and DIR/lib
+   --without-libiconv-prefix     don't search for libiconv in includedir and libdir
+   --with-libiconv-type=TYPE     type of library to search for (auto/static/shared)
++  --with-glibc-version=M.N
++                          assume GCC used with glibc version M.N or later
+   --with-gcc-major-version-only
+                           use only GCC major number in filesystem paths
+   --with-libintl-prefix[=DIR]  search for libintl in DIR/include and DIR/lib
+@@ -1917,8 +1919,6 @@ Optional Packages:
+                           Specify a runpath directory, additional to those
+                           provided by the compiler
+   --with-plugin-ld=[ARG]  specify the plugin linker
+-  --with-glibc-version=M.N
+-                          assume GCC used with glibc version M.N or later
+   --with-long-double-128  use 128-bit long double by default
+   --with-long-double-format={ieee,ibm}
+ 		  Specify whether PowerPC long double uses IEEE or IBM format
+@@ -12931,6 +12931,402 @@ if test "x$enable_win32_utf8_manifest" != xno; then
    host_extra_objs_mingw=utf8-mingw32.o
  fi
  
@@ -156,6 +254,215 @@ index c8184de6cf0c..64eb4148a9f1 100755
 +$as_echo "$gcc_cv_readelf" >&6; }
 +fi
 +
++# Identify the assembler which will work hand-in-glove with the newly
++# built GCC, so that we can examine its features.  This is the assembler
++# which will be driven by the driver program.
++#
++# If build != host, and we aren't building gas in-tree, we identify a
++# build->target assembler and hope that it will have the same features
++# as the host->target assembler we'll be using.
++gcc_cv_as_gas_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/gas
++
++if ${gcc_cv_as+:} false; then :
++
++else
++
++if test -x "$DEFAULT_ASSEMBLER"; then
++	gcc_cv_as="$DEFAULT_ASSEMBLER"
++elif test -f $gcc_cv_as_gas_srcdir/configure.ac \
++     && test -f ../gas/Makefile \
++     && test x$build = x$host; then
++	gcc_cv_as=../gas/as-new$build_exeext
++elif test -x as$build_exeext; then
++	# Build using assembler in the current directory.
++	gcc_cv_as=./as$build_exeext
++elif ( set dummy $AS_FOR_TARGET; test -x $2 ); then
++        gcc_cv_as="$AS_FOR_TARGET"
++else
++        # Extract the first word of "$AS_FOR_TARGET", so it can be a program name with args.
++set dummy $AS_FOR_TARGET; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_path_gcc_cv_as+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  case $gcc_cv_as in
++  [\\/]* | ?:[\\/]*)
++  ac_cv_path_gcc_cv_as="$gcc_cv_as" # Let the user override the test with a path.
++  ;;
++  *)
++  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_path_gcc_cv_as="$as_dir/$ac_word$ac_exec_ext"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++  ;;
++esac
++fi
++gcc_cv_as=$ac_cv_path_gcc_cv_as
++if test -n "$gcc_cv_as"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_cv_as" >&5
++$as_echo "$gcc_cv_as" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++fi
++
++ORIGINAL_AS_FOR_TARGET=$gcc_cv_as
++
++case "$ORIGINAL_AS_FOR_TARGET" in
++  ./as | ./as$build_exeext) ;;
++  *) ac_config_files="$ac_config_files as:exec-tool.in"
++ ;;
++esac
++
++default_ld=
++# Check whether --enable-ld was given.
++if test "${enable_ld+set}" = set; then :
++  enableval=$enable_ld; case "${enableval}" in
++ no)
++   default_ld=ld.gold
++   ;;
++ esac
++fi
++
++
++install_gold_as_default=no
++# Check whether --enable-gold was given.
++if test "${enable_gold+set}" = set; then :
++  enableval=$enable_gold; case "${enableval}" in
++ default)
++   install_gold_as_default=yes
++   ;;
++ yes)
++   if test x${default_ld} != x; then
++     install_gold_as_default=yes
++   fi
++   ;;
++ no)
++   ;;
++ *)
++   as_fn_error $? "invalid --enable-gold argument" "$LINENO" 5
++   ;;
++ esac
++fi
++
++
++# Identify the linker which will work hand-in-glove with the newly
++# built GCC, so that we can examine its features.  This is the linker
++# which will be driven by the driver program.
++#
++# If build != host, and we aren't building gas in-tree, we identify a
++# build->target linker and hope that it will have the same features
++# as the host->target linker we'll be using.
++gcc_cv_gld_major_version=
++gcc_cv_gld_minor_version=
++gcc_cv_ld_gld_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/ld
++gcc_cv_ld_gold_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/gold
++gcc_cv_ld_bfd_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/bfd
++
++if ${gcc_cv_ld+:} false; then :
++
++else
++
++if test -x "$DEFAULT_LINKER"; then
++	gcc_cv_ld="$DEFAULT_LINKER"
++elif test $install_gold_as_default = yes \
++     && test -f $gcc_cv_ld_gold_srcdir/configure.ac \
++     && test -f ../gold/Makefile \
++     && test x$build = x$host; then
++	gcc_cv_ld=../gold/ld-new$build_exeext
++elif test -f $gcc_cv_ld_gld_srcdir/configure.ac \
++     && test -f ../ld/Makefile \
++     && test x$build = x$host; then
++	gcc_cv_ld=../ld/ld-new$build_exeext
++elif test -x collect-ld$build_exeext; then
++	# Build using linker in the current directory.
++	gcc_cv_ld=./collect-ld$build_exeext
++elif ( set dummy $LD_FOR_TARGET; test -x $2 ); then
++        gcc_cv_ld="$LD_FOR_TARGET"
++else
++        # Extract the first word of "$LD_FOR_TARGET", so it can be a program name with args.
++set dummy $LD_FOR_TARGET; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if ${ac_cv_path_gcc_cv_ld+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  case $gcc_cv_ld in
++  [\\/]* | ?:[\\/]*)
++  ac_cv_path_gcc_cv_ld="$gcc_cv_ld" # Let the user override the test with a path.
++  ;;
++  *)
++  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
++    ac_cv_path_gcc_cv_ld="$as_dir/$ac_word$ac_exec_ext"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++  ;;
++esac
++fi
++gcc_cv_ld=$ac_cv_path_gcc_cv_ld
++if test -n "$gcc_cv_ld"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_cv_ld" >&5
++$as_echo "$gcc_cv_ld" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++fi
++
++# Determine the version of glibc, if any, used on the target.
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for target glibc version" >&5
++$as_echo_n "checking for target glibc version... " >&6; }
++
++# Check whether --with-glibc-version was given.
++if test "${with_glibc_version+set}" = set; then :
++  withval=$with_glibc_version;
++if echo "$with_glibc_version" | grep '^[0-9][0-9]*\.[0-9][0-9]*$'; then
++  glibc_version_major=`echo "$with_glibc_version" | sed -e 's/\..*//'`
++  glibc_version_minor=`echo "$with_glibc_version" | sed -e 's/.*\.//'`
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $glibc_version_major.$glibc_version_minor" >&5
++$as_echo "$glibc_version_major.$glibc_version_minor" >&6; }
++else
++  as_fn_error $? "option --with-glibc-version requires a version number M.N" "$LINENO" 5
++fi
++fi
++
++if test "${with_glibc_version+set}" != set; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: unspecified, will try actual version in headers" >&5
++$as_echo "unspecified, will try actual version in headers" >&6; }
++fi
++
++# This check influences the values of OPTION_DEFAULT_SPECS and hence must be
++# before sourcing of config.gcc.
 +case $target in
 +  i[34567]86-*-gnu* | x86_64-*-gnu* )
 +	# PR target/120933
@@ -166,25 +473,40 @@ index c8184de6cf0c..64eb4148a9f1 100755
 +	# for this behavior and binaries will depend on GLIBC_ABI_GNU2_TLS and fixed
 +	# glibc.  Hence the presence of GLIBC_ABI_GNU2_TLS tells us if we can safely
 +	# default to GNU2 TLS descriptors.
-+	conftest_S='
-+		.section        .text.startup,"ax",@progbits
-+		.p2align 4
-+		.globl  main
-+		.type   main, @function
-+		main:
-+		#ifdef __x86_64__
-+			leaq    foo@TLSDESC(%rip), %rax
-+			call    *foo@TLSCALL(%rax)
-+			movl    %fs:(%rax), %eax
-+		#else
-+			leal    ld@TLSDESC(%ebx), %eax
-+			call    *ld@TLSCALL(%eax)
-+			addl    %gs:0, %eax
-+		#endif
-+			ret
-+			.size   main, .-main
-+			.section        .note.GNU-stack,"",@progbits
-+	'
++	case $target in
++	  x86_64-*)
++		conftest_s='
++			.section        .text.startup,"ax",@progbits
++			.p2align 4
++			.globl  main
++			.type   main, @function
++			main:
++				leaq    foo@TLSDESC(%rip), %rax
++				call    *foo@TLSCALL(%rax)
++				movl    %fs:(%rax), %eax
++				call    exit
++				ret
++				.size   main, .-main
++				.section        .note.GNU-stack,"",@progbits
++		'
++		;;
++	  *)
++		conftest_s='
++			.section        .text.startup,"ax",@progbits
++			.p2align 4
++			.globl  main
++			.type   main, @function
++			main:
++				leal    ld@TLSDESC(%ebx), %eax
++				call    *ld@TLSCALL(%eax)
++				addl    %gs:0, %eax
++				call    exit
++				ret
++				.size   main, .-main
++				.section        .note.GNU-stack,"",@progbits
++		'
++		;;
++	esac
 +
 +	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking libc has GLIBC_ABI_GNU2_TLS symbol dep and ld emits it" >&5
 +$as_echo_n "checking libc has GLIBC_ABI_GNU2_TLS symbol dep and ld emits it... " >&6; }
@@ -193,16 +515,17 @@ index c8184de6cf0c..64eb4148a9f1 100755
 +else
 +
 +		gcc_cv_libc_x86_tlsdesc_call=no
-+		echo "$conftest_S" > conftest.S
-+		if $CC $CFLAGS conftest.S -o conftest -shared > /dev/null 2>&1; then
-+			if test x$gcc_cv_readelf != x; then
-+				if $gcc_cv_readelf --version-info conftest 2>&1 \
-+					| grep "GLIBC_ABI_GNU2_TLS" > /dev/null 2>&1; then
-+					gcc_cv_libc_x86_tlsdesc_call=yes
-+				else
-+					gcc_cv_libc_x86_tlsdesc_call=no
-+				fi
++		echo "$conftest_s" > conftest.s
++		if $gcc_cv_as conftest.s -o conftest.o > /dev/null 2>&1 \
++		    && $gcc_cv_ld conftest.o -o conftest -shared -lc > /dev/null 2>&1 ; then
++		    if test x$gcc_cv_readelf != x; then
++			if $gcc_cv_readelf --version-info conftest 2>&1 \
++				| grep "GLIBC_ABI_GNU2_TLS" > /dev/null 2>&1; then
++			  gcc_cv_libc_x86_tlsdesc_call=yes
++			else
++			  gcc_cv_libc_x86_tlsdesc_call=no
 +			fi
++		    fi
 +		fi
 +		rm -f conftest.*
 +
@@ -210,40 +533,264 @@ index c8184de6cf0c..64eb4148a9f1 100755
 +{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_cv_libc_x86_tlsdesc_call" >&5
 +$as_echo "$gcc_cv_libc_x86_tlsdesc_call" >&6; }
 +
-+	# Set with_tls only if it's not already set via --with-tls=DIALECT
-+	case "$gcc_cv_libc_x86_tlsdesc_call" in
-+	yes)
++	# If --with-glibc-version= was passed and it's >=2.43, we can discard
++	# the result of the test (this is a bit cleaner than conditionally
++	# running it, at least at first).
++	if test "${with_glibc_version+set}" = set && ( test "$glibc_version_major" -gt 2 \
++	  || ( test "$glibc_version_major" -eq 2 && test "$glibc_version_minor" -ge 43 ) ); then
++	  # Set with_tls only if it's not already set via --with-tls=DIALECT.
++	  with_tls=${with_tls:-gnu2}
++	else
++	  # No version was passed or it is too old for us to assume.  Rely on
++	  # the test we did.  The version tag was backported to older glibc
++	  # branches, so it may be OK.
++	  case "${gcc_cv_libc_x86_tlsdesc_call}:${with_tls+set}" in
++	  yes:set)
++		# Leave the user's --with-tls=DIALECT preference alone
++		# if the test was fine anyway.
 +		with_tls=${with_tls:-gnu2}
-+		;;
-+	*)
-+		with_tls=${with_tls:-gnu}
-+		;;
-+	esac
++	  ;;
++	  yes:*)
++		# Test passed, user didn't specify --with-tls=DIALECT.
++		# Upgrade them to gnu2.
++		with_tls=${with_tls:-gnu2}
++	  ;;
++	  no:set)
++		# The user asked for --with-tls=gnu2 even though their glibc
++		# seems too old.  Warn and continue.
++		{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: glibc too old for -mtls-dialect=gnu2 default, but --with-tls=gnu2 was set, so retaining it" >&5
++$as_echo "$as_me: WARNING: glibc too old for -mtls-dialect=gnu2 default, but --with-tls=gnu2 was set, so retaining it" >&2;}
++	  ;;
++	  no:*)
++		# Test failed and --with-tls=DIALECT wasn't passed.  We could
++		# downgrade to --with-tls=gnu automatically but we want the logic
++		# to be easy to document and for distributors to be able to act
++		# on it appropriately.
++		#
++		# They can set --with-tls=gnu if they want or upgrade glibc
++		# either to a new version or to the latest commits on the
++		# relevant branch.  Or force --with-tls=gnu2 at their own risk.
++		as_fn_error $? "glibc too old for -mtls-dialect=gnu2 default; set --with-tls=gnu to override" "$LINENO" 5
++	  ;;
++	  esac
++	fi
 +  ;;
 +esac
 +
  # --------------------------------------------------------
  # Build, host, and target specific configuration fragments
  # --------------------------------------------------------
-@@ -21873,7 +22012,7 @@ else
+@@ -21872,7 +22268,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 21876 "configure"
-+#line 22015 "configure"
+-#line 21875 "configure"
++#line 22271 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -21979,7 +22118,7 @@ else
+@@ -21978,7 +22374,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 21982 "configure"
-+#line 22121 "configure"
+-#line 21981 "configure"
++#line 22377 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -25808,78 +25947,6 @@ else
+@@ -25327,191 +25723,6 @@ cat >>confdefs.h <<_ACEOF
+ _ACEOF
+ 
+ 
+-# Identify the assembler which will work hand-in-glove with the newly
+-# built GCC, so that we can examine its features.  This is the assembler
+-# which will be driven by the driver program.
+-#
+-# If build != host, and we aren't building gas in-tree, we identify a
+-# build->target assembler and hope that it will have the same features
+-# as the host->target assembler we'll be using.
+-gcc_cv_as_gas_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/gas
+-
+-if ${gcc_cv_as+:} false; then :
+-
+-else
+-
+-if test -x "$DEFAULT_ASSEMBLER"; then
+-	gcc_cv_as="$DEFAULT_ASSEMBLER"
+-elif test -f $gcc_cv_as_gas_srcdir/configure.ac \
+-     && test -f ../gas/Makefile \
+-     && test x$build = x$host; then
+-	gcc_cv_as=../gas/as-new$build_exeext
+-elif test -x as$build_exeext; then
+-	# Build using assembler in the current directory.
+-	gcc_cv_as=./as$build_exeext
+-elif ( set dummy $AS_FOR_TARGET; test -x $2 ); then
+-        gcc_cv_as="$AS_FOR_TARGET"
+-else
+-        # Extract the first word of "$AS_FOR_TARGET", so it can be a program name with args.
+-set dummy $AS_FOR_TARGET; ac_word=$2
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+-$as_echo_n "checking for $ac_word... " >&6; }
+-if ${ac_cv_path_gcc_cv_as+:} false; then :
+-  $as_echo_n "(cached) " >&6
+-else
+-  case $gcc_cv_as in
+-  [\\/]* | ?:[\\/]*)
+-  ac_cv_path_gcc_cv_as="$gcc_cv_as" # Let the user override the test with a path.
+-  ;;
+-  *)
+-  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+-for as_dir in $PATH
+-do
+-  IFS=$as_save_IFS
+-  test -z "$as_dir" && as_dir=.
+-    for ac_exec_ext in '' $ac_executable_extensions; do
+-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+-    ac_cv_path_gcc_cv_as="$as_dir/$ac_word$ac_exec_ext"
+-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+-    break 2
+-  fi
+-done
+-  done
+-IFS=$as_save_IFS
+-
+-  ;;
+-esac
+-fi
+-gcc_cv_as=$ac_cv_path_gcc_cv_as
+-if test -n "$gcc_cv_as"; then
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_cv_as" >&5
+-$as_echo "$gcc_cv_as" >&6; }
+-else
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+-$as_echo "no" >&6; }
+-fi
+-
+-
+-fi
+-fi
+-
+-ORIGINAL_AS_FOR_TARGET=$gcc_cv_as
+-
+-case "$ORIGINAL_AS_FOR_TARGET" in
+-  ./as | ./as$build_exeext) ;;
+-  *) ac_config_files="$ac_config_files as:exec-tool.in"
+- ;;
+-esac
+-
+-default_ld=
+-# Check whether --enable-ld was given.
+-if test "${enable_ld+set}" = set; then :
+-  enableval=$enable_ld; case "${enableval}" in
+- no)
+-   default_ld=ld.gold
+-   ;;
+- esac
+-fi
+-
+-
+-install_gold_as_default=no
+-# Check whether --enable-gold was given.
+-if test "${enable_gold+set}" = set; then :
+-  enableval=$enable_gold; case "${enableval}" in
+- default)
+-   install_gold_as_default=yes
+-   ;;
+- yes)
+-   if test x${default_ld} != x; then
+-     install_gold_as_default=yes
+-   fi
+-   ;;
+- no)
+-   ;;
+- *)
+-   as_fn_error $? "invalid --enable-gold argument" "$LINENO" 5
+-   ;;
+- esac
+-fi
+-
+-
+-# Identify the linker which will work hand-in-glove with the newly
+-# built GCC, so that we can examine its features.  This is the linker
+-# which will be driven by the driver program.
+-#
+-# If build != host, and we aren't building gas in-tree, we identify a
+-# build->target linker and hope that it will have the same features
+-# as the host->target linker we'll be using.
+-gcc_cv_gld_major_version=
+-gcc_cv_gld_minor_version=
+-gcc_cv_ld_gld_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/ld
+-gcc_cv_ld_gold_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/gold
+-gcc_cv_ld_bfd_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/bfd
+-
+-if ${gcc_cv_ld+:} false; then :
+-
+-else
+-
+-if test -x "$DEFAULT_LINKER"; then
+-	gcc_cv_ld="$DEFAULT_LINKER"
+-elif test $install_gold_as_default = yes \
+-     && test -f $gcc_cv_ld_gold_srcdir/configure.ac \
+-     && test -f ../gold/Makefile \
+-     && test x$build = x$host; then
+-	gcc_cv_ld=../gold/ld-new$build_exeext
+-elif test -f $gcc_cv_ld_gld_srcdir/configure.ac \
+-     && test -f ../ld/Makefile \
+-     && test x$build = x$host; then
+-	gcc_cv_ld=../ld/ld-new$build_exeext
+-elif test -x collect-ld$build_exeext; then
+-	# Build using linker in the current directory.
+-	gcc_cv_ld=./collect-ld$build_exeext
+-elif ( set dummy $LD_FOR_TARGET; test -x $2 ); then
+-        gcc_cv_ld="$LD_FOR_TARGET"
+-else
+-        # Extract the first word of "$LD_FOR_TARGET", so it can be a program name with args.
+-set dummy $LD_FOR_TARGET; ac_word=$2
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+-$as_echo_n "checking for $ac_word... " >&6; }
+-if ${ac_cv_path_gcc_cv_ld+:} false; then :
+-  $as_echo_n "(cached) " >&6
+-else
+-  case $gcc_cv_ld in
+-  [\\/]* | ?:[\\/]*)
+-  ac_cv_path_gcc_cv_ld="$gcc_cv_ld" # Let the user override the test with a path.
+-  ;;
+-  *)
+-  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+-for as_dir in $PATH
+-do
+-  IFS=$as_save_IFS
+-  test -z "$as_dir" && as_dir=.
+-    for ac_exec_ext in '' $ac_executable_extensions; do
+-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+-    ac_cv_path_gcc_cv_ld="$as_dir/$ac_word$ac_exec_ext"
+-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+-    break 2
+-  fi
+-done
+-  done
+-IFS=$as_save_IFS
+-
+-  ;;
+-esac
+-fi
+-gcc_cv_ld=$ac_cv_path_gcc_cv_ld
+-if test -n "$gcc_cv_ld"; then
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_cv_ld" >&5
+-$as_echo "$gcc_cv_ld" >&6; }
+-else
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+-$as_echo "no" >&6; }
+-fi
+-
+-
+-fi
+-fi
+-
+ ORIGINAL_PLUGIN_LD_FOR_TARGET=$gcc_cv_ld
+ PLUGIN_LD_SUFFIX=`basename $gcc_cv_ld | sed -e "s,$target_alias-,,"`
+ # if the PLUGIN_LD is set ld-new, just have it as ld
+@@ -25807,78 +26018,6 @@ else
  $as_echo "$gcc_cv_objdump" >&6; }
  fi
  
@@ -322,11 +869,83 @@ index c8184de6cf0c..64eb4148a9f1 100755
  # Figure out what otool we will be using.
  if ${gcc_cv_otool+:} false; then :
  
+@@ -32677,34 +32816,19 @@ _ACEOF
+ 
+ fi
+ 
+-# Determine the version of glibc, if any, used on the target.
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for target glibc version" >&5
+-$as_echo_n "checking for target glibc version... " >&6; }
+-
+-# Check whether --with-glibc-version was given.
+-if test "${with_glibc_version+set}" = set; then :
+-  withval=$with_glibc_version;
+-if echo "$with_glibc_version" | grep '^[0-9][0-9]*\.[0-9][0-9]*$'; then
+-  glibc_version_major=`echo "$with_glibc_version" | sed -e 's/\..*//'`
+-  glibc_version_minor=`echo "$with_glibc_version" | sed -e 's/.*\.//'`
+-else
+-  as_fn_error $? "option --with-glibc-version requires a version number M.N" "$LINENO" 5
+-fi
+-else
+-
+-glibc_version_major=0
+-glibc_version_minor=0
+-if test -f $target_header_dir/features.h \
+-  && glibc_version_major_define=`$EGREP '^[ 	]*#[ 	]*define[ 	]+__GLIBC__[ 	]+[0-9]' $target_header_dir/features.h` \
+-  && glibc_version_minor_define=`$EGREP '^[ 	]*#[ 	]*define[ 	]+__GLIBC_MINOR__[ 	]+[0-9]' $target_header_dir/features.h`; then
+-  glibc_version_major=`echo "$glibc_version_major_define" | sed -e 's/.*__GLIBC__[ 	]*//'`
+-  glibc_version_minor=`echo "$glibc_version_minor_define" | sed -e 's/.*__GLIBC_MINOR__[ 	]*//'`
+-fi
++# This part of the with_glibc_version check needs to be *after* sourcing config.gcc
++# as we operate on target_header_dir.
++if test "${with_glibc_version+set}" != set; then
++  glibc_version_major=0
++  glibc_version_minor=0
++  if test -f $target_header_dir/features.h \
++    && glibc_version_major_define=`$EGREP '^ 	*#[ 	]*define[ 	]+__GLIBC__[ 	]+[0-9]' $target_header_dir/features.h` \
++    && glibc_version_minor_define=`$EGREP '^ 	*#[ 	]*define[ 	]+__GLIBC_MINOR__[ 	]+[0-9]' $target_header_dir/features.h`; then
++    glibc_version_major=`echo "$glibc_version_major_define" | sed -e 's/.*__GLIBC__ 	*//'`
++    glibc_version_minor=`echo "$glibc_version_minor_define" | sed -e 's/.*__GLIBC_MINOR__ 	*//'`
++  fi
+ fi
+ 
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $glibc_version_major.$glibc_version_minor" >&5
+-$as_echo "$glibc_version_major.$glibc_version_minor" >&6; }
+-
+ cat >>confdefs.h <<_ACEOF
+ #define TARGET_GLIBC_MAJOR $glibc_version_major
+ _ACEOF
+@@ -36253,8 +36377,8 @@ do
+     "auto-host.h") CONFIG_HEADERS="$CONFIG_HEADERS auto-host.h:config.in" ;;
+     "depdir") CONFIG_COMMANDS="$CONFIG_COMMANDS depdir" ;;
+     "gccdepdir") CONFIG_COMMANDS="$CONFIG_COMMANDS gccdepdir" ;;
+-    "default-1") CONFIG_COMMANDS="$CONFIG_COMMANDS default-1" ;;
+     "as") CONFIG_FILES="$CONFIG_FILES as:exec-tool.in" ;;
++    "default-1") CONFIG_COMMANDS="$CONFIG_COMMANDS default-1" ;;
+     "collect-ld") CONFIG_FILES="$CONFIG_FILES collect-ld:exec-tool.in" ;;
+     "nm") CONFIG_FILES="$CONFIG_FILES nm:exec-tool.in" ;;
+     "dsymutil") CONFIG_FILES="$CONFIG_FILES dsymutil:exec-tool.in" ;;
+@@ -36894,6 +37018,7 @@ $as_echo "$as_me: executing $ac_file commands" >&6;}
+   do
+       ${CONFIG_SHELL-/bin/sh} $ac_aux_dir/mkinstalldirs $lang/$DEPDIR
+   done ;;
++    "as":F) chmod +x as ;;
+     "default-1":C)
+     for ac_file in $CONFIG_FILES; do
+       # Support "outfile[:infile[:infile...]]"
+@@ -36995,7 +37120,6 @@ $as_echo "$as_me: executing $ac_file commands" >&6;}
+         ;;
+       esac
+     done ;;
+-    "as":F) chmod +x as ;;
+     "collect-ld":F) chmod +x collect-ld ;;
+     "nm":F) chmod +x nm ;;
+     "dsymutil":F) chmod +x dsymutil ;;
 diff --git a/gcc/configure.ac b/gcc/configure.ac
-index 684639d4cafd..ae2fc58643ce 100644
+index 1e5f7c3c4d00..504a5ac4c5cb 100644
 --- a/gcc/configure.ac
 +++ b/gcc/configure.ac
-@@ -1886,6 +1886,93 @@ if test "x$enable_win32_utf8_manifest" != xno; then
+@@ -1886,6 +1886,253 @@ if test "x$enable_win32_utf8_manifest" != xno; then
    host_extra_objs_mingw=utf8-mingw32.o
  fi
  
@@ -356,6 +975,119 @@ index 684639d4cafd..ae2fc58643ce 100644
 +	AC_MSG_RESULT($gcc_cv_readelf)
 +fi
 +
++# Identify the assembler which will work hand-in-glove with the newly
++# built GCC, so that we can examine its features.  This is the assembler
++# which will be driven by the driver program.
++#
++# If build != host, and we aren't building gas in-tree, we identify a
++# build->target assembler and hope that it will have the same features
++# as the host->target assembler we'll be using.
++gcc_cv_as_gas_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/gas
++
++m4_pattern_allow([AS_FOR_TARGET])dnl
++AS_VAR_SET_IF(gcc_cv_as,, [
++if test -x "$DEFAULT_ASSEMBLER"; then
++	gcc_cv_as="$DEFAULT_ASSEMBLER"
++elif test -f $gcc_cv_as_gas_srcdir/configure.ac \
++     && test -f ../gas/Makefile \
++     && test x$build = x$host; then
++	gcc_cv_as=../gas/as-new$build_exeext
++elif test -x as$build_exeext; then
++	# Build using assembler in the current directory.
++	gcc_cv_as=./as$build_exeext
++elif ( set dummy $AS_FOR_TARGET; test -x $[2] ); then
++        gcc_cv_as="$AS_FOR_TARGET"
++else
++        AC_PATH_PROG(gcc_cv_as, $AS_FOR_TARGET)
++fi])
++
++ORIGINAL_AS_FOR_TARGET=$gcc_cv_as
++AC_SUBST(ORIGINAL_AS_FOR_TARGET)
++case "$ORIGINAL_AS_FOR_TARGET" in
++  ./as | ./as$build_exeext) ;;
++  *) AC_CONFIG_FILES(as:exec-tool.in, [chmod +x as]) ;;
++esac
++
++default_ld=
++AC_ARG_ENABLE(ld,
++[[  --enable-ld[=ARG]       build ld [ARG={default,yes,no}]]],
++[case "${enableval}" in
++ no)
++   default_ld=ld.gold
++   ;;
++ esac])
++
++install_gold_as_default=no
++AC_ARG_ENABLE(gold,
++[[  --enable-gold[=ARG]     build gold [ARG={default,yes,no}]]],
++[case "${enableval}" in
++ default)
++   install_gold_as_default=yes
++   ;;
++ yes)
++   if test x${default_ld} != x; then
++     install_gold_as_default=yes
++   fi
++   ;;
++ no)
++   ;;
++ *)
++   AC_MSG_ERROR([invalid --enable-gold argument])
++   ;;
++ esac])
++
++# Identify the linker which will work hand-in-glove with the newly
++# built GCC, so that we can examine its features.  This is the linker
++# which will be driven by the driver program.
++#
++# If build != host, and we aren't building gas in-tree, we identify a
++# build->target linker and hope that it will have the same features
++# as the host->target linker we'll be using.
++gcc_cv_gld_major_version=
++gcc_cv_gld_minor_version=
++gcc_cv_ld_gld_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/ld
++gcc_cv_ld_gold_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/gold
++gcc_cv_ld_bfd_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/bfd
++
++AS_VAR_SET_IF(gcc_cv_ld,, [
++if test -x "$DEFAULT_LINKER"; then
++	gcc_cv_ld="$DEFAULT_LINKER"
++elif test $install_gold_as_default = yes \
++     && test -f $gcc_cv_ld_gold_srcdir/configure.ac \
++     && test -f ../gold/Makefile \
++     && test x$build = x$host; then
++	gcc_cv_ld=../gold/ld-new$build_exeext
++elif test -f $gcc_cv_ld_gld_srcdir/configure.ac \
++     && test -f ../ld/Makefile \
++     && test x$build = x$host; then
++	gcc_cv_ld=../ld/ld-new$build_exeext
++elif test -x collect-ld$build_exeext; then
++	# Build using linker in the current directory.
++	gcc_cv_ld=./collect-ld$build_exeext
++elif ( set dummy $LD_FOR_TARGET; test -x $[2] ); then
++        gcc_cv_ld="$LD_FOR_TARGET"
++else
++        AC_PATH_PROG(gcc_cv_ld, $LD_FOR_TARGET)
++fi])
++
++# Determine the version of glibc, if any, used on the target.
++AC_MSG_CHECKING([for target glibc version])
++AC_ARG_WITH([glibc-version],
++  [AS_HELP_STRING([--with-glibc-version=M.N],
++    [assume GCC used with glibc version M.N or later])], [
++if [echo "$with_glibc_version" | grep '^[0-9][0-9]*\.[0-9][0-9]*$']; then
++  glibc_version_major=`echo "$with_glibc_version" | sed -e 's/\..*//'`
++  glibc_version_minor=`echo "$with_glibc_version" | sed -e 's/.*\.//'`
++  AC_MSG_RESULT([$glibc_version_major.$glibc_version_minor])
++else
++  AC_MSG_ERROR([option --with-glibc-version requires a version number M.N])
++fi])
++if test "${with_glibc_version+set}" != set; then
++  AC_MSG_RESULT([unspecified, will try actual version in headers])
++fi
++
++# This check influences the values of OPTION_DEFAULT_SPECS and hence must be
++# before sourcing of config.gcc.
 +case $target in
 +changequote(,)dnl
 +  i[34567]86-*-gnu* | x86_64-*-gnu* )
@@ -368,59 +1100,208 @@ index 684639d4cafd..ae2fc58643ce 100644
 +	# for this behavior and binaries will depend on GLIBC_ABI_GNU2_TLS and fixed
 +	# glibc.  Hence the presence of GLIBC_ABI_GNU2_TLS tells us if we can safely
 +	# default to GNU2 TLS descriptors.
-+	conftest_S='
-+		.section        .text.startup,"ax",@progbits
-+		.p2align 4
-+		.globl  main
-+		.type   main, @function
-+		main:
-+		#ifdef __x86_64__
-+			leaq    foo@TLSDESC(%rip), %rax
-+			call    *foo@TLSCALL(%rax)
-+			movl    %fs:(%rax), %eax
-+		#else
-+			leal    ld@TLSDESC(%ebx), %eax
-+			call    *ld@TLSCALL(%eax)
-+			addl    %gs:0, %eax
-+		#endif
-+			ret
-+			.size   main, .-main
-+			.section        .note.GNU-stack,"",@progbits
-+	'
++	case $target in
++	  x86_64-*)
++		conftest_s='
++			.section        .text.startup,"ax",@progbits
++			.p2align 4
++			.globl  main
++			.type   main, @function
++			main:
++				leaq    foo@TLSDESC(%rip), %rax
++				call    *foo@TLSCALL(%rax)
++				movl    %fs:(%rax), %eax
++				call    exit
++				ret
++				.size   main, .-main
++				.section        .note.GNU-stack,"",@progbits
++		'
++		;;
++	  *)
++		conftest_s='
++			.section        .text.startup,"ax",@progbits
++			.p2align 4
++			.globl  main
++			.type   main, @function
++			main:
++				leal    ld@TLSDESC(%ebx), %eax
++				call    *ld@TLSCALL(%eax)
++				addl    %gs:0, %eax
++				call    exit
++				ret
++				.size   main, .-main
++				.section        .note.GNU-stack,"",@progbits
++		'
++		;;
++	esac
 +
 +	AC_CACHE_CHECK([libc has GLIBC_ABI_GNU2_TLS symbol dep and ld emits it],
 +		gcc_cv_libc_x86_tlsdesc_call, [
 +		gcc_cv_libc_x86_tlsdesc_call=no
-+		echo "$conftest_S" > conftest.S
-+		if $CC $CFLAGS conftest.S -o conftest -shared > /dev/null 2>&1; then
-+			if test x$gcc_cv_readelf != x; then
-+				if $gcc_cv_readelf --version-info conftest 2>&1 \
-+					| grep "GLIBC_ABI_GNU2_TLS" > /dev/null 2>&1; then
-+					gcc_cv_libc_x86_tlsdesc_call=yes
-+				else
-+					gcc_cv_libc_x86_tlsdesc_call=no
-+				fi
++		echo "$conftest_s" > conftest.s
++		if $gcc_cv_as conftest.s -o conftest.o > /dev/null 2>&1 \
++		    && $gcc_cv_ld conftest.o -o conftest -shared -lc > /dev/null 2>&1 ; then
++		    if test x$gcc_cv_readelf != x; then
++			if $gcc_cv_readelf --version-info conftest 2>&1 \
++				| grep "GLIBC_ABI_GNU2_TLS" > /dev/null 2>&1; then
++			  gcc_cv_libc_x86_tlsdesc_call=yes
++			else
++			  gcc_cv_libc_x86_tlsdesc_call=no
 +			fi
++		    fi
 +		fi
 +		rm -f conftest.*
 +	])
 +
-+	# Set with_tls only if it's not already set via --with-tls=DIALECT
-+	case "$gcc_cv_libc_x86_tlsdesc_call" in
-+	yes)
++	# If --with-glibc-version= was passed and it's >=2.43, we can discard
++	# the result of the test (this is a bit cleaner than conditionally
++	# running it, at least at first).
++	if test "${with_glibc_version+set}" = set && ( test "$glibc_version_major" -gt 2 \
++	  || ( test "$glibc_version_major" -eq 2 && test "$glibc_version_minor" -ge 43 ) ); then
++	  # Set with_tls only if it's not already set via --with-tls=DIALECT.
++	  with_tls=${with_tls:-gnu2}
++	else
++	  # No version was passed or it is too old for us to assume.  Rely on
++	  # the test we did.  The version tag was backported to older glibc
++	  # branches, so it may be OK.
++	  case "${gcc_cv_libc_x86_tlsdesc_call}:${with_tls+set}" in
++	  yes:set)
++		# Leave the user's --with-tls=DIALECT preference alone
++		# if the test was fine anyway.
 +		with_tls=${with_tls:-gnu2}
-+		;;
-+	*)
-+		with_tls=${with_tls:-gnu}
-+		;;
-+	esac
++	  ;;
++	  yes:*)
++		# Test passed, user didn't specify --with-tls=DIALECT.
++		# Upgrade them to gnu2.
++		with_tls=${with_tls:-gnu2}
++	  ;;
++	  no:set)
++		# The user asked for --with-tls=gnu2 even though their glibc
++		# seems too old.  Warn and continue.
++		AC_MSG_WARN([glibc too old for -mtls-dialect=gnu2 default, but --with-tls=gnu2 was set, so retaining it])
++	  ;;
++	  no:*)
++		# Test failed and --with-tls=DIALECT wasn't passed.  We could
++		# downgrade to --with-tls=gnu automatically but we want the logic
++		# to be easy to document and for distributors to be able to act
++		# on it appropriately.
++		#
++		# They can set --with-tls=gnu if they want or upgrade glibc
++		# either to a new version or to the latest commits on the
++		# relevant branch.  Or force --with-tls=gnu2 at their own risk.
++		AC_MSG_ERROR([glibc too old for -mtls-dialect=gnu2 default; set --with-tls=gnu to override])
++	  ;;
++	  esac
++	fi
 +  ;;
 +esac
 +
  # --------------------------------------------------------
  # Build, host, and target specific configuration fragments
  # --------------------------------------------------------
-@@ -2945,31 +3032,6 @@ else
+@@ -2663,101 +2910,6 @@ AC_DEFINE_UNQUOTED(DARWIN_DO_EXTRA_RPATH, $DARWIN_DO_EXTRA_RPATH,
+ AC_DEFINE_UNQUOTED(DARWIN_ADD_RPATH, "$DARWIN_ADD_RPATH",
+   [Specify a runpath directory, additional to those provided by the compiler])
+ 
+-# Identify the assembler which will work hand-in-glove with the newly
+-# built GCC, so that we can examine its features.  This is the assembler
+-# which will be driven by the driver program.
+-#
+-# If build != host, and we aren't building gas in-tree, we identify a
+-# build->target assembler and hope that it will have the same features
+-# as the host->target assembler we'll be using.
+-gcc_cv_as_gas_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/gas
+-
+-m4_pattern_allow([AS_FOR_TARGET])dnl
+-AS_VAR_SET_IF(gcc_cv_as,, [
+-if test -x "$DEFAULT_ASSEMBLER"; then
+-	gcc_cv_as="$DEFAULT_ASSEMBLER"
+-elif test -f $gcc_cv_as_gas_srcdir/configure.ac \
+-     && test -f ../gas/Makefile \
+-     && test x$build = x$host; then
+-	gcc_cv_as=../gas/as-new$build_exeext
+-elif test -x as$build_exeext; then
+-	# Build using assembler in the current directory.
+-	gcc_cv_as=./as$build_exeext
+-elif ( set dummy $AS_FOR_TARGET; test -x $[2] ); then
+-        gcc_cv_as="$AS_FOR_TARGET"
+-else
+-        AC_PATH_PROG(gcc_cv_as, $AS_FOR_TARGET)
+-fi])
+-
+-ORIGINAL_AS_FOR_TARGET=$gcc_cv_as
+-AC_SUBST(ORIGINAL_AS_FOR_TARGET)
+-case "$ORIGINAL_AS_FOR_TARGET" in
+-  ./as | ./as$build_exeext) ;;
+-  *) AC_CONFIG_FILES(as:exec-tool.in, [chmod +x as]) ;;
+-esac 
+-
+-default_ld=
+-AC_ARG_ENABLE(ld,
+-[[  --enable-ld[=ARG]       build ld [ARG={default,yes,no}]]],
+-[case "${enableval}" in
+- no)
+-   default_ld=ld.gold
+-   ;;
+- esac])
+-
+-install_gold_as_default=no
+-AC_ARG_ENABLE(gold,
+-[[  --enable-gold[=ARG]     build gold [ARG={default,yes,no}]]],
+-[case "${enableval}" in
+- default)
+-   install_gold_as_default=yes
+-   ;;
+- yes)
+-   if test x${default_ld} != x; then
+-     install_gold_as_default=yes
+-   fi
+-   ;;
+- no)
+-   ;;
+- *)
+-   AC_MSG_ERROR([invalid --enable-gold argument])
+-   ;;
+- esac])
+-
+-# Identify the linker which will work hand-in-glove with the newly
+-# built GCC, so that we can examine its features.  This is the linker
+-# which will be driven by the driver program.
+-#
+-# If build != host, and we aren't building gas in-tree, we identify a
+-# build->target linker and hope that it will have the same features
+-# as the host->target linker we'll be using.
+-gcc_cv_gld_major_version=
+-gcc_cv_gld_minor_version=
+-gcc_cv_ld_gld_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/ld
+-gcc_cv_ld_gold_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/gold
+-gcc_cv_ld_bfd_srcdir=`echo $srcdir | sed -e 's,/gcc$,,'`/bfd
+-
+-AS_VAR_SET_IF(gcc_cv_ld,, [
+-if test -x "$DEFAULT_LINKER"; then
+-	gcc_cv_ld="$DEFAULT_LINKER"
+-elif test $install_gold_as_default = yes \
+-     && test -f $gcc_cv_ld_gold_srcdir/configure.ac \
+-     && test -f ../gold/Makefile \
+-     && test x$build = x$host; then
+-	gcc_cv_ld=../gold/ld-new$build_exeext
+-elif test -f $gcc_cv_ld_gld_srcdir/configure.ac \
+-     && test -f ../ld/Makefile \
+-     && test x$build = x$host; then
+-	gcc_cv_ld=../ld/ld-new$build_exeext
+-elif test -x collect-ld$build_exeext; then
+-	# Build using linker in the current directory.
+-	gcc_cv_ld=./collect-ld$build_exeext
+-elif ( set dummy $LD_FOR_TARGET; test -x $[2] ); then
+-        gcc_cv_ld="$LD_FOR_TARGET"
+-else
+-        AC_PATH_PROG(gcc_cv_ld, $LD_FOR_TARGET)
+-fi])
+-
+ ORIGINAL_PLUGIN_LD_FOR_TARGET=$gcc_cv_ld
+ PLUGIN_LD_SUFFIX=`basename $gcc_cv_ld | sed -e "s,$target_alias-,,"`
+ # if the PLUGIN_LD is set ld-new, just have it as ld
+@@ -2945,31 +3097,6 @@ else
  	AC_MSG_RESULT($gcc_cv_objdump)
  fi
  
@@ -452,3 +1333,406 @@ index 684639d4cafd..ae2fc58643ce 100644
  # Figure out what otool we will be using.
  AS_VAR_SET_IF(gcc_cv_otool,, [
  if test -x otool$build_exeext; then
+@@ -6047,26 +6174,18 @@ if test x$with_sysroot = x && test x$host = x$target \
+ [Define to PREFIX/include if cpp should also search that directory.])
+ fi
+ 
+-# Determine the version of glibc, if any, used on the target.
+-AC_MSG_CHECKING([for target glibc version])
+-AC_ARG_WITH([glibc-version],
+-  [AS_HELP_STRING([--with-glibc-version=M.N],
+-    [assume GCC used with glibc version M.N or later])], [
+-if [echo "$with_glibc_version" | grep '^[0-9][0-9]*\.[0-9][0-9]*$']; then
+-  glibc_version_major=`echo "$with_glibc_version" | sed -e 's/\..*//'`
+-  glibc_version_minor=`echo "$with_glibc_version" | sed -e 's/.*\.//'`
+-else
+-  AC_MSG_ERROR([option --with-glibc-version requires a version number M.N])
+-fi], [
+-glibc_version_major=0
+-glibc_version_minor=0
+-[if test -f $target_header_dir/features.h \
+-  && glibc_version_major_define=`$EGREP '^[ 	]*#[ 	]*define[ 	]+__GLIBC__[ 	]+[0-9]' $target_header_dir/features.h` \
+-  && glibc_version_minor_define=`$EGREP '^[ 	]*#[ 	]*define[ 	]+__GLIBC_MINOR__[ 	]+[0-9]' $target_header_dir/features.h`; then
+-  glibc_version_major=`echo "$glibc_version_major_define" | sed -e 's/.*__GLIBC__[ 	]*//'`
+-  glibc_version_minor=`echo "$glibc_version_minor_define" | sed -e 's/.*__GLIBC_MINOR__[ 	]*//'`
+-fi]])
+-AC_MSG_RESULT([$glibc_version_major.$glibc_version_minor])
++# This part of the with_glibc_version check needs to be *after* sourcing config.gcc
++# as we operate on target_header_dir.
++if test "${with_glibc_version+set}" != set; then
++  glibc_version_major=0
++  glibc_version_minor=0
++  if test -f $target_header_dir/features.h \
++    && glibc_version_major_define=`$EGREP '^[ 	]*#[ 	]*define[ 	]+__GLIBC__[ 	]+[0-9]' $target_header_dir/features.h` \
++    && glibc_version_minor_define=`$EGREP '^[ 	]*#[ 	]*define[ 	]+__GLIBC_MINOR__[ 	]+[0-9]' $target_header_dir/features.h`; then
++    glibc_version_major=`echo "$glibc_version_major_define" | sed -e 's/.*__GLIBC__[ 	]*//'`
++    glibc_version_minor=`echo "$glibc_version_minor_define" | sed -e 's/.*__GLIBC_MINOR__[ 	]*//'`
++  fi
++fi
+ AC_DEFINE_UNQUOTED([TARGET_GLIBC_MAJOR], [$glibc_version_major],
+ [GNU C Library major version number used on the target, or 0.])
+ AC_DEFINE_UNQUOTED([TARGET_GLIBC_MINOR], [$glibc_version_minor],
+
+base-commit: 865f451122940916e900c6dbe78e39011dd4e0ae
+prerequisite-patch-id: edbd4df194a944e650223a415f8fee8c8e03899c
+prerequisite-patch-id: a845d9292b5bb7a8bd3b276914220bf7aaae56ec
+prerequisite-patch-id: 188d7ea5d5ad0fa59e1209d798b760f8b452eccd
+prerequisite-patch-id: 4bff5f1b22a1358890180528bcf10adda9c64bf7
+prerequisite-patch-id: b0d3cf63837a1b67aa09e327d56dbe57d5ed4256
+prerequisite-patch-id: ba458e9b3c43a28591f2e8f438bd358a2191af38
+prerequisite-patch-id: b0b66c31fa7277cc388b5f773c2a974f673d8f63
+prerequisite-patch-id: c27cc7f5ba1bb0ffe7cc1468f0ce518942a3382f
+prerequisite-patch-id: 55decc66bfd4ecd183877bb50f617973cbc1daec
+prerequisite-patch-id: f0b48b9e0718ed9a910c98221ad3455995829ec8
+prerequisite-patch-id: 1901fe0659c29b2c4ae3bd5fc46ab5fcb214b7be
+prerequisite-patch-id: 7228ca5ad6e273d559c4e42007fb0b6d02480d92
+prerequisite-patch-id: 2d4791514e4b2c2048a3e354db7fcc400e318485
+prerequisite-patch-id: e1ecde0b5e53d29dedf2b4beeac729d83b932c94
+prerequisite-patch-id: 5694fd204e8d3eccf5246d9548844058116f2c8f
+prerequisite-patch-id: c82e889a873497d1720c2eff8a0e8060085c546b
+prerequisite-patch-id: 1723b44ad1dbbffefe55742afc8c789948aeac11
+prerequisite-patch-id: b8abe216638c9f000b70ea85e8ea5d86fedfc730
+prerequisite-patch-id: 69d0473af7f4e9e6de1c6a3a825722e973b438d9
+prerequisite-patch-id: 1dc66b20aad9b871094cde5bca9d45e102a43d09
+prerequisite-patch-id: adfd0609a2c5c0196c6915a476d9e1a6c21b19fa
+prerequisite-patch-id: a02189d137790aa2438bf911956ef27fcb2a9973
+prerequisite-patch-id: 44c4543d87fbfe67a303b243304cd15a7d2b7025
+prerequisite-patch-id: 8cf589876b0bfc3d880551fb41fb5136443ec14c
+prerequisite-patch-id: 3c66df3d9fe2fc94ad2a7f234ab011f0e38ebf56
+prerequisite-patch-id: 9f1b938b3a259617a0ba61652e5ddb8e08a4478f
+prerequisite-patch-id: dc0f4d4b8a02e0f8836622f893f7fbd69b17a821
+prerequisite-patch-id: 39d4ad432446fca731a5820e39c5199807271845
+prerequisite-patch-id: 626df056fc430076cea0460f839db25f1391e295
+prerequisite-patch-id: 3a2c62ca796e6b2fdc6d105793275445984721eb
+prerequisite-patch-id: 5f19001f2be88d21a81450a1b2185de4a9b921d5
+prerequisite-patch-id: d8bbbb6cafcee05bbdd9ace61765658dc655521b
+prerequisite-patch-id: 7a1c9ed67237672d3afe24cd1d1bdb51228c04d7
+prerequisite-patch-id: 495a5c5b89f4fdb3c9e5bfaab8992f3549673e94
+prerequisite-patch-id: 1b56a527033c669b381e96825dc3254f5d93f271
+prerequisite-patch-id: 55b1130b7086fde2fddd57114ff90648dc145dbb
+prerequisite-patch-id: 515e7070c092184b4df5a2dbcec435d46a210218
+prerequisite-patch-id: 0350ae6bd307cf99915951005fcaee432bc640e3
+prerequisite-patch-id: a12af8c0b61acd500976af919efa1167aa04e16e
+prerequisite-patch-id: 3d8b9df50b2094a33d4705a5db0c5e0091070111
+prerequisite-patch-id: 4890a402c1e979979a2a336cff141edcfb8ac4ca
+prerequisite-patch-id: 7f86f345dddb315a5c42d49cab388d9a08b4604c
+prerequisite-patch-id: 26b27b77bd7a992b9e8957c1581fd48b2a7d8fd0
+prerequisite-patch-id: 178c1f8dcd2904822d95b16198d17015268bb28c
+prerequisite-patch-id: c815a5d768a7e84ddb1e87c4ffe601b407d2d44a
+prerequisite-patch-id: 5021710d3d46c7a7bb07e6e22c91d73b77ea0d63
+prerequisite-patch-id: c01e9e17b51de250029e0ee44105286590986ee4
+prerequisite-patch-id: 1da61b384d7a5f269b0a51ccac3fa93bad5809b5
+prerequisite-patch-id: 3cfb4a2e2f279de4ae32db1cfe113880d40fe957
+prerequisite-patch-id: e4b0f2585be5aeae621ddaaf228c78a031039482
+prerequisite-patch-id: cd5e8b0dc73810c5642967e858347a8a2773b765
+prerequisite-patch-id: d763a8abff1fb1ef3eaa6443dd839a78c8e43f53
+prerequisite-patch-id: d1bf2fd7554b6d704a3eec024d68710e1d206e41
+prerequisite-patch-id: 735229736776ff8f41ac958d385e394114bcae17
+prerequisite-patch-id: ee317acf392ebf650a1211c250fd2642eb341930
+prerequisite-patch-id: 8f11d4a85255c670c53e5d592cf00a7912bd58f7
+prerequisite-patch-id: 7e000c4d8a2a76578a5ddcf56e5eb1bd0bb19d9a
+prerequisite-patch-id: dd8b0fc4ad00c4aa8d6477b4a873e8257a2127c9
+prerequisite-patch-id: bf4ccae2d3fa62325a25454b0e82bf754703f3f7
+prerequisite-patch-id: de9bb2e2fec5a7587fd597758a25ec6caec347fc
+prerequisite-patch-id: 121ec7f09365da64126471ec41e45c9b3d916f71
+prerequisite-patch-id: 05f3a7c5a949d38403f5b5340fcd2ad7b2cb28bf
+prerequisite-patch-id: acff4d85f44de3c5e4bb0acd10ce63381d905103
+prerequisite-patch-id: c90954e0c02d47e068ad23cd151161ecce903603
+prerequisite-patch-id: 293edc7f2cb423c2e60d86e1a6ffde5ccc45d0cd
+prerequisite-patch-id: 417db63742fe96996d3b640f7bbd62ba7ddce4f0
+prerequisite-patch-id: eb6903efedecd8d314b6065d0198840f7bb5e960
+prerequisite-patch-id: 7d6d1b94f4349cb9b40872c0f3c221d43a724463
+prerequisite-patch-id: 3a06bd44e2a2ed4f9e7363b4451486702b38b658
+prerequisite-patch-id: cb0714d31cd8ac3d91791f74774b7fbccc13002e
+prerequisite-patch-id: 28f77d1c33793d988bb7b9554cec84310755995a
+prerequisite-patch-id: 4a33e6e12ca1d8e0eb398f57398247b8c4f0420f
+prerequisite-patch-id: 765a3b70c8978418532399f3cb0d3d2113321cfd
+prerequisite-patch-id: f69ea94b5f537488a162c11d67f76fcf71f54ace
+prerequisite-patch-id: 0e9de004e3e936179b9a5616d7fc21c168628137
+prerequisite-patch-id: 9e119dc359a521f7610755bfeb9ffc14bdbe2e5c
+prerequisite-patch-id: 1bbba29053ccd6a17055c60fe6fea002cc7e22d7
+prerequisite-patch-id: 2a826545e11971475d5caae7510251db807438ab
+prerequisite-patch-id: c505e999a840aa89e557d0ca5a2c2fd118f5f38a
+prerequisite-patch-id: f6b2eefa75e422b475dfd3d9307aca6fdc019b80
+prerequisite-patch-id: 8ce150d680aedadab9392e030579b5d3aa54bf26
+prerequisite-patch-id: 15717951b2aa718e74aae7d8f99b47f5f97e8155
+prerequisite-patch-id: 8600e7f38cd45f4715781d5f80f8cf4bf1e6a08b
+prerequisite-patch-id: a849dd80a34f254ff5e245a270b5fb89aabd5ab2
+prerequisite-patch-id: 2e6138bf6f9f7fd87b9aebdda404ff356749fe35
+prerequisite-patch-id: a5f7f37e8bf93d766dc7592ee0d96444ace4e9f2
+prerequisite-patch-id: 3be94c282bcda65d83f52f83ea8051adeb5f42ce
+prerequisite-patch-id: dcb4ffc40be872a069903b54305d4e004b5a1dab
+prerequisite-patch-id: bc8a5957a8b568d979336c2c1fd0604727b56fac
+prerequisite-patch-id: 4533503e2bb1891bb95766dd3829cb76ba01890b
+prerequisite-patch-id: 5cb24785b279c3fb0f16967a926604d2a8135473
+prerequisite-patch-id: 97d3a4a3719304c10103fb2a74b852af3f5a954b
+prerequisite-patch-id: 5314135499454326c936a70d1d52aabe86a4d65b
+prerequisite-patch-id: a81d937fb4c73a6e4c5822e9f1efb013a15cc84d
+prerequisite-patch-id: 6dd7c07ecfdaaab9909ed54f31e5331e2fbb5632
+prerequisite-patch-id: f20da0a17505221cfefad614c7c58ba8350b9713
+prerequisite-patch-id: fbc3015a5e928e5fb0e466bd35c66c0e56fa54f8
+prerequisite-patch-id: 1aa022ce964908a7845b07777147c85d7cb3781a
+prerequisite-patch-id: 61c71944e64126badac59f41dd0e4ee25e6bb3be
+prerequisite-patch-id: 9e2e7fccfc40eeb2487431908e22eee8ea9bd3e7
+prerequisite-patch-id: cb93e09cb340c419c85c4bb23f20a73f35d461ab
+prerequisite-patch-id: 1fd1775cb9859418876d90aa230c0222e872af45
+prerequisite-patch-id: 949301e5400c53f4b5e0d572a08c60aef414d09a
+prerequisite-patch-id: 1f1da242665eecfcf1a1969dc28f82788946bd79
+prerequisite-patch-id: 96c4d71df181169c31b6c328e16fed8eb33c3e4d
+prerequisite-patch-id: 3815477ff41784395a5aa1b8fbd64397c5e13db9
+prerequisite-patch-id: 586625307523c9ce82318b6b9f096e10cc809ed9
+prerequisite-patch-id: c1e6c26ca7227fee26eef3d1420d8e3bbd32d705
+prerequisite-patch-id: ccbacc051df8ef027b09c683c069bd4d9ed16aaa
+prerequisite-patch-id: 2f133a7adca9b0841ea4b4f0a9a6731f33a9ff60
+prerequisite-patch-id: 4eb1309d80b3b9cc81498baed3747d7e25d91170
+prerequisite-patch-id: 8f1a2778d6d8378cdcea42458f6d5a455fb6c94f
+prerequisite-patch-id: 5b0d64a020b2eae9c53b1bc6e006efc285b44c37
+prerequisite-patch-id: 27ca5bec3b22d42e41707ab1d422691af6fb803a
+prerequisite-patch-id: 0af4de7fa3bfc2deb8eaf9de6b933ce5e5f82ec8
+prerequisite-patch-id: 6dd1367d6e111b35b58caddf47397acfbe4f8d4c
+prerequisite-patch-id: 325724f9e9c3562012b73596b758607a9679369a
+prerequisite-patch-id: 78ef3d95703e2abf3684bda54f330c35df9384e0
+prerequisite-patch-id: e2222682d9500a42f9e67f984b80951fb245c52d
+prerequisite-patch-id: 6a43968a9e59c576ddc82149499afc02832db149
+prerequisite-patch-id: 887b2880bb10a5aafe6173841d05c14153e52641
+prerequisite-patch-id: 3d32054dec68ec87bdfdaf2d0cdd552b0be7aade
+prerequisite-patch-id: 619195b9ba3e1349ab9bcb601b83a3d8310cfb47
+prerequisite-patch-id: 0923f0c66750c88444735e8b580d111fb6ed32b3
+prerequisite-patch-id: 9095671b368e7a06d9fff56f8d198f88665146d8
+prerequisite-patch-id: 61295fcf2d0f18f45c436d90d68c32f7fb6bd942
+prerequisite-patch-id: 66321c16cc67d4f3e7b50570c4719a7e8b148a2b
+prerequisite-patch-id: d7e27e737a75632def5c6ddac08a582c19720e97
+prerequisite-patch-id: bb5c2df6bdcfd1f4fb7e134ac345a72aae9bc01f
+prerequisite-patch-id: 8d375681fe362e7968836958188463a9957db3d1
+prerequisite-patch-id: a45226bcc64024c8941c886fb083d23797f2e51b
+prerequisite-patch-id: 1e4a4c209c618e8f1417e8e3569c80126e2e07ff
+prerequisite-patch-id: 6730f6319d506d548efe6c4dd56bb7da210b244b
+prerequisite-patch-id: c7ff9620f2cb4232cddd9c096d72f23de2e2ddf6
+prerequisite-patch-id: 5ec05c48b9cb230c6a2757a0cc757556c10be5b4
+prerequisite-patch-id: 934bf564459610ac12bbcdfe4d847edbae26f8b1
+prerequisite-patch-id: d8add0277d7e6a232517970ff6e4176c7a67689d
+prerequisite-patch-id: 5ccfd4a89ccf8980f3bb76822fd6f41316367a6c
+prerequisite-patch-id: 5421c5e26609f14cb6f7e9d60594d21bbe81f802
+prerequisite-patch-id: c7f8db2f120e113e4c5ec0d910325b865694066d
+prerequisite-patch-id: e3ce0e47ddd08fa5a42ad6ae316bf1ed3e3d7714
+prerequisite-patch-id: e293dcb7b84892ed04c8182cb44761a2e7d934f5
+prerequisite-patch-id: b575f9f0273add0b41a283c6c96a4fcf8da9640d
+prerequisite-patch-id: 9c360e24cfab71bf7105b3e9885b61cd6cd8bf77
+prerequisite-patch-id: fba4e183b4d099244b08616a4e10bddcab404bf8
+prerequisite-patch-id: 788b10962efcf0f5e62fa8a4fcea239b3902810e
+prerequisite-patch-id: 0a20f1b5d8712886f579a548bda6616d163763a9
+prerequisite-patch-id: efb6fe7d86db63fc5563764817963206b9613d50
+prerequisite-patch-id: 0d4cfb31d22a39664782e8fdca19aa8736ac299d
+prerequisite-patch-id: e01791dc12e64401b72ef448fb9788a61bc0366e
+prerequisite-patch-id: 6c964543f9301dfdd784a7a4fa81191b6c0c1ad6
+prerequisite-patch-id: 702a0e36f08b35cc3c51cbb91a83c5a80edb2e45
+prerequisite-patch-id: bdff6c111473b062b462135c298218d8c2582ade
+prerequisite-patch-id: 774bb18b54f2c1f3f322b910535a7315b49863cf
+prerequisite-patch-id: c536becda64cccd577d2a6bbd92f2f5595a99a36
+prerequisite-patch-id: 0806e7aa7913d636e50a0c720d3dd7525fd892c9
+prerequisite-patch-id: 80ed1ef1edc2fd516dc735d7a670093590f0cd06
+prerequisite-patch-id: 0fb1b57cef61c6cbae80c3d0aeedd09cc528399e
+prerequisite-patch-id: bd967f0d8d5e25107066150b3b136d4afffeb5a3
+prerequisite-patch-id: a97dc02e3cb5e0c2518dace6cc98c142b0c4fba6
+prerequisite-patch-id: ca6d1e693e60735bff7e62bc52ef6ce49cbc5ac3
+prerequisite-patch-id: de59eaa42fa38e300817d22d153e2a1a3ea8c7b5
+prerequisite-patch-id: 903e13f6083b93e54334ee6f752446a324865fac
+prerequisite-patch-id: ee9f81cbae4ca27d5743aefeda6dfa7797b287d6
+prerequisite-patch-id: 96abb38aea6736c56b770b07e11c6fc545f7f52a
+prerequisite-patch-id: 46e0ddd5f52ee6428efedee721bf2f527caedbc6
+prerequisite-patch-id: 2b6f9f467170921c440a33ea125d5a5eddeb799b
+prerequisite-patch-id: 4408c062471fcaa0483975048f2640278b2a7c30
+prerequisite-patch-id: a60582ac8d73d099b8e4a209cf8005c3cf46a8f3
+prerequisite-patch-id: ec6a8285e36faabee311e65ec0cef980920d1963
+prerequisite-patch-id: 664d8fc97b6d2c965d1b68d3dbc3d106370e02f4
+prerequisite-patch-id: ad577e44d8498d5a5f6964fd1a72aa396e22b94b
+prerequisite-patch-id: 856a803088dcf6e15714ffee48fbd50e5f0109a8
+prerequisite-patch-id: 79073ae1b9ccf87098cb707ecba87946a33104a9
+prerequisite-patch-id: bfaf85d0ff7728bb9a81e44b0440164430cce080
+prerequisite-patch-id: ffd6831c135cdbed835766077bf1ba4e5b9cef34
+prerequisite-patch-id: dbbedf968a9211b83c233ec0f57186f541814b88
+prerequisite-patch-id: 8348dc1fdfe39d459379e6a47a05e5d2e3ba85d0
+prerequisite-patch-id: 985546fa1ef21030efa34b2819208fd097c9fa7e
+prerequisite-patch-id: d8bfe44c5683b3cf649e763ff03b74aa7144ef6f
+prerequisite-patch-id: b2c7afed8f14a93195c9501e2c43fca84e78fdce
+prerequisite-patch-id: 9f922010758577846bb3338ebae595dfdc1f0ffe
+prerequisite-patch-id: 2696a5c879b8b4b2d5ffd0546d0c35625dd742e0
+prerequisite-patch-id: 4dce52840aef46513baf161c36649eada32318ee
+prerequisite-patch-id: 2ba3671439abf9b2ab436aaecf5acb50464647eb
+prerequisite-patch-id: ba30f2fafc6eb26fda9bf54cc76ab50f6f80fa35
+prerequisite-patch-id: b24f4f3d867f6f88f16a1fb498cb3ffe9d4a72e8
+prerequisite-patch-id: d9ad284b682e0ca1f3017444eae4a45ed1ef4b32
+prerequisite-patch-id: 8d1c7cfaba6427e331be213bec28d3305392a9ed
+prerequisite-patch-id: f1d83b22a4a8423ec718ebe4454817e1fb14e893
+prerequisite-patch-id: d94e8869185912efd11116f742b7810ede6a5eb2
+prerequisite-patch-id: f662c57c243261c3243b59ca6dba02e8fe68a44e
+prerequisite-patch-id: 96bfc57207cf8b1aad7c05d05c9968213082fb0a
+prerequisite-patch-id: 2e804928b04aee58d3d72b091dec6cc11987a4a5
+prerequisite-patch-id: a81d9e54b456eb168b449b061e2605895f3082dd
+prerequisite-patch-id: 5a3ecedf090fdc95f80d7ec6c6bf9f515df9c7c3
+prerequisite-patch-id: e5b619ba58f8ad7af9aa5762133a721776343498
+prerequisite-patch-id: 90d242897a3777f5dd9e602c3d1e96e026dff5e0
+prerequisite-patch-id: 971f53716e3b944e101941a6d97e3a9153d6889c
+prerequisite-patch-id: a56f3b69c09440ea587d7a6679bde44313e097b2
+prerequisite-patch-id: 94d7a14c2c228a04dd396bfbfcd89fbbbc74d80c
+prerequisite-patch-id: 3361b6af85ee62111988a8c0106b5dfc157c62f4
+prerequisite-patch-id: 279212bb58e20a7ff56d310bb9a1802d8a38e98d
+prerequisite-patch-id: d27104b7beaa506c8e9c692c93aa27963ad6b884
+prerequisite-patch-id: 0c83504ea44c13112b2cca57f4707b45e09250bf
+prerequisite-patch-id: 08568f2c2da89968861508cf851848b245916a00
+prerequisite-patch-id: 978920727f5b116299a5d11f8e4faabcbdf734cb
+prerequisite-patch-id: b73d2f8800ba50b138e8b0a28a32fc44a6cb3d73
+prerequisite-patch-id: 003de550eb1e6043d192df357222ff10ee18edef
+prerequisite-patch-id: 81422fe5852249f6c5892b1155483504aaf1dffc
+prerequisite-patch-id: 8882bfbbe0ebd31ba2728e124fe114064befda99
+prerequisite-patch-id: 190a304b540120a520c724ee05929dd8bf43a429
+prerequisite-patch-id: 1203dbd5ddb60a240bb0fed2ce8d504231981640
+prerequisite-patch-id: d1763da3dafcd71bb0e6370026451e1ceb275bab
+prerequisite-patch-id: db622f268b5b052e42ea170df8f4475e31b3e9cc
+prerequisite-patch-id: 1890240ebaaf5fb00b7ad8a7ee55b80b2a0d6e48
+prerequisite-patch-id: 4c9b54637d70a7d1414f49bbffdf149a42950c14
+prerequisite-patch-id: b541142cff7cac362c88e7b3f4f379a37c832284
+prerequisite-patch-id: 3692a700600fd6336c39bb6f4d8939fce6ba5904
+prerequisite-patch-id: 15585b181989bfc2c6f9751fe0df1e0aa6aea92a
+prerequisite-patch-id: 9212476601a552c6464e007636d6ae9bcdaba3eb
+prerequisite-patch-id: 8b5c3923279de95d585a06a684881273917bb752
+prerequisite-patch-id: a1f1518462a0a69990d76b0c63f24363c7f324ec
+prerequisite-patch-id: eed6cbf74f5cb03d812af2f0904a7341e17dc7b5
+prerequisite-patch-id: 80ce9c9cc7f5ca76e7f82cb00a8062d9d3309a17
+prerequisite-patch-id: 49e7f03f37db902e2ef42c24c8db14d9eb52b65c
+prerequisite-patch-id: 6e83be9d1b4b91371c6e45086a5a2eb964b1c27a
+prerequisite-patch-id: 6210521d1b9f3ee50631f0ddc7278c1e4bfa6076
+prerequisite-patch-id: aa71747da56e15b9d66418eaf61cfae227615b50
+prerequisite-patch-id: f9bca31ed70ce40a313ad740e10a88cc74ed7b76
+prerequisite-patch-id: fe80c9d4202098f592970d7561b41691c1838574
+prerequisite-patch-id: df5340fb2025b805336d87a675a8c1044220b122
+prerequisite-patch-id: 85942bfe02f4c63407327139ef1d0949d9920f70
+prerequisite-patch-id: 47ab21ac029eb42d84c152e459e7536de4226a7e
+prerequisite-patch-id: 94ec3e286905271c5ead7e6072a1f9dbdd3f7c0d
+prerequisite-patch-id: fdac2a5b6df90b5858bd5b87374e4a55de7afa1d
+prerequisite-patch-id: d8c1a1f90c8a482f997562a9bba513f869d7d659
+prerequisite-patch-id: 1d509bd4659dfb687db8ed70ff8d2876d21a80a4
+prerequisite-patch-id: 82645786e84c504c525a4e21f875703c81eaf521
+prerequisite-patch-id: f2de94798c496d78e2df2a3a30b2fc8edcb2b3f6
+prerequisite-patch-id: bf8d6cda11e9f3c202fecf824ae0cefa788a3fdb
+prerequisite-patch-id: 958c236bee833a5f817b95c8749f502f8fe765ed
+prerequisite-patch-id: bc78cd9401e489ea2331a0be80cefcb4a6378a99
+prerequisite-patch-id: 5eac3b09b1473f93a3414a0e886de6e35f54bb27
+prerequisite-patch-id: eeebb5bebbaf82b6eab600635feebd557b130310
+prerequisite-patch-id: 7fb11256c63419b5c74f2890770f15a0b8dddc16
+prerequisite-patch-id: f327a10b697c7eacbee67fdf140db3df229219cb
+prerequisite-patch-id: 335c02174cf93ee5c44bcf0c2e0b23dc5d67d8c9
+prerequisite-patch-id: 819530c28b0d840d2241b432da4219537c083863
+prerequisite-patch-id: 450382c7c78234bbd586d5d8d845d29e265bfa42
+prerequisite-patch-id: 266a0247a9655451f2f275b96604b6383319ecb1
+prerequisite-patch-id: 07832d937fdb0e51098cc8c7b927bbd889df7bc6
+prerequisite-patch-id: 831cce21bb33ef9191582eee9ea34679c0d9cc93
+prerequisite-patch-id: 1e563e5108fefccc2d70ed7cb109ba8012b7859e
+prerequisite-patch-id: 6b81ba2be1289bc3a17a44192707b02f20f556a3
+prerequisite-patch-id: 9957b3ed1bb86d7b5a119bd919674961e98d4db5
+prerequisite-patch-id: af1b04618fcf646c7bd0d19f3aee1fa1ac609040
+prerequisite-patch-id: e8028452b287da2181d1d16e69f3acb30fa9ad09
+prerequisite-patch-id: 78078744a357aec6f464b81b3e2f1540471bc04e
+prerequisite-patch-id: 3fa484801a494d59ec066534230277483200cc1b
+prerequisite-patch-id: ed7e3a320c188f76c0071d821049602ba27e2a13
+prerequisite-patch-id: 212600a7b88fc2c82ae13a83a778b67d5da9d7c6
+prerequisite-patch-id: 7af62a741c4ed878ad1530b5e9e6eb9ebc1e84fe
+prerequisite-patch-id: f11299b2753f31ec4ce21c2b0df816933ddcf4b2
+prerequisite-patch-id: 35955c75bd19aa7ff3fbe3953d02d9399e29b71a
+prerequisite-patch-id: 957685fe551923179929dccbbca7cd3f0d2c0771
+prerequisite-patch-id: e7afcb02c8a7f6fa16b5746b3d82b8ef61fca351
+prerequisite-patch-id: 3921a158f8ee2b3b625a161fc5a0555db35f98c7
+prerequisite-patch-id: 36e5cb221d1deca93af68300c628dac8ca3e7f92
+prerequisite-patch-id: b1f6d4a48c39681b15ff1c7c443dfc20413661fd
+prerequisite-patch-id: 9ef488ba2bd66d4cdefb0c6d1081507cd3efd571
+prerequisite-patch-id: 8a0ea6bf21dea19f2743ed94947014067fc7ac32
+prerequisite-patch-id: 79ae2f956eca74e3d1190a8e9dc7a2fe771903f9
+prerequisite-patch-id: 766fe1ad2dc4e62f7b941e2059cbb5ee73ce9f6c
+prerequisite-patch-id: 482259b6287368f51adda3a66044faa5f1870fa6
+prerequisite-patch-id: 8be6a740d034c240c04c404c63db25765dfe1b40
+prerequisite-patch-id: 27dd0b0f3f039232e466a81254f9add1fb77f020
+prerequisite-patch-id: 623ea6f904265bfe72838607b2ff3c3b2844f58b
+prerequisite-patch-id: 1dbb84dfefc64aa782e57c60a50a22cb6eb701b4
+prerequisite-patch-id: 54670572e4defe672c0cd9285af50f58ec72c417
+prerequisite-patch-id: a93bc1c220bce052a39885ffc2c8cd07664e55ff
+prerequisite-patch-id: a1c4a9e42e455eab2c8c4993a3a5c809475e0519
+prerequisite-patch-id: 32540eaaab6e051ae6e845ad44b2d89d8686eee2
+prerequisite-patch-id: 99e48edb11e1d6e1c9e16b2c34f6923dd86854c9
+prerequisite-patch-id: fc7434a9384a8e78a1bccda64bca975b442eef54
+prerequisite-patch-id: f99dd0060b81d3beba3e7a7ef06118097883bd38
+prerequisite-patch-id: e46b2006d0e7533e67b39978daaf26c8b8204f91
+prerequisite-patch-id: 6ebe6b02fc008349bf94c5a67816ccdaed2aecfe
+prerequisite-patch-id: fc128b1b8c76cb8ec1ca91ed5ed13e3b17670b0f
+prerequisite-patch-id: d9e35f352fe3b1224d070550b4b1806aefecb3bd
+prerequisite-patch-id: fb334d9fd2009dd0656f5e68d7949b50591d6010
+prerequisite-patch-id: 3086e467e95300dc08046d55a091cd0cd861cca2
+prerequisite-patch-id: cdc841d5debaafe1b5da3c06588999f33ffa1b71
+prerequisite-patch-id: 712d8450dffdb66ad90c32278b0988520e2c62e3
+prerequisite-patch-id: e89b31640a8bf20054082e1dc641910817acd7a2
+prerequisite-patch-id: 3ce498c98f52babebbfb962f09ff8cd9d006e7c8
+prerequisite-patch-id: 57507b81a51a227d5ff394f0986f132d2da2d0c1
+prerequisite-patch-id: 3262b26aeb0a241b8a5b83fe35ea0760cfdbc306
+prerequisite-patch-id: 39fa32fe6685caf5dd1527e3c71808c5f43e20fa
+prerequisite-patch-id: 03b61889f6c27b73675fdc1ffe1bfe3847dc63e6
+prerequisite-patch-id: 590a7d204e487071ad973ebcf36f4bffd7e80e40
+prerequisite-patch-id: b3985b956c4b908c6e0f2592f6132f3d135ad505
+prerequisite-patch-id: f87285e5030d1d2c86862a3dff1556fa63817edd
+prerequisite-patch-id: 290d2f108b43573a04c1af0bedc7fe081264d984
+prerequisite-patch-id: 3435545d559437d1771852cc51c7da683f8c8d5b
+prerequisite-patch-id: 72e213b29690ba6d998a756e22cf3aeecffb3393
+prerequisite-patch-id: 98ca7a37656ae9101a1ec0d82d3d8797d3906f57
+prerequisite-patch-id: c3334235d59182e697cf3766a6ef3f62940fc002
+prerequisite-patch-id: 4e2b53fc0a43cd518fdb23c22c79ea92e06b7f6a
+prerequisite-patch-id: c311fad2f634ac749ff5bacc89ad8c88ed6cac1b
+prerequisite-patch-id: 5a4e72fbf7b32993b1ae7033f25e868d2027ab52
+prerequisite-patch-id: 7db80e46a90f19c61a7569288a8cb4d0ffceb40c
+prerequisite-patch-id: 69ce2a39a9825659e0a5d1c2fcd04a9653098bce
+prerequisite-patch-id: 921d776a73333288d316835e74f6b9260080422f
+prerequisite-patch-id: 83a3f0a65770fd531bd4a7db059a1b71c839d0a0
+prerequisite-patch-id: 99040c79c41e206d91809160dd397a2c69a823bf
+prerequisite-patch-id: fee9db218f8c94e89b5cf12b16339e504937059a
+prerequisite-patch-id: 53a3f0f15991cd5f8374018e2e4a5c8e6e8a4171
+prerequisite-patch-id: fdfc4b8aa4d1ce04bec2ef9513a9821dbe6664e3
+prerequisite-patch-id: e17163887157f8ad2150a2afa842b6b52c544eea
+prerequisite-patch-id: b7cf5406d6386a74f9e38e5e49ac312893d0f64b
+prerequisite-patch-id: 50bab72299a445555b82b128e146ad627c408447
+prerequisite-patch-id: d340405692e40fedc2f0e924de43d48988c13c8d
+prerequisite-patch-id: ab6a34818cfdf88ce2e7a8b69ab18818a947ab09
+prerequisite-patch-id: 3f8a8ecd9438d5fac9c341a115faea1774cddbb3
+prerequisite-patch-id: d5f02e528a9c49427ef708354c48dbf6d5b3145a
+prerequisite-patch-id: ef69c440f971e041171ddfe3dd70489f988a433f
+prerequisite-patch-id: f8cf188fe97396e97bcda73283c3ab0e484cca61
+prerequisite-patch-id: f315ec54797afa443131ef980d03b2a10f81748f
+prerequisite-patch-id: 7f925c7d54d1a6940dbaffd73ed87824b018a264
+prerequisite-patch-id: 8ad439ebfe9808732a1924e849ecb0f50ec21177
+prerequisite-patch-id: d898ceeb30842547364dc0143b3730e48d0bedba
+prerequisite-patch-id: 1402491d2f7a83bf3e1c36124ae16fd332ac7101
+prerequisite-patch-id: a8b58721dfc04bd6cc5894e5cbc4eac5b3bac9fc
+prerequisite-patch-id: de01d8f4e9cc2a13689307ec402baa35145d3de9
+prerequisite-patch-id: 1d31fc0dea5bafee3f66bf2fbb66664b5db619f5
+prerequisite-patch-id: 6baa7cedf43596d4298904ff5eede69fea8207f3
+prerequisite-patch-id: a83673e8c03befc5e41b49993133653b584740c2
+prerequisite-patch-id: af3c0f52686a2c0733dae07acca8801deaa1b441
+prerequisite-patch-id: 340f568cbeb832989206ed67325cda77e1ef030a
+prerequisite-patch-id: fa27da782f81d4b393af306e6f58c5ffbef4e630
+prerequisite-patch-id: c18f634dbf62ef4b83cff5dfb80875eae3a8fab6
+prerequisite-patch-id: b7e546a0b88008535f94930374b56e4af1dfb017
+prerequisite-patch-id: 294ba2336158933c0840fe687d797ca68a8a642c
+prerequisite-patch-id: f2f1562e66b9e3f2878bb1ba146de00f67507109
+prerequisite-patch-id: f5375b2244c914b98300c35714ac233e192c2a1a
+prerequisite-patch-id: 3fa4c76bb0ebaaa404c30e031d466e938f50e9db
+prerequisite-patch-id: 9d3451931394eff8a5e1eb7c0e8747cd0d3eefd6
+prerequisite-patch-id: e322c586933c1d32baad13f2d0831a580cec6a8c
+prerequisite-patch-id: 7dc341a1841c75e8e54caccb19ddc6a9a97d118e
+prerequisite-patch-id: 45c3976951ec606b5f9ed9279d82ad23b5419c9a
+prerequisite-patch-id: 1a27fd4ee9e5ecdf06318052046dc7f35a0ca06b
+prerequisite-patch-id: 55c0f352bcbc4a288e02b10cd2632cc281b9a931
+prerequisite-patch-id: 44088ca36dd0a83d9c32768dadb733b01387628a
+prerequisite-patch-id: 69204b0260e86d8791169f24c56ea274212826c2
+prerequisite-patch-id: 6ff81828d20bddace7ae43eb6e40fbb88ddc45ab
+prerequisite-patch-id: f15d5bebb259b958e0137040c1cab2e235861f15
+prerequisite-patch-id: 9d267d40c057cda76067ab545e76c4e689ec24e2
+prerequisite-patch-id: 06853920bf55c63df4cc71cd854ac6131f13e7f2
+-- 
+2.51.2
+
