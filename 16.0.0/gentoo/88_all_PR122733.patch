@@ -1,0 +1,198 @@
+From 48b2a124ed29231125fa2d048bf48f3ca5f4ebbf Mon Sep 17 00:00:00 2001
+Message-ID: <48b2a124ed29231125fa2d048bf48f3ca5f4ebbf.1763465020.git.sam@gentoo.org>
+From: Dhruv Chawla <dhruvc@nvidia.com>
+Date: Tue, 18 Nov 2025 14:48:38 +0530
+Subject: [PATCH] PR tree-optimization/122733: Fix overflowing unsigned shift
+ for (y << x) {<,<=,>,>=} x
+
+The patch previously committed as r16-5161-gc4ca512358be7c would
+miscompile the cases where the LHS was unsigned and overflowed, as the
+comparison would then give a different result. For example:
+
+__attribute__ ((noipa)) bool
+lshift_lt(unsigned x, unsigned y)
+{
+  if (y <= 0)
+    __builtin_unreachable ();
+  return (y << x) < x;
+}
+
+int main()
+{
+  if (!lshift_lt(1, 0x80000000))
+    __builtin_abort();
+}
+
+Here 0x80000000 << 1 evaluates to 0 which is < 1 hence the comparison
+evaluates to true. However this currently gets optimized to false, and
+similar cases are there for the other operators as well. Therefore this
+is only valid to do in the cases where overflow is undefined.
+
+Bootstrapped and regtested on aarch64-linux-gnu.
+
+Signed-off-by: Dhruv Chawla <dhruvc@nvidia.com>
+
+	PR tree-optimization/122733
+
+gcc/ChangeLog:
+
+	* match.pd: Add TYPE_OVERFLOW_UNDEFINED check to patterns. Also
+	replace build_one_cst/build_zero_cst with
+	constant_boolean_node.
+
+gcc/testsuite/ChangeLog:
+
+* gcc.dg/match-shift-cmp-1.c: Update counts to match changes.
+	* gcc.dg/match-shift-cmp-4.c: Likewise.
+	* gcc.dg/match-shift-cmp-5.c: New test.
+---
+ gcc/match.pd                             | 18 ++++----
+ gcc/testsuite/gcc.dg/match-shift-cmp-1.c |  3 +-
+ gcc/testsuite/gcc.dg/match-shift-cmp-4.c |  7 +++-
+ gcc/testsuite/gcc.dg/match-shift-cmp-5.c | 53 ++++++++++++++++++++++++
+ 4 files changed, 70 insertions(+), 11 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.dg/match-shift-cmp-5.c
+
+diff --git a/gcc/match.pd b/gcc/match.pd
+index 63d56b081925..1f5c7a34613a 100644
+--- a/gcc/match.pd
++++ b/gcc/match.pd
+@@ -1339,37 +1339,39 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
+     (if (INTEGRAL_TYPE_P (type))
+       (rshift (op @0 @2) @1))))
+ 
+-/* (y << x) == x -> 0 when y != 0.  */
++/* (y << x) == x -> false when y != 0.  */
+ (simplify
+   (eq:c (nop_convert1? (lshift @0 @1)) (nop_convert2? @1))
+   (if (INTEGRAL_TYPE_P (TREE_TYPE (@1))
+        && tree_expr_nonzero_p (@0))
+-   { build_zero_cst (type); }))
++   { constant_boolean_node (false, type); }))
+ 
+-/* (y << x) {<,<=} x -> 0 when y > 0.  */
++/* (y << x) {<,<=} x -> false when y > 0 (unless y wraps around).  */
+ (for cmp (lt le)
+   (simplify
+     (cmp:c (nop_convert1? (lshift @0 @1)) (nop_convert2? @1))
+     (if (INTEGRAL_TYPE_P (TREE_TYPE (@1))
++	 && TYPE_OVERFLOW_UNDEFINED (TREE_TYPE (@1))
+ 	 && tree_expr_nonzero_p (@0)
+ 	 && tree_expr_nonnegative_p (@0))
+-     { build_zero_cst (type); })))
++     { constant_boolean_node (false, type); })))
+ 
+-/* (y << x) != x -> 1 when y != 0.  */
++/* (y << x) != x -> true when y != 0.  */
+ (simplify
+   (ne:c (nop_convert1? (lshift @0 @1)) (nop_convert2? @1))
+   (if (INTEGRAL_TYPE_P (TREE_TYPE (@1))
+        && tree_expr_nonzero_p (@0))
+-   { build_one_cst (type); }))
++   { constant_boolean_node (true, type); }))
+ 
+-/* (y << x) {>,>=} x -> 1 when y > 0.  */
++/* (y << x) {>,>=} x -> true when y > 0 (unless y wraps around).  */
+ (for cmp (gt ge)
+   (simplify
+     (cmp:c (nop_convert1? (lshift @0 @1)) (nop_convert2? @1))
+     (if (INTEGRAL_TYPE_P (TREE_TYPE (@1))
++	 && TYPE_OVERFLOW_UNDEFINED (TREE_TYPE (@1))
+ 	 && tree_expr_nonzero_p (@0)
+ 	 && tree_expr_nonnegative_p (@0))
+-     { build_one_cst (type); })))
++     { constant_boolean_node (true, type); })))
+ 
+ /* Fold (1 << (C - x)) where C = precision(type) - 1
+    into ((1 << C) >> x). */
+diff --git a/gcc/testsuite/gcc.dg/match-shift-cmp-1.c b/gcc/testsuite/gcc.dg/match-shift-cmp-1.c
+index b22d57d370f1..6439c5255d85 100644
+--- a/gcc/testsuite/gcc.dg/match-shift-cmp-1.c
++++ b/gcc/testsuite/gcc.dg/match-shift-cmp-1.c
+@@ -46,5 +46,6 @@ TEST_OP (gt, >)
+ TEST_OP (le, <=)
+ TEST_OP (ge, >=)
+ 
++/* The unsigned cases for lt, le, gt and ge are not optimized.  */
+ /* FIXME: The lt, le, gt and ge cases for int and enum don't get optimized.  */
+-/* { dg-final { scan-tree-dump-times "<<" 8 optimized } } */
++/* { dg-final { scan-tree-dump-times "<<" 16 optimized } } */
+diff --git a/gcc/testsuite/gcc.dg/match-shift-cmp-4.c b/gcc/testsuite/gcc.dg/match-shift-cmp-4.c
+index 629e2a376d11..7eddd80f8b59 100644
+--- a/gcc/testsuite/gcc.dg/match-shift-cmp-4.c
++++ b/gcc/testsuite/gcc.dg/match-shift-cmp-4.c
+@@ -47,5 +47,8 @@ TEST_OP (gt, >)
+ TEST_OP (le, <=)
+ TEST_OP (ge, >=)
+ 
+-/* { dg-final { scan-tree-dump-times "return 0;" 18 optimized } } */
+-/* { dg-final { scan-tree-dump-times "return 1;" 18 optimized } } */
++/* { dg-final { scan-tree-dump-times "return 0;" 14 optimized } } */
++/* { dg-final { scan-tree-dump-times "return 1;" 14 optimized } } */
++
++/* The unsigned cases for lt, le, gt and ge are not optimized.  */
++/* { dg-final { scan-tree-dump-times "<<" 8 optimized } } */
+diff --git a/gcc/testsuite/gcc.dg/match-shift-cmp-5.c b/gcc/testsuite/gcc.dg/match-shift-cmp-5.c
+new file mode 100644
+index 000000000000..4e3f8722ad3d
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/match-shift-cmp-5.c
+@@ -0,0 +1,53 @@
++/* { dg-do run } */
++/* { dg-options "-O2 -fdump-tree-optimized" } */
++
++/* PR tree-optimization/122733 */
++
++__attribute__ ((noipa)) bool
++lshift_lt(unsigned x, unsigned y)
++{
++  if (y <= 0)
++    __builtin_unreachable ();
++  return (y << x) < x;
++}
++
++__attribute__ ((noipa)) bool
++lshift_le(unsigned x, unsigned y)
++{
++  if (y <= 0)
++    __builtin_unreachable ();
++  return (y << x) <= x;
++}
++
++__attribute__ ((noipa)) bool
++lshift_gt(unsigned x, unsigned y)
++{
++  if (y <= 0)
++    __builtin_unreachable ();
++  return (y << x) > x;
++}
++
++__attribute__ ((noipa)) bool
++lshift_ge(unsigned x, unsigned y)
++{
++  if (y <= 0)
++    __builtin_unreachable ();
++  return (y << x) >= x;
++}
++
++int main()
++{
++  if (!lshift_lt(1, 0x80000000))
++    __builtin_abort();
++
++  if (!lshift_le(1, 0x80000000))
++    __builtin_abort();
++
++  if (lshift_gt(1, 0x80000000))
++    __builtin_abort();
++
++   if (lshift_ge(1, 0x80000000))
++    __builtin_abort();
++}
++
++/* { dg-final { scan-tree-dump-times "<<" 4 optimized } } */
+
+base-commit: ac45382d0c06bc1a90ce74e0379e52496ab3bffe
+-- 
+2.51.2
+
