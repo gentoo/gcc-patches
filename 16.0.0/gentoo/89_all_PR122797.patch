@@ -1,0 +1,142 @@
+https://inbox.sourceware.org/gcc-patches/DEGTOCLA2R27.2VKXLSCFVK2GF@gmail.com/
+
+From 69c2378a02ec890bf3d2d4bddf75f00efdd77b07 Mon Sep 17 00:00:00 2001
+Message-ID: <69c2378a02ec890bf3d2d4bddf75f00efdd77b07.1764006998.git.sam@gentoo.org>
+From: Robin Dapp <rdapp.gcc@gmail.com>
+Date: Mon, 24 Nov 2025 10:37:27 +0100
+Subject: [PATCH] vect: Use start value in vect_load_perm_consecutive_p
+ [PR122797].
+
+Hi,
+
+vect_load_perm_consecutive_p is used in a spot where we want to check
+that a permutation is consecutive and starting with 0.  Originally I
+wanted to add this way of checking to the function but what I ended
+up with is checking whether the given permutation is consecutive
+starting from a certain index.  Thus, we will return true for
+e.g. {1, 2, 3} which doesn't make sense in the context of the PR.
+This patch corrects it.
+
+As discussed in Bugzilla I just used -O3 for the test case.  According
+to Sam that's enough to trigger the miscompile.
+
+Bootstrapped and regtested on x86 and power10.  Regtested on aarch64 and
+riscv64.
+
+Regards
+ Robin
+
+	PR tree-optimization/122797
+
+gcc/ChangeLog:
+
+	* tree-vect-slp.cc (vect_load_perm_consecutive_p): Check
+	permutation start at element 0 with value instead of starting
+	at a given element.
+	(vect_optimize_slp_pass::remove_redundant_permutations):
+	Use start value of 0.
+	* tree-vectorizer.h (vect_load_perm_consecutive_p): Set default
+	value to to UINT_MAX.
+
+gcc/testsuite/ChangeLog:
+
+* gcc.dg/vect/pr122797.c: New test.
+---
+ gcc/testsuite/gcc.dg/vect/pr122797.c | 27 +++++++++++++++++++++++++++
+ gcc/tree-vect-slp.cc                 | 16 +++++++++-------
+ gcc/tree-vectorizer.h                |  2 +-
+ 3 files changed, 37 insertions(+), 8 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.dg/vect/pr122797.c
+
+diff --git a/gcc/testsuite/gcc.dg/vect/pr122797.c b/gcc/testsuite/gcc.dg/vect/pr122797.c
+new file mode 100644
+index 000000000000..11819ef69e7e
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/vect/pr122797.c
+@@ -0,0 +1,27 @@
++/* { dg-do run } */
++/* { dg-additional-options "-O3" } */
++
++int src_stride = 0;
++int dst_stride = 0;
++
++int main() {
++    char src[12] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
++    char dst[16];
++    char *s = src;
++    char *d = dst;
++    for (int i = 0; i < 2; i++) {
++	d[0] = s[0] + s[1] + s[2] + s[3] + s[4];
++	d[1] = s[1] + s[2] + s[3] + s[4] + s[5];
++	d[2] = s[2] + s[3] + s[4] + s[5] + s[6];
++	d[3] = s[3] + s[4] + s[5] + s[6] + s[7];
++	d[4] = s[4] + s[5] + s[6] + s[7] + s[8];
++	d[5] = s[5] + s[6] + s[7] + s[8] + s[9];
++	d[6] = s[6] + s[7] + s[8] + s[9] + s[10];
++	d[7] = s[7] + s[8] + s[9] + s[10] + s[11];
++	s += src_stride;
++	d += dst_stride;
++    }
++
++    if (d[0] != 15)
++      __builtin_abort ();
++}
+diff --git a/gcc/tree-vect-slp.cc b/gcc/tree-vect-slp.cc
+index 0ab15fde469d..275c08283d13 100644
+--- a/gcc/tree-vect-slp.cc
++++ b/gcc/tree-vect-slp.cc
+@@ -5375,19 +5375,21 @@ vllp_cmp (const void *a_, const void *b_)
+ }
+ 
+ /* Return whether if the load permutation of NODE is consecutive starting
+-   from index START_IDX.  */
++   with value START_VAL in the first element.  */
+ 
+ bool
+-vect_load_perm_consecutive_p (slp_tree node, unsigned start_idx)
++vect_load_perm_consecutive_p (slp_tree node, unsigned start_val)
+ {
+   load_permutation_t perm = SLP_TREE_LOAD_PERMUTATION (node);
+ 
+-  if (!perm.exists () || perm.length () < start_idx)
++  if (!perm.exists () || !perm.length ())
+     return false;
+ 
+-  unsigned int start = perm[start_idx];
+-  for (unsigned int i = start_idx + 1; i < perm.length (); i++)
+-    if (perm[i] != start + (unsigned int)i)
++  if (start_val == UINT_MAX)
++    start_val = perm[0];
++
++  for (unsigned int i = 0; i < perm.length (); i++)
++    if (perm[i] != start_val + (unsigned int) i)
+       return false;
+ 
+   return true;
+@@ -8002,7 +8004,7 @@ vect_optimize_slp_pass::remove_redundant_permutations ()
+       else
+ 	{
+ 	  loop_vec_info loop_vinfo = as_a<loop_vec_info> (m_vinfo);
+-	  bool this_load_permuted = !vect_load_perm_consecutive_p (node);
++	  bool this_load_permuted = !vect_load_perm_consecutive_p (node, 0);
+ 	  /* When this isn't a grouped access we know it's single element
+ 	     and contiguous.  */
+ 	  if (!STMT_VINFO_GROUPED_ACCESS (SLP_TREE_SCALAR_STMTS (node)[0]))
+diff --git a/gcc/tree-vectorizer.h b/gcc/tree-vectorizer.h
+index 55f0bee0eb74..ad36f400418b 100644
+--- a/gcc/tree-vectorizer.h
++++ b/gcc/tree-vectorizer.h
+@@ -2760,7 +2760,7 @@ extern int vect_slp_child_index_for_operand (const gimple *, int op, bool);
+ extern tree prepare_vec_mask (loop_vec_info, tree, tree, tree,
+ 			      gimple_stmt_iterator *);
+ extern tree vect_get_mask_load_else (int, tree);
+-extern bool vect_load_perm_consecutive_p (slp_tree, unsigned = 0);
++extern bool vect_load_perm_consecutive_p (slp_tree, unsigned = UINT_MAX);
+ 
+ /* In tree-vect-patterns.cc.  */
+ extern void
+
+base-commit: f726857ded73f5692280a33be958ce75ffc54b18
+-- 
+2.52.0
+
