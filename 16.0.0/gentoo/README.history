@@ -1,5 +1,6 @@
 25	30 November 2025
 
+	- 31_all_testsuite-fortran-pass-Wcomplain-wrong-lang-where-ap.patch
 	- 88_all_PR122733.patch
 
 24	23 November 2025
