@@ -1,0 +1,12 @@
+https://gcc.gnu.org/bugzilla/show_bug.cgi?id=122456#c28
+--- a/gcc/cgraph.cc
++++ b/gcc/cgraph.cc
+@@ -1528,6 +1528,7 @@ cgraph_edge::resolve_speculation (cgraph_edge *edge, tree callee_decl)
+   ref = e2->speculative_call_target_ref ();
+   edge = edge->speculative_call_indirect_edge ();
+   if (!callee_decl
++      || !symtab_node::get (callee_decl)
+       || !ref->referred->semantically_equivalent_p
+ 	   (symtab_node::get (callee_decl)))
+     {
+
