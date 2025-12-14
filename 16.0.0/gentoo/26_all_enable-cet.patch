@@ -68,7 +68,7 @@ Only supported on amd64.
 +   We use a new option (EXTRA_OPTIONS_CF) here to avoid turning
 +   this on accidentally for other arches. */
 +#if defined(EXTRA_OPTIONS_CF) && !defined(ACCEL_COMPILER)
-+#define DEFAULT_FLAG_CF_SPEC " %{!m16:%{!m32:%{!fcf-protection*:%{!foffload*:%{!fno-cf-protection:-fcf-protection}}}}} -foffload-options=-fcf-protection=none"
++#define DEFAULT_FLAG_CF_SPEC " %{!m16:%{!m32:%{!fcf-protection*:%{!foffload=*:%{!fno-cf-protection:-fcf-protection}}}}} -foffload-options=-fcf-protection=none"
 +#endif
 +#ifndef DEFAULT_FLAG_CF_SPEC
 +#define DEFAULT_FLAG_CF_SPEC ""
