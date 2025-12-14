@@ -1,7 +1,5 @@
 27	????
 
-	U 04_all_nossp-on-nostdlib.patch
-	U 26_all_enable-cet.patch
 	U 86_all_PR122456-pgo-workaround.patch
 
 26	7 December 2025
