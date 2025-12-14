@@ -8,7 +8,7 @@ https://bugs.gentoo.org/484714
  #endif
  
 +#ifdef ENABLE_DEFAULT_SSP
-+#define NO_SSP_SPEC "%{nostdlib|nodefaultlibs|ffreestanding|foffload=*:-fno-stack-protector} -foffload-options=-fno-stack-protector "
++#define NO_SSP_SPEC "%{nostdlib|nodefaultlibs|ffreestanding|foffload*:-fno-stack-protector} -foffload-options=-fno-stack-protector "
 +#else
 +#define NO_SSP_SPEC ""
 +#endif
