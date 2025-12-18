@@ -1,0 +1,191 @@
+From bbc6e76e466d8352d8651eaf30a3c448e2e1e0a2 Mon Sep 17 00:00:00 2001
+Message-ID: <bbc6e76e466d8352d8651eaf30a3c448e2e1e0a2.1766072630.git.sam@gentoo.org>
+From: Victor Do Nascimento <victor.donascimento@arm.com>
+Date: Thu, 18 Dec 2025 14:54:14 +0000
+Subject: [PATCH] vect: Fix dominator update [PR123152]
+
+The `recompute_dominator' function used in the code fragment within
+this patch assumes correctness in the rest of the CFG. Consequently,
+it is wrong to rely upon it before the subsequent updates are made in
+the "Update dominators for multiple exits" loop in the function.
+
+Furthermore, if `loop_exit' == `scalar_exit', the "Update dominators for
+multiple exits" logic will already take care of updating the
+dominator for `scalar_exit->dest', such that the moved statement is
+unnecessary.
+
+gcc/ChangeLog:
+
+	PR tree-optimization/123152
+	* tree-vect-loop-manip.cc
+	(slpeel_tree_duplicate_loop_to_edge_cfg): Correct order of
+	dominator update
+
+gcc/testsuite/ChangeLog:
+
+* gcc.dg/vect/vect-uncounted-prolog-peel_2.c: New.
+	* gcc.dg/vect/vect-uncounted-prolog-peel_3.c: Likewise.
+	* g++.dg/vect/vect-uncounted-prolog-peel_1.cc: Likewise.
+---
+ .../vect/vect-uncounted-prolog-peel_1.cc      | 51 +++++++++++++++++++
+ .../vect/vect-uncounted-prolog-peel_2.c       | 25 +++++++++
+ .../vect/vect-uncounted-prolog-peel_3.c       | 26 ++++++++++
+ gcc/tree-vect-loop-manip.cc                   | 10 ++--
+ 4 files changed, 107 insertions(+), 5 deletions(-)
+ create mode 100644 gcc/testsuite/g++.dg/vect/vect-uncounted-prolog-peel_1.cc
+ create mode 100644 gcc/testsuite/gcc.dg/vect/vect-uncounted-prolog-peel_2.c
+ create mode 100644 gcc/testsuite/gcc.dg/vect/vect-uncounted-prolog-peel_3.c
+
+diff --git a/gcc/testsuite/g++.dg/vect/vect-uncounted-prolog-peel_1.cc b/gcc/testsuite/g++.dg/vect/vect-uncounted-prolog-peel_1.cc
+new file mode 100644
+index 000000000000..07335a23567a
+--- /dev/null
++++ b/gcc/testsuite/g++.dg/vect/vect-uncounted-prolog-peel_1.cc
+@@ -0,0 +1,51 @@
++/* { dg-add-options vect_early_break } */
++/* { dg-do compile } */
++/* { dg-require-effective-target vect_early_break } */
++/* { dg-require-effective-target vect_int } */
++/* { dg-additional-options "-w" } */
++
++namespace a {
++class b {
++public:
++  b d(long);
++};
++class e : public b {};
++typedef short f;
++typedef struct g *h;
++typedef struct g {
++  f c;
++  e *fp;
++  f j, *k, *l;
++} m;
++static h n(m *, unsigned, unsigned *);
++f o(m *, unsigned);
++void p(short *t) {
++  m *ffile;
++  int q;
++  unsigned r;
++  int i;
++  q = t[i];
++  n(ffile, q, &r);
++}
++h n(m *ffile, unsigned q, unsigned *) {
++  h glyph;
++  for (; glyph;)
++    if (glyph->c)
++      o(ffile, q);
++  int i;
++s:
++  for (i = 0; ffile->j; i++)
++    if (ffile->k[i]) {
++      if (q)
++        ffile->fp->d(ffile->l[i]);
++      break;
++    }
++  if (q < 6) {
++    q += 61440;
++    goto s;
++  }
++}
++} // namespace a
++
++/* { dg-final { scan-tree-dump {note:\s*Alignment of access forced using peeling.} "vect" } } */
++/* { dg-final { scan-tree-dump {vectorized 1 loops in function} "vect" } } */
+diff --git a/gcc/testsuite/gcc.dg/vect/vect-uncounted-prolog-peel_2.c b/gcc/testsuite/gcc.dg/vect/vect-uncounted-prolog-peel_2.c
+new file mode 100644
+index 000000000000..a9390c401f08
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/vect/vect-uncounted-prolog-peel_2.c
+@@ -0,0 +1,25 @@
++/* { dg-add-options vect_early_break } */
++/* { dg-do compile } */
++/* { dg-require-effective-target vect_early_break } */
++/* { dg-require-effective-target vect_int } */
++
++char b;
++int c(char *d) {
++  int *a = 0;
++  while (*d) {
++    while (*a)
++      if (*a++ == 1)
++        return 1;
++    d++;
++  }
++}
++void e() {
++  c(&b);
++  char *f = &b;
++  while (f[0])
++    ++b;
++}
++
++/* { dg-final { scan-tree-dump {note:\s*Alignment of access forced using peeling.} "vect" } } */
++/* { dg-final { scan-tree-dump {if \(ivtmp_[0-9_]+ >= prolog_loop_niters.[0-9_]+\)\n\s*goto} "vect" } } */
++/* { dg-final { scan-tree-dump {vectorized 1 loops in function} "vect" } } */
+diff --git a/gcc/testsuite/gcc.dg/vect/vect-uncounted-prolog-peel_3.c b/gcc/testsuite/gcc.dg/vect/vect-uncounted-prolog-peel_3.c
+new file mode 100644
+index 000000000000..4d842ebd9094
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/vect/vect-uncounted-prolog-peel_3.c
+@@ -0,0 +1,26 @@
++/* { dg-add-options vect_early_break } */
++/* { dg-do compile } */
++/* { dg-require-effective-target vect_early_break } */
++/* { dg-require-effective-target vect_int } */
++
++struct {
++  int segments[];
++} seek_to_sample_coarse_f;
++
++int seek_to_sample_coarse_i, seek_to_sample_coarse_f_1;
++
++void seek_to_sample_coarse() {
++  int end_pos = seek_to_sample_coarse_f_1;
++  for (;;) {
++    seek_to_sample_coarse_i = end_pos;
++    for (; end_pos > 0; --end_pos)
++      if (seek_to_sample_coarse_f.segments[end_pos - 1])
++        break;
++    if (end_pos)
++      break;
++  }
++}
++
++/* { dg-final { scan-tree-dump {note:\s*Alignment of access forced using peeling.} "vect" } } */
++/* { dg-final { scan-tree-dump {if \(ivtmp_[0-9_]+ >= prolog_loop_niters.[0-9_]+\)\n\s*goto} "vect" } } */
++/* { dg-final { scan-tree-dump {vectorized 1 loops in function} "vect" } } */
+diff --git a/gcc/tree-vect-loop-manip.cc b/gcc/tree-vect-loop-manip.cc
+index e2ea0426050e..99f69d3376b1 100644
+--- a/gcc/tree-vect-loop-manip.cc
++++ b/gcc/tree-vect-loop-manip.cc
+@@ -1989,11 +1989,6 @@ slpeel_tree_duplicate_loop_to_edge_cfg (class loop *loop, edge loop_exit,
+       flush_pending_stmts (new_exit);
+       set_immediate_dominator (CDI_DOMINATORS, preheader, new_exit->src);
+ 
+-      if (create_main_e)
+-	set_immediate_dominator (CDI_DOMINATORS, scalar_exit->dest,
+-				 recompute_dominator (CDI_DOMINATORS,
+-						      scalar_exit->dest));
+-
+       /* And remove the non-necessary forwarder again.  Keep the other
+          one so we have a proper pre-header for the loop at the exit edge.  */
+       redirect_edge_pred (single_succ_edge (new_preheader),
+@@ -2024,6 +2019,11 @@ slpeel_tree_duplicate_loop_to_edge_cfg (class loop *loop, edge loop_exit,
+ 		}
+ 	    }
+ 	}
++
++      if (create_main_e && (loop_exit != scalar_exit))
++	set_immediate_dominator (CDI_DOMINATORS, scalar_exit->dest,
++				 recompute_dominator (CDI_DOMINATORS,
++						      scalar_exit->dest));
+     }
+ 
+   free (new_bbs);
+
+base-commit: 1c555ba67a34ced2460a065eac05ae2e2693ca4d
+-- 
+2.52.0
+
