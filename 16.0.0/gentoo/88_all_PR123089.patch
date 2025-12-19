@@ -1,0 +1,648 @@
+From 4d8a8d4e44c55f16818f0b44c1372f28dbb8a46c Mon Sep 17 00:00:00 2001
+Message-ID: <4d8a8d4e44c55f16818f0b44c1372f28dbb8a46c.1766185423.git.sam@gentoo.org>
+From: Tamar Christina <tamar.christina@arm.com>
+Date: Fri, 19 Dec 2025 16:15:47 +0000
+Subject: [PATCH] use wider precision type for generating early break scalar IV
+ [PR123089]
+
+In the PR we see that the new scalar IV tricks other passes to think there's an
+overflow to the use of a signed counter:
+
+The loop is known to iterate 8191 times and we have a VF of 8 and it starts
+at 2.
+
+The codegen out of the vectorizer is the same as before, except we now have a
+scalar variable counting the scalar iteration count vs a vector one.
+
+i.e. we have
+
+_45 = _39 + 8;
+
+vs
+
+_46 = _45 + { 16, 16, 16, 16, ... }
+
+we pick a lower VF now since costing allows it to but that's not important.
+
+When we get to cunroll since the value is now scalar, it sees that 8 * 8191
+would overflow a signed short and so it changes the loop bounds to the largest
+possible signed value and then uses this to elide the ivtmp_50 < 8191 as always
+true and so you get an infinite loop:
+
+Analyzing # of iterations of loop 1
+  exit condition [1, + , 1](no_overflow) < 8191
+  bounds on difference of bases: 8190 ... 8190
+  result:
+    # of iterations 8190, bounded by 8190
+Statement (exit)if (ivtmp_50 < 8191)
+ is executed at most 8190 (bounded by 8190) + 1 times in loop 1.
+Induction variable (signed short) 8 + 8 * iteration does not wrap in statement
+_45 = _39 + 8;
+ in loop 1.
+Statement _45 = _39 + 8;
+ is executed at most 4094 (bounded by 4094) + 1 times in loop 1.
+
+The signed type was originally chosen because of the negative offset we use when
+adjusting for peeling for alignments with masks.  However this then introduces
+issues as we see here with signed overflow.  This patch instead determines the
+smallest possible unsigned type for use by the scalar IV where the overflow
+won't happen when we include the extra bit for the sign. i.e. if the scalar IV
+is an unsigned 8 bit value we pick a signed 16-bit type.  But if a signed 8-bit
+value we pick a unsigned 8 bit type.
+
+We use the initial niters value to determine the smallest size possible, to
+prevent certain cases like when the IV in code is a 64-bit to need a TImode
+counter.  I also only require the additional bit when I know we'll be generating
+the SMAX.  I've now moved this to vectorizable_early_exit such that if we do
+end up needing something like TImode that we don't vectorize if the target
+doesn't support it.
+
+I've also added some testcases for masking around the boundary values.  I've
+only added them for char to reduce the runtime of the tests.
+
+Bootstrapped Regtested on aarch64-none-linux-gnu,
+arm-none-linux-gnueabihf, x86_64-pc-linux-gnu
+-m32, -m64 and no issues.
+
+Any final comments? otherwise will push tomorrow.
+
+Thanks,
+Tamar
+
+gcc/ChangeLog:
+
+	PR tree-optimization/123089
+	* tree-vect-loop.cc (vect_update_ivs_after_vectorizer_for_early_breaks):
+	Add conversion if required, Note that if we did truncate the original
+	scalar loop had an overflow here anyway.
+	(vect_get_max_nscalars_per_iter): Expose.
+	* tree-vect-stmts.cc (vect_compute_type_for_early_break_scalar_iv): New.
+	(vectorizable_early_exit): Find smallest type where we won't have UB in
+	the signed IV and store it.
+	* tree-vectorizer.h (LOOP_VINFO_EARLY_BRK_IV_TYPE): New.
+	(class _loop_vec_info): Add early_break_iv_type.
+	(vect_min_prec_for_max_niters): New.
+	* tree-vect-loop-manip.cc (vect_do_peeling): Use it.
+
+gcc/testsuite/ChangeLog:
+
+PR tree-optimization/123089
+	* gcc.dg/vect/vect-early-break_141-pr123089.c: New test.
+	* gcc.target/aarch64/sve/peel_ind_14.c: New test.
+	* gcc.target/aarch64/sve/peel_ind_14_run.c: New test.
+	* gcc.target/aarch64/sve/peel_ind_15.c: New test.
+	* gcc.target/aarch64/sve/peel_ind_15_run.c: New test.
+	* gcc.target/aarch64/sve/peel_ind_16.c: New test.
+	* gcc.target/aarch64/sve/peel_ind_16_run.c: New test.
+	* gcc.target/aarch64/sve/peel_ind_17.c: New test.
+	* gcc.target/aarch64/sve/peel_ind_17_run.c: New test.
+---
+ .../vect/vect-early-break_141-pr123089.c      | 40 ++++++++++++
+ .../gcc.target/aarch64/sve/peel_ind_14.c      | 24 +++++++
+ .../gcc.target/aarch64/sve/peel_ind_14_run.c  | 42 ++++++++++++
+ .../gcc.target/aarch64/sve/peel_ind_15.c      | 24 +++++++
+ .../gcc.target/aarch64/sve/peel_ind_15_run.c  | 42 ++++++++++++
+ .../gcc.target/aarch64/sve/peel_ind_16.c      | 24 +++++++
+ .../gcc.target/aarch64/sve/peel_ind_16_run.c  | 41 ++++++++++++
+ .../gcc.target/aarch64/sve/peel_ind_17.c      | 24 +++++++
+ .../gcc.target/aarch64/sve/peel_ind_17_run.c  | 41 ++++++++++++
+ gcc/tree-vect-loop-manip.cc                   |  6 +-
+ gcc/tree-vect-loop.cc                         | 15 +++--
+ gcc/tree-vect-stmts.cc                        | 64 +++++++++++++++++++
+ gcc/tree-vectorizer.h                         |  7 +-
+ 13 files changed, 384 insertions(+), 10 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.dg/vect/vect-early-break_141-pr123089.c
+ create mode 100644 gcc/testsuite/gcc.target/aarch64/sve/peel_ind_14.c
+ create mode 100644 gcc/testsuite/gcc.target/aarch64/sve/peel_ind_14_run.c
+ create mode 100644 gcc/testsuite/gcc.target/aarch64/sve/peel_ind_15.c
+ create mode 100644 gcc/testsuite/gcc.target/aarch64/sve/peel_ind_15_run.c
+ create mode 100644 gcc/testsuite/gcc.target/aarch64/sve/peel_ind_16.c
+ create mode 100644 gcc/testsuite/gcc.target/aarch64/sve/peel_ind_16_run.c
+ create mode 100644 gcc/testsuite/gcc.target/aarch64/sve/peel_ind_17.c
+ create mode 100644 gcc/testsuite/gcc.target/aarch64/sve/peel_ind_17_run.c
+
+diff --git a/gcc/testsuite/gcc.dg/vect/vect-early-break_141-pr123089.c b/gcc/testsuite/gcc.dg/vect/vect-early-break_141-pr123089.c
+new file mode 100644
+index 000000000000..431edbfbde67
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/vect/vect-early-break_141-pr123089.c
+@@ -0,0 +1,40 @@
++/* { dg-add-options vect_early_break } */
++/* { dg-require-effective-target vect_early_break_hw } */
++/* { dg-require-effective-target vect_int } */
++/* { dg-require-effective-target avx2_runtime { target { i?86-*-* x86_64-*-* } } } */
++
++/* { dg-additional-options "-O3 -fno-strict-aliasing -march=znver3" { target { i?86-*-* x86_64-*-* } } } */
++/* { dg-final { scan-tree-dump "loop vectorized" "vect" { target { i?86-*-* x86_64-*-* } } } } */
++
++#include "tree-vect.h"
++
++struct
++{
++  int d;
++  short e;
++} i;
++
++int b;
++int *h = &b;
++
++int
++main ()
++{
++  check_vect ();
++
++  short f = 1;
++  short *g = &i.e;
++
++a:
++  if (*g = 0 & ++f, *h)
++    ;
++  else
++    {
++      int c = 0;
++      if (f)
++        goto a;
++      h = &c;
++    }
++
++  return 0;
++}
+diff --git a/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_14.c b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_14.c
+new file mode 100644
+index 000000000000..b2f4650bb2ca
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_14.c
+@@ -0,0 +1,24 @@
++/* Fix for PR123089 alignment peeling with vectors and VLS and overflows.  */
++/* { dg-do compile } */
++/* { dg-options "-Ofast --param aarch64-autovec-preference=sve-only -fdump-tree-vect-details" } */
++/* { dg-additional-options "-msve-vector-bits=256" { target aarch64_sve256_hw } } */
++/* { dg-additional-options "-msve-vector-bits=128" { target aarch64_sve128_hw } } */
++
++/* { dg-final { scan-tree-dump "loop vectorized" "vect" } } */
++
++#define START 2
++
++int __attribute__((noipa))
++foo (unsigned char n, int *x)
++{
++  unsigned char i = 0;
++#pragma GCC unroll 0
++  for (i = START; i < n; ++i)
++    {
++      if (x[i] == 0)
++        return i;
++      x[i] += 1;
++    }
++  return i;
++}
++
+diff --git a/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_14_run.c b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_14_run.c
+new file mode 100644
+index 000000000000..fab939bb25e4
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_14_run.c
+@@ -0,0 +1,42 @@
++/* Fix for PR123089 alignment peeling with vectors and VLS and overflows.  */
++/* { dg-do run { target aarch64_sve_hw } } */
++/* { dg-options "-Ofast --param aarch64-autovec-preference=sve-only" } */
++/* { dg-additional-options "-msve-vector-bits=256" { target aarch64_sve256_hw } } */
++/* { dg-additional-options "-msve-vector-bits=128" { target aarch64_sve128_hw } } */
++
++#define START 2
++
++int __attribute__((noipa))
++foo (unsigned char n, int *x)
++{
++  unsigned char i = 0;
++#pragma GCC unroll 0
++  for (i = START; i < n; ++i)
++    {
++      if (x[i] == 0)
++        return i;
++      x[i] += 1;
++    }
++  return i;
++}
++
++int main ()
++{
++   int max = 255 - START;
++   int x[255 - START];
++#pragma GCC unroll 0
++   for (int i = 0; i < max; i++)
++     x[i] = 1;
++
++   x[200] = 0;
++   int res = foo (max, x);
++   if (res != 200)
++     __builtin_abort ();
++
++   if (x[START] != 2)
++     __builtin_abort ();
++
++   if (x[0] != 1)
++     __builtin_abort ();
++   return 0;
++}
+diff --git a/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_15.c b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_15.c
+new file mode 100644
+index 000000000000..b2f4650bb2ca
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_15.c
+@@ -0,0 +1,24 @@
++/* Fix for PR123089 alignment peeling with vectors and VLS and overflows.  */
++/* { dg-do compile } */
++/* { dg-options "-Ofast --param aarch64-autovec-preference=sve-only -fdump-tree-vect-details" } */
++/* { dg-additional-options "-msve-vector-bits=256" { target aarch64_sve256_hw } } */
++/* { dg-additional-options "-msve-vector-bits=128" { target aarch64_sve128_hw } } */
++
++/* { dg-final { scan-tree-dump "loop vectorized" "vect" } } */
++
++#define START 2
++
++int __attribute__((noipa))
++foo (unsigned char n, int *x)
++{
++  unsigned char i = 0;
++#pragma GCC unroll 0
++  for (i = START; i < n; ++i)
++    {
++      if (x[i] == 0)
++        return i;
++      x[i] += 1;
++    }
++  return i;
++}
++
+diff --git a/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_15_run.c b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_15_run.c
+new file mode 100644
+index 000000000000..13763f5ebfbe
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_15_run.c
+@@ -0,0 +1,42 @@
++/* Fix for PR123089 alignment peeling with vectors and VLS and overflows.  */
++/* { dg-do run { target aarch64_sve_hw } } */
++/* { dg-options "-Ofast --param aarch64-autovec-preference=sve-only" } */
++/* { dg-additional-options "-msve-vector-bits=256" { target aarch64_sve256_hw } } */
++/* { dg-additional-options "-msve-vector-bits=128" { target aarch64_sve128_hw } } */
++
++#define START 2
++
++int __attribute__((noipa))
++foo (unsigned char n, int *x)
++{
++  unsigned char i = 0;
++#pragma GCC unroll 0
++  for (i = START; i < n; ++i)
++    {
++      if (x[i] == 0)
++        return i;
++      x[i] += 1;
++    }
++  return i;
++}
++
++int main ()
++{
++   int max = 255 - START;
++   int x[255 - START];
++#pragma GCC unroll 0
++   for (int i = 0; i < max; i++)
++     x[i] = 1;
++
++   x[33] = 0;
++   int res = foo (max, x);
++   if (res != 33)
++     __builtin_abort ();
++
++   if (x[START] != 2)
++     __builtin_abort ();
++
++   if (x[0] != 1)
++     __builtin_abort ();
++   return 0;
++}
+diff --git a/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_16.c b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_16.c
+new file mode 100644
+index 000000000000..b2f4650bb2ca
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_16.c
+@@ -0,0 +1,24 @@
++/* Fix for PR123089 alignment peeling with vectors and VLS and overflows.  */
++/* { dg-do compile } */
++/* { dg-options "-Ofast --param aarch64-autovec-preference=sve-only -fdump-tree-vect-details" } */
++/* { dg-additional-options "-msve-vector-bits=256" { target aarch64_sve256_hw } } */
++/* { dg-additional-options "-msve-vector-bits=128" { target aarch64_sve128_hw } } */
++
++/* { dg-final { scan-tree-dump "loop vectorized" "vect" } } */
++
++#define START 2
++
++int __attribute__((noipa))
++foo (unsigned char n, int *x)
++{
++  unsigned char i = 0;
++#pragma GCC unroll 0
++  for (i = START; i < n; ++i)
++    {
++      if (x[i] == 0)
++        return i;
++      x[i] += 1;
++    }
++  return i;
++}
++
+diff --git a/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_16_run.c b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_16_run.c
+new file mode 100644
+index 000000000000..120f737d2312
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_16_run.c
+@@ -0,0 +1,41 @@
++/* Fix for PR123089 alignment peeling with vectors and VLS and overflows.  */
++/* { dg-do run { target aarch64_sve_hw } } */
++/* { dg-options "-Ofast --param aarch64-autovec-preference=sve-only" } */
++/* { dg-additional-options "-msve-vector-bits=256" { target aarch64_sve256_hw } } */
++/* { dg-additional-options "-msve-vector-bits=128" { target aarch64_sve128_hw } } */
++
++#define START 2
++
++int __attribute__((noipa))
++foo (unsigned char n, int *x)
++{
++  unsigned char i = 0;
++#pragma GCC unroll 0
++  for (i = START; i < n; ++i)
++    {
++      if (x[i] == 0)
++        return i;
++      x[i] += 1;
++    }
++  return i;
++}
++
++int main ()
++{
++   int max = 255 - START;
++   int x[255 - START];
++#pragma GCC unroll 0
++   for (int i = 0; i < max; i++)
++     x[i] = 1;
++
++   int res = foo (max, x);
++   if (res != max)
++     __builtin_abort ();
++
++   if (x[START] != 2)
++     __builtin_abort ();
++
++   if (x[0] != 1)
++     __builtin_abort ();
++   return 0;
++}
+diff --git a/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_17.c b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_17.c
+new file mode 100644
+index 000000000000..5395a759c612
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_17.c
+@@ -0,0 +1,24 @@
++/* Fix for PR123089 alignment peeling with vectors and VLS and overflows.  */
++/* { dg-do compile } */
++/* { dg-options "-Ofast --param aarch64-autovec-preference=sve-only  -fdump-tree-vect-details" } */
++/* { dg-additional-options "-msve-vector-bits=256" { target aarch64_sve256_hw } } */
++/* { dg-additional-options "-msve-vector-bits=128" { target aarch64_sve128_hw } } */
++
++/* { dg-final { scan-tree-dump "loop vectorized" "vect" } } */
++
++#define START 2
++
++int __attribute__((noipa))
++foo (int *x)
++{
++  unsigned long i = 0;
++#pragma GCC unroll 0
++  for (i = START; i < 253; ++i)
++    {
++      if (x[i] == 0)
++        return i;
++      x[i] += 1;
++    }
++  return i;
++}
++
+diff --git a/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_17_run.c b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_17_run.c
+new file mode 100644
+index 000000000000..73163507f66b
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/aarch64/sve/peel_ind_17_run.c
+@@ -0,0 +1,41 @@
++/* Fix for PR123089 alignment peeling with vectors and VLS and overflows.  */
++/* { dg-do run { target aarch64_sve_hw } } */
++/* { dg-options "-Ofast --param aarch64-autovec-preference=sve-only" } */
++/* { dg-additional-options "-msve-vector-bits=256" { target aarch64_sve256_hw } } */
++/* { dg-additional-options "-msve-vector-bits=128" { target aarch64_sve128_hw } } */
++
++#define START 2
++
++int __attribute__((noipa))
++foo (int *x)
++{
++  unsigned int i = 0;
++#pragma GCC unroll 0
++  for (i = START; i < 253; ++i)
++    {
++      if (x[i] == 0)
++        return i;
++      x[i] += 1;
++    }
++  return i;
++}
++
++int main ()
++{
++   int x[255 - START];
++#pragma GCC unroll 0
++   for (int i = 0; i < 253; i++)
++     x[i] = 1;
++
++   x[200] = 0;
++   int res = foo (x);
++   if (res != 200)
++     __builtin_abort ();
++
++   if (x[START] != 2)
++     __builtin_abort ();
++
++   if (x[0] != 1)
++     __builtin_abort ();
++   return 0;
++}
+diff --git a/gcc/tree-vect-loop-manip.cc b/gcc/tree-vect-loop-manip.cc
+index 624d289156c2..8b4542365281 100644
+--- a/gcc/tree-vect-loop-manip.cc
++++ b/gcc/tree-vect-loop-manip.cc
+@@ -3738,10 +3738,8 @@ vect_do_peeling (loop_vec_info loop_vinfo, tree niters, tree nitersm1,
+       tree vector_iters_vf = niters_vector_mult_vf;
+       if (LOOP_VINFO_EARLY_BREAKS (loop_vinfo))
+ 	{
+-	  tree vector_iters_vf_type = uncounted_p ? sizetype
+-						  : TREE_TYPE (vector_iters_vf);
+-	  tree scal_iv_ty = signed_type_for (vector_iters_vf_type);
+-	  tree tmp_niters_vf = make_ssa_name (scal_iv_ty);
++	  tree tmp_niters_vf
++	    = make_ssa_name (LOOP_VINFO_EARLY_BRK_IV_TYPE (loop_vinfo));
+ 
+ 	  if (!(LOOP_VINFO_NITERS_UNCOUNTED_P (loop_vinfo)
+ 		&& get_loop_exit_edges (loop).length () == 1))
+diff --git a/gcc/tree-vect-loop.cc b/gcc/tree-vect-loop.cc
+index b15589a711b1..0c275a9edeb4 100644
+--- a/gcc/tree-vect-loop.cc
++++ b/gcc/tree-vect-loop.cc
+@@ -928,7 +928,7 @@ vect_get_max_nscalars_per_iter (loop_vec_info loop_vinfo)
+    as an unsigned integer, where MAX_NITERS is the maximum number of
+    loop header iterations for the original scalar form of LOOP_VINFO.  */
+ 
+-static unsigned
++unsigned
+ vect_min_prec_for_max_niters (loop_vec_info loop_vinfo, unsigned int factor)
+ {
+   class loop *loop = LOOP_VINFO_LOOP (loop_vinfo);
+@@ -11055,10 +11055,15 @@ vect_update_ivs_after_vectorizer_for_early_breaks (loop_vec_info loop_vinfo)
+      final IV.  */
+   if (niters_skip)
+     {
+-      induc_def = gimple_build (&iv_stmts, MAX_EXPR, TREE_TYPE (induc_def),
+-				induc_def,
+-				build_zero_cst (TREE_TYPE (induc_def)));
+-      auto stmt = gimple_build_assign (phi_var, induc_def);
++      tree induc_type = TREE_TYPE (induc_def);
++      tree s_induc_type = signed_type_for (induc_type);
++      induc_def = gimple_build (&iv_stmts, MAX_EXPR, s_induc_type,
++				gimple_convert (&iv_stmts, s_induc_type,
++						induc_def),
++				build_zero_cst (s_induc_type));
++      auto stmt = gimple_build_assign (phi_var,
++				       gimple_convert (&iv_stmts, induc_type,
++						       induc_def));
+       gimple_seq_add_stmt_without_update (&iv_stmts, stmt);
+       basic_block exit_bb = NULL;
+       /* Identify the early exit merge block.  I wish we had stored this.  */
+diff --git a/gcc/tree-vect-stmts.cc b/gcc/tree-vect-stmts.cc
+index d5a50a39409b..a2f345c97d1c 100644
+--- a/gcc/tree-vect-stmts.cc
++++ b/gcc/tree-vect-stmts.cc
+@@ -12784,6 +12784,67 @@ supports_vector_compare_and_branch (loop_vec_info loop_vinfo, machine_mode mode)
+   return direct_optab_handler (cbranch_optab, mode) != CODE_FOR_nothing;
+ }
+ 
++/* Determine the type to use for early break vectorization's scalar IV.  If
++   no type is possible return false.  */
++
++static bool
++vect_compute_type_for_early_break_scalar_iv (loop_vec_info loop_vinfo)
++{
++  /* Check if we have a usable scalar IV type for vectorization.  */
++  tree iters_vf_type = sizetype;
++  if (!LOOP_VINFO_NITERS_UNCOUNTED_P (loop_vinfo))
++    {
++      /* Find the type with the minimum precision we can use
++	 for the scalar IV.  */
++      tree cand_type = TREE_TYPE (LOOP_VINFO_NITERS (loop_vinfo));
++
++      /* Work out how many bits we need to represent the limit.  */
++      unsigned int min_ni_width
++	= vect_min_prec_for_max_niters (loop_vinfo, 1);
++
++      /* Check if we're using PFA, if so we need a signed IV and an
++	 extra bit for the sign.  */
++      if (TYPE_UNSIGNED (cand_type)
++	  && LOOP_VINFO_CAN_USE_PARTIAL_VECTORS_P (loop_vinfo)
++	  && LOOP_VINFO_PEELING_FOR_ALIGNMENT (loop_vinfo))
++	min_ni_width += 1;
++
++      if (TYPE_PRECISION (cand_type) >= min_ni_width)
++	iters_vf_type = unsigned_type_for (cand_type);
++      else
++	{
++	  opt_scalar_int_mode cmp_mode_iter;
++	  tree iv_type = NULL_TREE;
++	  FOR_EACH_MODE_IN_CLASS (cmp_mode_iter, MODE_INT)
++	    {
++	      auto cmp_mode = cmp_mode_iter.require ();
++	      unsigned int cmp_bits = GET_MODE_BITSIZE (cmp_mode);
++	      if (cmp_bits >= min_ni_width
++		  && targetm.scalar_mode_supported_p (cmp_mode))
++		{
++		  iv_type = build_nonstandard_integer_type (cmp_bits, true);
++		  if (iv_type)
++		    break;
++		}
++	    }
++
++	  if (!iv_type)
++	    {
++	      if (dump_enabled_p ())
++		dump_printf_loc (MSG_MISSED_OPTIMIZATION, vect_location,
++		       "can't vectorize early exit because the "
++		       "target doesn't support a scalar type wide "
++		       "wide enough to hold niters.\n");
++	      return false;
++	    }
++	  iters_vf_type = iv_type;
++	}
++    }
++
++  LOOP_VINFO_EARLY_BRK_IV_TYPE (loop_vinfo) = iters_vf_type;
++  return true;
++}
++
+ /* Check to see if the current early break given in STMT_INFO is valid for
+    vectorization.  */
+ 
+@@ -12897,6 +12958,9 @@ vectorizable_early_exit (loop_vec_info loop_vinfo, stmt_vec_info stmt_info,
+ 	    vect_record_loop_mask (loop_vinfo, masks, vec_num, vectype, NULL);
+ 	}
+ 
++      if (!vect_compute_type_for_early_break_scalar_iv (loop_vinfo))
++	return false;
++
+       return true;
+     }
+ 
+diff --git a/gcc/tree-vectorizer.h b/gcc/tree-vectorizer.h
+index 8f7483297ea8..840af10a7a23 100644
+--- a/gcc/tree-vectorizer.h
++++ b/gcc/tree-vectorizer.h
+@@ -1249,6 +1249,10 @@ public:
+      inside the relavent exit blocks in order to adjust for early break.  */
+   tree early_break_niters_var;
+ 
++  /* The type of the variable to be used to create the scalar IV for early break
++     loops.  */
++  tree early_break_iv_type;
++
+   /* Record statements that are needed to be live for early break vectorization
+      but may not have an LC PHI node materialized yet in the exits.  */
+   auto_vec<stmt_vec_info> early_break_live_ivs;
+@@ -1320,6 +1324,7 @@ public:
+ #define LOOP_VINFO_EARLY_BRK_DEST_BB(L)    (L)->early_break_dest_bb
+ #define LOOP_VINFO_EARLY_BRK_VUSES(L)      (L)->early_break_vuses
+ #define LOOP_VINFO_EARLY_BRK_NITERS_VAR(L) (L)->early_break_niters_var
++#define LOOP_VINFO_EARLY_BRK_IV_TYPE(L)    (L)->early_break_iv_type
+ #define LOOP_VINFO_LOOP_CONDS(L)           (L)->conds
+ #define LOOP_VINFO_LOOP_IV_COND(L)         (L)->loop_iv_cond
+ #define LOOP_VINFO_NO_DATA_DEPENDENCIES(L) (L)->no_data_dependencies
+@@ -2676,7 +2681,7 @@ extern tree vect_gen_loop_len_mask (loop_vec_info, gimple_stmt_iterator *,
+ extern gimple_seq vect_gen_len (tree, tree, tree, tree);
+ extern vect_reduc_info info_for_reduction (loop_vec_info, slp_tree);
+ extern bool reduction_fn_for_scalar_code (code_helper, internal_fn *);
+-
++extern unsigned vect_min_prec_for_max_niters (loop_vec_info, unsigned int);
+ /* Drive for loop transformation stage.  */
+ extern class loop *vect_transform_loop (loop_vec_info, gimple *);
+ struct vect_loop_form_info
+
+base-commit: 68501f9d89e56d53d69d899cebb45b81ea5687ac
+-- 
+2.52.0
+
