@@ -2,7 +2,6 @@
 
 	- 86_all_PR122456-pgo-workaround.patch
 	+ 86_all_PR122794-libtool.patch
-	+ 88_all_PR123089.patch
 
 27	14 December 2025
 
