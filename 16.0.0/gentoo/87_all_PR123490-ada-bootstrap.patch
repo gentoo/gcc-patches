@@ -1,0 +1,339 @@
+From 37728920016dc064ac1962c1412befe74ebb3427 Mon Sep 17 00:00:00 2001
+Message-ID: <37728920016dc064ac1962c1412befe74ebb3427.1767947222.git.sam@gentoo.org>
+From: Sam James <sam@gentoo.org>
+Date: Fri, 9 Jan 2026 08:27:00 +0000
+Subject: [PATCH] Revert "[PATCH v6 1/1] Add --with-multi-buildlist configure
+ option"
+
+This reverts commit 6ae5a2a6ba4bc8c3a2f337d49121a9f8f7eaa8b5.
+
+Signed-off-by: Sam James <sam@gentoo.org>
+---
+ config-ml.in         | 25 +------------------------
+ configure            | 15 ---------------
+ configure.ac         | 15 ---------------
+ gcc/Makefile.in      | 19 +------------------
+ gcc/configure        |  8 ++------
+ gcc/configure.ac     |  3 ---
+ gcc/configure.tgt    | 20 --------------------
+ gcc/doc/install.texi | 24 ------------------------
+ gcc/genmultilib      | 10 +++-------
+ 9 files changed, 7 insertions(+), 132 deletions(-)
+ delete mode 100644 gcc/configure.tgt
+
+diff --git a/config-ml.in b/config-ml.in
+index d184fdc6d828..9cdcae1191da 100644
+--- a/config-ml.in
++++ b/config-ml.in
+@@ -488,23 +488,6 @@ powerpc*-*-* | rs6000*-*-*)
+ 	;;
+ esac
+ 
+-# Use a filtered multilib list if requested.
+-
+-if [ x$with_multi_buildlist != x ]; then
+-  old_multidirs="${multidirs}"
+-  if [ ! -f $with_multi_buildlist ]; then
+-    echo "config-ml.in: Failed to find $with_multi_buildlist"
+-    exit 1
+-  fi
+-  multidirs=""
+-  for x in ${old_multidirs}; do
+-    found=`grep "^${x}$" $with_multi_buildlist`
+-    if [ -n "$found" ]; then
+-      multidirs="${multidirs} ${x}"
+-    fi
+-  done
+-fi
+-
+ # Remove extraneous blanks from multidirs.
+ # Tests like `if [ -n "$multidirs" ]' require it.
+ multidirs=`echo "$multidirs" | sed -e 's/^[ ][ ]*//' -e 's/[ ][ ]*$//' -e 's/[ ][ ]*/ /g'`
+@@ -614,8 +597,7 @@ else
+ fi
+ 
+ if [ -z "${with_multisubdir}" ]; then
+-  ml_top_subdir=`${CC-gcc} --print-multi-directory 2>/dev/null`
+-  ml_subdir=/$ml_top_subdir
++  ml_subdir=
+   ml_builddotdot=
+   : # ml_srcdotdot= # already set
+ else
+@@ -694,11 +676,6 @@ if [ -n "${multidirs}" ] && [ -z "${ml_norecursion}" ]; then
+ 
+   for ml_dir in ${multidirs}; do
+ 
+-    if [ "${ml_dir}" == "${ml_top_subdir}" ]; then
+-      echo "Skipping configure in multilib subdir ${ml_dir}"
+-      continue
+-    fi
+-
+     if [ "${ml_verbose}" = --verbose ]; then
+       echo "Running configure in multilib subdir ${ml_dir}"
+       echo "pwd: `${PWDCMD-pwd}`"
+diff --git a/configure b/configure
+index bb0905df77fa..d4e11d4cec3c 100755
+--- a/configure
++++ b/configure
+@@ -11760,21 +11760,6 @@ if test x${enable_multilib} = x ; then
+   target_configargs="--enable-multilib ${target_configargs}"
+ fi
+ 
+-# Source target-specific configuration fragment for GCC
+-if test -d ${srcdir}/gcc; then
+-  . ${srcdir}/gcc/configure.tgt
+-fi
+-
+-# Pass through with_multi_buildlist to host and target.  'gcc' needs it for the
+-# fixed includes which are multilib'd and target libraries need it as they use
+-# config-ml.in.
+-if test x${with_multi_buildlist} != x ; then
+-  target_configargs="--with-multi-buildlist=${with_multi_buildlist} \
+-  ${target_configargs}"
+-  host_configargs="--with-multi-buildlist=${with_multi_buildlist} \
+-  ${host_configargs}"
+-fi
+-
+ # Pass --with-newlib if appropriate.  Note that target_configdirs has
+ # changed from the earlier setting of with_newlib.
+ if test x${with_newlib} != xno && echo " ${target_configdirs} " | grep " newlib " > /dev/null 2>&1 && test -d ${srcdir}/newlib ; then
+diff --git a/configure.ac b/configure.ac
+index 5b8702567717..5edd041bf645 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -3830,21 +3830,6 @@ if test x${enable_multilib} = x ; then
+   target_configargs="--enable-multilib ${target_configargs}"
+ fi
+ 
+-# Source target-specific configuration fragment for GCC
+-if test -d ${srcdir}/gcc; then
+-  . ${srcdir}/gcc/configure.tgt
+-fi
+-
+-# Pass through with_multi_buildlist to host and target.  'gcc' needs it for the
+-# fixed includes which are multilib'd and target libraries need it as they use
+-# config-ml.in.
+-if test x${with_multi_buildlist} != x ; then
+-  target_configargs="--with-multi-buildlist=${with_multi_buildlist} \
+-  ${target_configargs}"
+-  host_configargs="--with-multi-buildlist=${with_multi_buildlist} \
+-  ${host_configargs}"
+-fi
+-
+ # Pass --with-newlib if appropriate.  Note that target_configdirs has
+ # changed from the earlier setting of with_newlib.
+ if test x${with_newlib} != xno && echo " ${target_configdirs} " | grep " newlib " > /dev/null 2>&1 && test -d ${srcdir}/newlib ; then
+diff --git a/gcc/Makefile.in b/gcc/Makefile.in
+index 41b689971725..917d586e5724 100644
+--- a/gcc/Makefile.in
++++ b/gcc/Makefile.in
+@@ -653,9 +653,6 @@ else
+   endif
+ endif
+ 
+-# Multilib control
+-with_multi_buildlist = @with_multi_buildlist@
+-
+ # ------------------------
+ # Installation directories
+ # ------------------------
+@@ -2531,12 +2528,11 @@ s-mlib: $(srcdir)/genmultilib Makefile
+ 	    "$(MULTILIB_REQUIRED)" \
+ 	    "$(if $(MULTILIB_OSDIRNAMES),,$(MULTIARCH_DIRNAME))" \
+ 	    "$(MULTILIB_REUSE)" \
+-	    "$(if $(with_multi_buildlist),true,false)" \
+ 	    "@enable_multilib@" \
+ 	    > tmp-mlib.h; \
+ 	else \
+ 	  $(SHELL) $(srcdir)/genmultilib '' '' '' '' '' '' '' '' \
+-	    "$(MULTIARCH_DIRNAME)" '' 'false' no \
++	    "$(MULTIARCH_DIRNAME)" '' no \
+ 	    > tmp-mlib.h; \
+ 	fi
+ 	$(SHELL) $(srcdir)/../move-if-change tmp-mlib.h multilib.h
+@@ -3635,23 +3631,10 @@ fixinc_list: s-fixinc_list; @true
+ s-fixinc_list : $(GCC_PASSES)
+ # Build up a list of multilib directories and corresponding sysroot
+ # suffixes, in form sysroot;multilib.
+-# Use a filtered multilib list if requested.
+ 	if $(GCC_FOR_TARGET) -print-sysroot-headers-suffix > /dev/null 2>&1; then \
+ 	  set -e; for ml in `$(GCC_FOR_TARGET) -print-multi-lib`; do \
+ 	    multi_dir=`echo $${ml} | sed -e 's/;.*$$//'`; \
+ 	    flags=`echo $${ml} | sed -e 's/^[^;]*;//' -e 's/@/ -/g'`; \
+-	    if [ x$(with_multi_buildlist) != x ]; then \
+-	      if [ ! -f $(with_multi_buildlist) ]; then \
+-		echo "fixinc_list: Failed to find $(with_multi_buildlist)"; \
+-		exit 1; \
+-	      fi; \
+-	      set +e; \
+-	      found=`grep "^$${multi_dir}$$" $(with_multi_buildlist)`; \
+-	      set -e; \
+-	      if [ -z "$$found" ]; then \
+-		continue; \
+-	      fi; \
+-	    fi; \
+ 	    sfx=`$(GCC_FOR_TARGET) $${flags} -print-sysroot-headers-suffix`; \
+ 	    if [ "$${multi_dir}" = "." ]; \
+ 	      then multi_dir=""; \
+diff --git a/gcc/configure b/gcc/configure
+index 665a88be9531..fd9e3c88363f 100755
+--- a/gcc/configure
++++ b/gcc/configure
+@@ -859,7 +859,6 @@ enable_fixed_point
+ enable_decimal_float
+ DEFAULT_INSNEMIT_PARTITIONS
+ DEFAULT_MATCHPD_PARTITIONS
+-with_multi_buildlist
+ with_float
+ with_cpu
+ enable_multiarch
+@@ -7899,9 +7898,6 @@ $as_echo "$enable_multiarch$ma_msg_suffix" >&6; }
+ 
+ 
+ 
+-# needed for restricting the fixedincludes multilibs that we install
+-
+-
+ # default stack clash protection guard size as power of twos in bytes.
+ # Please keep these in sync with params.def.
+ stk_clash_min=12
+@@ -21939,7 +21935,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 21942 "configure"
++#line 21938 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -22045,7 +22041,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 22048 "configure"
++#line 22044 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+diff --git a/gcc/configure.ac b/gcc/configure.ac
+index ed37f00f0210..458f5c990287 100644
+--- a/gcc/configure.ac
++++ b/gcc/configure.ac
+@@ -887,9 +887,6 @@ AC_MSG_RESULT($enable_multiarch$ma_msg_suffix)
+ AC_SUBST(with_cpu)
+ AC_SUBST(with_float)
+ 
+-# needed for restricting the fixedincludes multilibs that we install
+-AC_SUBST(with_multi_buildlist)
+-
+ # default stack clash protection guard size as power of twos in bytes.
+ # Please keep these in sync with params.def.
+ stk_clash_min=12
+diff --git a/gcc/configure.tgt b/gcc/configure.tgt
+deleted file mode 100644
+index 2c570b87deda..000000000000
+--- a/gcc/configure.tgt
++++ /dev/null
+@@ -1,20 +0,0 @@
+-# -*- shell-script -*-
+-#   Copyright (C) 2025 Free Software Foundation, Inc.
+-
+-# This program is free software; you can redistribute it and/or modify
+-# it under the terms of the GNU General Public License as published by
+-# the Free Software Foundation; either version 2 of the License, or
+-# (at your option) any later version.
+-#
+-# This program is distributed in the hope that it will be useful,
+-# but WITHOUT ANY WARRANTY; without even the implied warranty of
+-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-# GNU General Public License for more details.
+-#
+-# You should have received a copy of the GNU General Public License
+-# along with this program; if not see <http://www.gnu.org/licenses/>.
+-
+-# This is the target specific configuration file.  This is invoked by the
+-# autoconf generated configure script.  Putting it in a separate shell file
+-# lets us skip running autoconf when modifying target specific information.
+-
+diff --git a/gcc/doc/install.texi b/gcc/doc/install.texi
+index 54f80308c9e0..a415898c000c 100644
+--- a/gcc/doc/install.texi
++++ b/gcc/doc/install.texi
+@@ -1601,30 +1601,6 @@ medlow code model; rv64ima with lp64 and medany code model
+ rv64ima-lp64--;--cmodel=medlow,medany
+ @end smallexample
+ 
+-@item --with-multi-buildlist=@var{file}
+-Specify a file containing a list of multilib directories to build.
+-
+-Each line in the file should contain a single multilib directory name,
+-as printed by @code{gcc --print-multi-lib}.  Only the listed directories
+-will be built and installed.
+-
+-This option is useful for reducing build time and binary size by
+-excluding unnecessary multilib variants.  It is especially beneficial
+-for embedded targets or vendor-specific toolchains.
+-
+-Example file contents:
+-
+-@smallexample
+-mips-r6-hard/lib
+-mips-r6-soft/lib32
+-mipsel-r6-hard/lib64
+-@end smallexample
+-
+-This option is target-independent and can be used with any architecture
+-that supports multilibs.  It is passed to both host and target
+-configuration stages and used during fixed includes installation and
+-multilib directory generation.
+-
+ @item --with-endian=@var{endians}
+ Specify what endians to use.
+ Currently only implemented for sh*-*-*.
+diff --git a/gcc/genmultilib b/gcc/genmultilib
+index a00d6d88683f..1367e5d3b7ae 100644
+--- a/gcc/genmultilib
++++ b/gcc/genmultilib
+@@ -88,9 +88,6 @@
+ # The optional tenth argument specifies how to reuse multilib for different
+ # option sets.
+ 
+-# The eleventh argument specifies whether the --with-multi-buildlist
+-# configure option is set (true or false).
+-
+ # The last option should be "yes" if multilibs are enabled.  If it is not
+ # "yes", all GCC multilib dir names will be ".".
+ 
+@@ -111,7 +108,7 @@
+ #   genmultilib 'm64/m32 mno-app-regs|mcmodel=medany' '64 32 alt'
+ #		'mcmodel?medany=mcmodel?medmid' 'm32/mno-app-regs* m32/mcmodel=*'
+ #		'' 'm32/!m64/mno-app-regs m32/!m64/mcmodel=medany'
+-#		'../lib64 ../lib32 alt' '' '' '' 'false' yes
++#		'../lib64 ../lib32 alt' '' '' '' yes
+ # This produces:
+ #   ". !m64 !m32 !mno-app-regs !mcmodel=medany;",
+ #   "64:../lib64 m64 !m32 !mno-app-regs !mcmodel=medany;",
+@@ -142,8 +139,7 @@ osdirnames=$7
+ multilib_required=$8
+ multiarch=$9
+ multilib_reuse=${10}
+-with_multi_buildlist=${11}
+-enable_multilib=${12}
++enable_multilib=${11}
+ 
+ echo "static const char *const multilib_raw[] = {"
+ 
+@@ -504,7 +500,7 @@ for rrule in ${multilib_reuse}; do
+       echo "The rule ${rrule} contains an option absent from MULTILIB_OPTIONS." >&2
+       exit 1
+     fi
+-  elif ! ${with_multi_buildlist}; then
++  else
+     echo "The rule ${rrule} is trying to reuse nonexistent multilib." >&2
+     exit 1
+   fi
+
+base-commit: 07df546fb904f68c346f600a7cd0df07706de217
+-- 
+2.52.0
+
