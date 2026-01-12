@@ -1,6 +1,7 @@
 30	????
 
 	- 87_all_PR123383-revert-devirt-ICE.patch
+	+ 87_all_PR123517-ipa-cp-revert.patch
 
 29	4 January 2026
 
