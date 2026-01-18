@@ -15,8 +15,8 @@ https://gcc.gnu.org/bugzilla/show_bug.cgi?id=123650#c9
 	* libatomic_asneeded.a: Remove.
 	* Makefile.in: Regenerate.
 
---- libatomic/Makefile.am.jj	2026-01-13 23:02:05.061762633 +0100
-+++ libatomic/Makefile.am	2026-01-18 19:36:57.511524053 +0100
+--- a/libatomic/Makefile.am	2026-01-13 23:02:05.061762633 +0100
++++ b/libatomic/Makefile.am	2026-01-18 19:36:57.511524053 +0100
 @@ -40,9 +40,6 @@ AM_CCASFLAGS = $(XCFLAGS)
  AM_LDFLAGS = $(XLDFLAGS) $(SECTION_LDFLAGS) $(OPT_LDFLAGS)
  
@@ -60,20 +60,20 @@ https://gcc.gnu.org/bugzilla/show_bug.cgi?id=123650#c9
  # target overrides
  -include $(tmake_file)
  
---- libatomic/libatomic_asneeded.so.jj	2026-01-13 23:02:05.063762598 +0100
-+++ libatomic/libatomic_asneeded.so	2026-01-18 19:28:08.822507919 +0100
+--- a/libatomic/libatomic_asneeded.so	2026-01-13 23:02:05.063762598 +0100
++++ b/libatomic/libatomic_asneeded.so	2026-01-18 19:28:08.822507919 +0100
 @@ -1,3 +0,0 @@
 -/* GNU ld script
 -   Add DT_NEEDED entry for -latomic only if needed.  */
 -INPUT ( AS_NEEDED ( -latomic ) )
---- libatomic/libatomic_asneeded.a.jj	2026-01-13 23:02:05.063762598 +0100
-+++ libatomic/libatomic_asneeded.a	2026-01-18 19:28:10.553478504 +0100
+--- a/libatomic/libatomic_asneeded.a	2026-01-13 23:02:05.063762598 +0100
++++ b/libatomic/libatomic_asneeded.a	2026-01-18 19:28:10.553478504 +0100
 @@ -1,3 +0,0 @@
 -/* GNU ld script
 -   Just link in libatomic.a.  */
 -INPUT ( libatomic.a )
---- libatomic/Makefile.in.jj	2026-01-13 23:02:05.061762633 +0100
-+++ libatomic/Makefile.in	2026-01-18 19:37:06.180098342 +0100
+--- a/libatomic/Makefile.in	2026-01-13 23:02:05.061762633 +0100
++++ b/libatomic/Makefile.in	2026-01-18 19:37:06.180098342 +0100
 @@ -14,7 +14,6 @@
  
  @SET_MAKE@
