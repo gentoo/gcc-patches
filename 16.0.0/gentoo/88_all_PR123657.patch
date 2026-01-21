@@ -1,0 +1,92 @@
+From 2b3586868aff7d40fb411728367f631c246896d1 Mon Sep 17 00:00:00 2001
+Message-ID: <2b3586868aff7d40fb411728367f631c246896d1.1769029705.git.sam@gentoo.org>
+From: Victor Do Nascimento <victor.donascimento@arm.com>
+Date: Wed, 21 Jan 2026 14:10:13 +0000
+Subject: [PATCH] vect: Fix outer loop vectorization for nested uncounted loops
+ [PR123657]
+
+Given the inability of `expr_invariant_in_loop_p (loop, expr)' to
+handle the `scev_not_known' node as the expression, an unknown loop
+bound in the inner loop in a nested set of loops led to
+`vect_analyze_loop_form' to erroneously consider the outer loop as
+suitable for vectorization.  This introduces the necessary unknown
+loop iteration count check to ensure correct handling of counted loops
+with an embedded uncounted loop.
+
+Bootstrapped on AArch64 and x86_64, no regressions.
+
+gcc/ChangeLog:
+
+	PR tree-optimization/123657
+	* tree-vect-loop.cc (vect_analyze_loop_form): Add
+	chrec_dont_know check.
+	* tree-ssa-loop-ivopts.cc (expr_invariant_in_loop_p):
+	likewise.
+
+gcc/testsuite/ChangeLog:
+
+* gcc.dg/vect/vect-uncounted-run_4.c (main): New.
+---
+ .../gcc.dg/vect/vect-uncounted-run_4.c          | 17 +++++++++++++++++
+ gcc/tree-ssa-loop-ivopts.cc                     |  4 ++++
+ gcc/tree-vect-loop.cc                           |  3 ++-
+ 3 files changed, 23 insertions(+), 1 deletion(-)
+ create mode 100644 gcc/testsuite/gcc.dg/vect/vect-uncounted-run_4.c
+
+diff --git a/gcc/testsuite/gcc.dg/vect/vect-uncounted-run_4.c b/gcc/testsuite/gcc.dg/vect/vect-uncounted-run_4.c
+new file mode 100644
+index 000000000000..f731daf42d95
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/vect/vect-uncounted-run_4.c
+@@ -0,0 +1,17 @@
++/* Ensure we don't vectorize outer loops when the inner loop is uncounted.  */
++/* { dg-add-options vect_early_break } */
++/* { dg-require-effective-target vect_early_break_hw } */
++/* { dg-require-effective-target vect_int } */
++/* { dg-additional-options "-O3" } */
++
++int a;
++int main() {
++  for (int b = 0; b < 21; b++) {
++    int c = b;
++    while (c)
++      a = c >>= 1;
++  }
++  if (a != 0) __builtin_abort();
++}
++
++/* { dg-final { scan-tree-dump "missed:   not vectorized: inner-loop count not invariant." "vect" } } */
+diff --git a/gcc/tree-ssa-loop-ivopts.cc b/gcc/tree-ssa-loop-ivopts.cc
+index 6ecf5bef7b4f..62df570003d3 100644
+--- a/gcc/tree-ssa-loop-ivopts.cc
++++ b/gcc/tree-ssa-loop-ivopts.cc
+@@ -1825,6 +1825,10 @@ expr_invariant_in_loop_p (class loop *loop, tree expr)
+ 
+   gcc_assert (loop_depth (loop) > 0);
+ 
++  /* CHREC_DONT_KNOW treated as invariant and thus, if not checked,
++     misleadingly returns TRUE.  */
++  gcc_assert (expr != chrec_dont_know);
++
+   if (is_gimple_min_invariant (expr))
+     return true;
+ 
+diff --git a/gcc/tree-vect-loop.cc b/gcc/tree-vect-loop.cc
+index c8b9c6268c84..0ce1a85682b7 100644
+--- a/gcc/tree-vect-loop.cc
++++ b/gcc/tree-vect-loop.cc
+@@ -1556,7 +1556,8 @@ vect_analyze_loop_form (class loop *loop, gimple *loop_vectorized_call,
+ 	return opt_result::failure_at (vect_location,
+ 				       "not vectorized: Bad inner loop.\n");
+ 
+-      if (!expr_invariant_in_loop_p (loop, inner.number_of_iterations))
++      if (inner.number_of_iterations ==  chrec_dont_know
++	  || !expr_invariant_in_loop_p (loop, inner.number_of_iterations))
+ 	return opt_result::failure_at (vect_location,
+ 				       "not vectorized: inner-loop count not"
+ 				       " invariant.\n");
+
+base-commit: 59b9ec2d24e60a49d84f874dfe1e947ad1f8ff22
+-- 
+2.52.0
+
