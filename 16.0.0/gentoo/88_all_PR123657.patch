@@ -25,8 +25,8 @@ with an embedded uncounted loop.
 
 	* gcc.dg/vect/vect-uncounted-run_4.c (main): New.
 
---- gcc/tree-vect-loop.cc.jj
-+++ gcc/tree-vect-loop.cc
+--- a/gcc/tree-vect-loop.cc
++++ b/gcc/tree-vect-loop.cc
 @@ -1555,7 +1555,8 @@ vect_analyze_loop_form (class loop *loop, gimple *loop_vectorized_call,
  	return opt_result::failure_at (vect_location,
  				       "not vectorized: Bad inner loop.\n");
@@ -37,8 +37,8 @@ with an embedded uncounted loop.
  	return opt_result::failure_at (vect_location,
  				       "not vectorized: inner-loop count not"
  				       " invariant.\n");
---- gcc/testsuite/gcc.dg/vect/vect-uncounted-run_4.c.jj
-+++ gcc/testsuite/gcc.dg/vect/vect-uncounted-run_4.c
+--- a/gcc/testsuite/gcc.dg/vect/vect-uncounted-run_4.c
++++ b/gcc/testsuite/gcc.dg/vect/vect-uncounted-run_4.c
 @@ -0,0 +1,17 @@
 +/* Ensure we don't vectorize outer loops when the inner loop is uncounted.  */
 +/* { dg-add-options vect_early_break } */
