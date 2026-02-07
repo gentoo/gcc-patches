@@ -1,0 +1,158 @@
+From 0f09d09f2445658e302e4c98284d7b7b7a911b4b Mon Sep 17 00:00:00 2001
+Message-ID: <0f09d09f2445658e302e4c98284d7b7b7a911b4b.1770426893.git.sam@gentoo.org>
+In-Reply-To: <21df24467146291e38e64baec6eb2deb5c143010.1770426893.git.sam@gentoo.org>
+References: <21df24467146291e38e64baec6eb2deb5c143010.1770426893.git.sam@gentoo.org>
+From: Martin Jambor <mjambor@suse.cz>
+Date: Fri, 6 Feb 2026 23:18:43 +0100
+Subject: [PATCH 3/3] tree-sra: Do not propagate bit-field accesses across
+ assignments (PR 117217)
+
+Hi,
+
+on master at least, this is a bug which no longer reproduces with the
+provided test-cases because after r15-5747-gfd62fdc5e1b3c4:(Jakub
+Jelinek: c++: Small initial fixes for zeroing of padding bits
+[PR117256]), the input to SRA looks very different and SRA does not do
+anything.
+
+However, before that commit, SRA sees the following input and if it
+encountered something similar now, it could still misbehave in the
+same way:
+
+  D.2908.i = 0;
+  D.2908.b = 0;
+  e ={v} {CLOBBER(bob)};
+  e.b = MEM[(const struct B &)&D.2908];
+  D.2908 ={v} {CLOBBER(eos)};
+
+(Where the "e" in "e.b" is actually a MEM_REF of the union type into
+&e so that is why the "data" field is missing.)
+
+Field D.2908.b is a SRA candidate of boolean type and has size 1 bit
+because its decl has size 1 bit even though its type has size 8 bits.
+
+The SRA access representing the store to D.2908.b is then propagated
+across the assignment to e and in the process
+build_user_friendly_ref_for_offset tries to find a nice expression for
+it to possibly use in warnings.  It finds types_compatible_p
+e.data.a.b which however has size 8 bits and so the verifier screams
+when it discovers the discrepancy from the copied-over size of 1 bit.
+
+This patch avoids the situation by refusing to propagate
+non-byte-sized accesses across assignments.
+
+The patch has passed bootstrap and test on x86_64 on master, I am now
+running the same on top of the gcc-14 branch.  OK for master and all
+active release branches if it passes there as well?
+
+Thanks,
+
+Martin
+
+gcc/ChangeLog:
+
+2026-02-06  Martin Jambor  <mjambor@suse.cz>
+
+	PR tree-optimization/117217
+	* tree-sra.cc (propagate_subaccesses_from_rhs): Do not propagate
+	bit-field children.
+	(propagate_subaccesses_from_lhs): Likewise.
+
+gcc/testsuite/ChangeLog:
+
+2026-02-06  Martin Jambor  <mjambor@suse.cz>
+
+PR tree-optimization/117217
+	* g++.dg/torture/pr117217-1.C: New test.
+	* g++.dg/torture/pr117217-2.C: Likewise.
+---
+ gcc/testsuite/g++.dg/torture/pr117217-1.C | 24 +++++++++++++++++++++++
+ gcc/testsuite/g++.dg/torture/pr117217-2.C | 24 +++++++++++++++++++++++
+ gcc/tree-sra.cc                           |  2 ++
+ 3 files changed, 50 insertions(+)
+ create mode 100644 gcc/testsuite/g++.dg/torture/pr117217-1.C
+ create mode 100644 gcc/testsuite/g++.dg/torture/pr117217-2.C
+
+diff --git a/gcc/testsuite/g++.dg/torture/pr117217-1.C b/gcc/testsuite/g++.dg/torture/pr117217-1.C
+new file mode 100644
+index 000000000000..887ab6945359
+--- /dev/null
++++ b/gcc/testsuite/g++.dg/torture/pr117217-1.C
+@@ -0,0 +1,24 @@
++struct [[gnu::packed]] A {
++  int i;
++  bool b;
++};
++
++struct [[gnu::packed]] B {
++  int i;
++  bool b : 1;
++};
++
++struct E {
++  union Data {
++    A a;
++    B b;
++    Data(const B &b) : b(b) {}
++  } data;
++};
++
++extern B copy;
++
++int main() {
++  E e{{B()}};
++  copy = e.data.b; // NEEDED FOR ICE
++}
+diff --git a/gcc/testsuite/g++.dg/torture/pr117217-2.C b/gcc/testsuite/g++.dg/torture/pr117217-2.C
+new file mode 100644
+index 000000000000..19390212b48c
+--- /dev/null
++++ b/gcc/testsuite/g++.dg/torture/pr117217-2.C
+@@ -0,0 +1,24 @@
++struct a {
++  int b;
++  long c;
++  long d;
++  bool f;
++};
++struct g {
++  int b;
++  long c;
++  long d;
++  bool : 1;
++} h;
++struct l {
++  union i {
++    a j;
++    g k;
++    i(g m) : k(m) {}
++  } data;
++};
++int main() {
++  l e{g()};
++  h = e.data.k;
++  return 0;
++}
+diff --git a/gcc/tree-sra.cc b/gcc/tree-sra.cc
+index edb03fe237b8..65ae5c99a0ba 100644
+--- a/gcc/tree-sra.cc
++++ b/gcc/tree-sra.cc
+@@ -3265,6 +3265,7 @@ propagate_subaccesses_from_rhs (struct access *lacc, struct access *racc)
+ 	}
+ 
+       if (rchild->grp_unscalarizable_region
++	  || (rchild->size % BITS_PER_UNIT) != 0
+ 	  || !budget_for_propagation_access (lacc->base))
+ 	{
+ 	  if (!lacc->grp_write && access_or_its_child_written (rchild))
+@@ -3324,6 +3325,7 @@ propagate_subaccesses_from_lhs (struct access *lacc, struct access *racc)
+       HOST_WIDE_INT norm_offset = lchild->offset + norm_delta;
+ 
+       if (lchild->grp_unscalarizable_region
++	  || (lchild->size % BITS_PER_UNIT) != 0
+ 	  || child_would_conflict_in_acc (racc, norm_offset, lchild->size,
+ 					  &matching_acc)
+ 	  || !budget_for_propagation_access (racc->base))
+-- 
+2.53.0
+

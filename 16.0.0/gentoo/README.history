@@ -1,6 +1,9 @@
 36	????
 
 	- 84_all_PR116975-GDCFLAGS.patch
+	+ 87_all_PR123958.patch
+	+ 88_all_PR122856.patch
+	+ 89_all_PR117217.patch
 
 35	2 February 2026
 
