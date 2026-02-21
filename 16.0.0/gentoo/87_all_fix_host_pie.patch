@@ -1,0 +1,553 @@
+https://bugs.gentoo.org/970413
+
+From 978b609925ceffc2a3033ca79cfcd08c6d61c2ec Mon Sep 17 00:00:00 2001
+Message-ID: <978b609925ceffc2a3033ca79cfcd08c6d61c2ec.1771698256.git.sam@gentoo.org>
+From: Sam James <sam@gentoo.org>
+Date: Sat, 21 Feb 2026 18:03:10 +0000
+Subject: [PATCH] gcc: fix AC_ARG_ENABLE use for --enable-host-pie and friends
+
+--enable-host-pie, --enable-host-bind-now both used AC_ARG_ENABLE
+incorrectly, such that --disable-host-pie and --disable-host-bind-now
+were treated the same as --enable-*.
+
+This is because AC_ARG_ENABLE's 3rd parameter is for "if set", not "if
+enabled".
+
+c++tools/ChangeLog:
+
+	* configure: Regenerate.
+	* configure.ac (--enable-host-pie): Fix AC_ARG_ENABLE call.
+	(--enable-host-bind-now): Ditto.
+
+fixincludes/ChangeLog:
+
+	* configure: Regenerate.
+	* configure.ac (--enable-host-pie): Fix AC_ARG_ENABLE call.
+
+gcc/ChangeLog:
+
+        * configure: Regenerate.
+	* configure.ac (--enable-host-pie): Fix AC_ARG_ENABLE call.
+	(--enable-host-bind-now): Ditto.
+
+gnattools/ChangeLog:
+
+        * configure: Regenerate.
+	* configure.ac (--enable-host-pie): Fix AC_ARG_ENABLE call.
+	(--enable-host-bind-now): Ditto.
+
+libbacktrace/ChangeLog:
+
+        * configure: Regenerate.
+	* configure.ac (--enable-host-pie): Fix AC_ARG_ENABLE call.
+	(--enable-host-shared): Ditto.
+
+libcody/ChangeLog:
+
+        * configure: Regenerate.
+	* configure.ac (--enable-host-pie): Fix AC_ARG_ENABLE call.
+
+libcpp/ChangeLog:
+
+        * configure: Regenerate.
+	* configure.ac (--enable-host-pie): Fix AC_ARG_ENABLE call.
+
+libdecnumber/ChangeLog:
+
+        * configure: Regenerate.
+	* configure.ac (--enable-host-pie): Fix AC_ARG_ENABLE call.
+
+lto-plugin/ChangeLog:
+
+        * configure: Regenerate.
+	* configure.ac (--enable-host-pie): Fix AC_ARG_ENABLE call.
+	(--enable-host-bind-now): Ditto.
+
+zlib/ChangeLog:
+
+        * configure: Regenerate.
+	* configure.ac (--enable-host-pie): Fix AC_ARG_ENABLE call.
+---
+ c++tools/configure        | 15 +++++++++++++--
+ c++tools/configure.ac     | 11 +++++++++--
+ fixincludes/configure     |  8 +++++++-
+ fixincludes/configure.ac  |  8 ++++++--
+ gcc/configure             |  8 ++++++--
+ gcc/configure.ac          |  8 ++++++--
+ gnattools/configure       | 18 +++++++++++++++---
+ gnattools/configure.ac    | 14 ++++++++++++--
+ libbacktrace/configure    | 18 +++++++++++++++---
+ libbacktrace/configure.ac | 16 +++++++++++++---
+ libcody/configure         |  4 +++-
+ libcody/configure.ac      |  3 ++-
+ libcpp/configure          |  4 +++-
+ libcpp/configure.ac       |  3 ++-
+ libdecnumber/configure    |  4 +++-
+ libdecnumber/configure.ac |  3 ++-
+ lto-plugin/configure      |  8 +++++---
+ lto-plugin/configure.ac   |  3 ++-
+ zlib/configure            |  4 +++-
+ zlib/configure.ac         |  3 ++-
+ 20 files changed, 129 insertions(+), 34 deletions(-)
+
+diff --git a/c++tools/configure b/c++tools/configure
+index 6df4a2f0dfae..d6c32162f762 100755
+--- a/c++tools/configure
++++ b/c++tools/configure
+@@ -2947,17 +2947,28 @@ fi
+ # Enable --enable-host-pie
+ # Check whether --enable-host-pie was given.
+ if test "${enable_host_pie+set}" = set; then :
+-  enableval=$enable_host_pie; PICFLAG=-fPIE; LD_PICFLAG=-pie
++  enableval=$enable_host_pie; enable_host_pie=$enableval
++else
++  enable_host_pie=no
+ fi
+ 
++if test x$enable_host_pie = xyes ; then
++   PICFLAG=-fPIE
++   LD_PICFLAG=-pie
++fi
+ 
+ 
+ # Enable --enable-host-bind-now
+ # Check whether --enable-host-bind-now was given.
+ if test "${enable_host_bind_now+set}" = set; then :
+-  enableval=$enable_host_bind_now; LD_PICFLAG="$LD_PICFLAG -Wl,-z,now"
++  enableval=$enable_host_bind_now; enable_host_bind_now=$enableval
++else
++  enable_host_bind_now=no
+ fi
+ 
++if test x$enable_host_bind_now = xyes ; then
++   LD_PICFLAG="$LD_PICFLAG -Wl,-z,now"
++fi
+ 
+ 
+ 
+diff --git a/c++tools/configure.ac b/c++tools/configure.ac
+index 3611ae6b97bf..df550c8ea2f6 100644
+--- a/c++tools/configure.ac
++++ b/c++tools/configure.ac
+@@ -101,14 +101,21 @@ fi
+ AC_ARG_ENABLE(host-pie,
+ [AS_HELP_STRING([--enable-host-pie],
+ 		[build host code as PIE])],
+-[PICFLAG=-fPIE; LD_PICFLAG=-pie], [])
++[enable_host_pie=$enableval], [enable_host_pie=no])
++if test x$enable_host_pie = xyes ; then
++   PICFLAG=-fPIE
++   LD_PICFLAG=-pie
++fi
+ AC_SUBST(PICFLAG)
+ 
+ # Enable --enable-host-bind-now
+ AC_ARG_ENABLE(host-bind-now,
+ [AS_HELP_STRING([--enable-host-bind-now],
+        [link host code as BIND_NOW])],
+-[LD_PICFLAG="$LD_PICFLAG -Wl,-z,now"], [])
++[enable_host_bind_now=$enableval], [enable_host_bind_now=no])
++if test x$enable_host_bind_now = xyes ; then
++   LD_PICFLAG="$LD_PICFLAG -Wl,-z,now"
++fi
+ AC_SUBST(enable_host_bind_now)
+ AC_SUBST(LD_PICFLAG)
+ 
+diff --git a/fixincludes/configure b/fixincludes/configure
+index 662c94dc1120..426ff960186e 100755
+--- a/fixincludes/configure
++++ b/fixincludes/configure
+@@ -4842,9 +4842,15 @@ fi
+ # Enable --enable-host-pie.
+ # Check whether --enable-host-pie was given.
+ if test "${enable_host_pie+set}" = set; then :
+-  enableval=$enable_host_pie; PICFLAG=-fPIE; LD_PICFLAG=-pie
++  enableval=$enable_host_pie; enable_host_pie=$enableval
++else
++  enable_host_pie=no
+ fi
+ 
++if test x$enable_host_pie = xyes ; then
++   PICFLAG=-fPIE
++   LD_PICFLAG=-pie
++fi
+ 
+ 
+ 
+diff --git a/fixincludes/configure.ac b/fixincludes/configure.ac
+index 4e78511d20fc..5bde7bebb52e 100644
+--- a/fixincludes/configure.ac
++++ b/fixincludes/configure.ac
+@@ -71,8 +71,12 @@ fi
+ # Enable --enable-host-pie.
+ AC_ARG_ENABLE(host-pie,
+ [AS_HELP_STRING([--enable-host-pie],
+-       [build host code as PIE])],
+-[PICFLAG=-fPIE; LD_PICFLAG=-pie], [])
++		[build host code as PIE])],
++[enable_host_pie=$enableval], [enable_host_pie=no])
++if test x$enable_host_pie = xyes ; then
++   PICFLAG=-fPIE
++   LD_PICFLAG=-pie
++fi
+ AC_SUBST(PICFLAG)
+ AC_SUBST(LD_PICFLAG)
+ 
+diff --git a/gcc/configure b/gcc/configure
+index 7dc17f4cc205..52f2a21e06bc 100755
+--- a/gcc/configure
++++ b/gcc/configure
+@@ -34558,7 +34558,9 @@ fi
+ # Enable --enable-host-pie
+ # Check whether --enable-host-pie was given.
+ if test "${enable_host_pie+set}" = set; then :
+-  enableval=$enable_host_pie;
++  enableval=$enable_host_pie; enable_host_pie=$enableval
++else
++  enable_host_pie=no
+ fi
+ 
+ 
+@@ -34581,7 +34583,9 @@ fi
+ # Enable --enable-host-bind-now
+ # Check whether --enable-host-bind-now was given.
+ if test "${enable_host_bind_now+set}" = set; then :
+-  enableval=$enable_host_bind_now;
++  enableval=$enable_host_bind_now; enable_host_bind_now=$enableval
++else
++  enable_host_bind_now=no
+ fi
+ 
+ 
+diff --git a/gcc/configure.ac b/gcc/configure.ac
+index a10d714a3c9c..66e2315f0f69 100644
+--- a/gcc/configure.ac
++++ b/gcc/configure.ac
+@@ -7516,7 +7516,9 @@ AC_SUBST(enable_host_shared)
+ # Enable --enable-host-pie
+ AC_ARG_ENABLE(host-pie,
+ [AS_HELP_STRING([--enable-host-pie],
+-		[build host code as PIE])])
++		[build host code as PIE])],
++		[enable_host_pie=$enableval],
++		[enable_host_pie=no])
+ AC_SUBST(enable_host_pie)
+ 
+ AC_ARG_ENABLE(libgdiagnostics,
+@@ -7535,7 +7537,9 @@ AC_SUBST(LIBGDIAGNOSTICS)
+ # Enable --enable-host-bind-now
+ AC_ARG_ENABLE(host-bind-now,
+ [AS_HELP_STRING([--enable-host-bind-now],
+-		[link host code as BIND_NOW])])
++		[link host code as BIND_NOW])],
++		[enable_host_bind_now=$enableval],
++		[enable_host_bind_now=no])
+ AC_SUBST(enable_host_bind_now)
+ 
+ AC_ARG_ENABLE(libquadmath-support,
+diff --git a/gnattools/configure b/gnattools/configure
+index c7744c2e6033..53bf97eba7d5 100755
+--- a/gnattools/configure
++++ b/gnattools/configure
+@@ -3654,19 +3654,31 @@ fi
+ # Enable --enable-host-pie
+ # Check whether --enable-host-pie was given.
+ if test "${enable_host_pie+set}" = set; then :
+-  enableval=$enable_host_pie; PICFLAG=-fPIE; LD_PICFLAG=-pie
++  enableval=$enable_host_pie; enable_host_pie=$enableval
+ else
+-  PICFLAG=-fno-PIE; LD_PICFLAG=-no-pie
++  enable_host_pie=no
+ fi
+ 
++if test x$enable_host_pie = xyes ; then
++   PICFLAG=-fPIE
++   LD_PICFLAG=-pie
++else
++   PICFLAG=-fno-PIE
++   LD_PICFLAG=-no-pie
++fi
+ 
+ 
+ # Enable --enable-host-bind-now
+ # Check whether --enable-host-bind-now was given.
+ if test "${enable_host_bind_now+set}" = set; then :
+-  enableval=$enable_host_bind_now; LD_PICFLAG="$LD_PICFLAG -Wl,-z,now"
++  enableval=$enable_host_bind_now; enable_host_bind_now=$enableval
++else
++  enable_host_bind_now=no
+ fi
+ 
++if test x$enable_host_bind_now = xyes ; then
++   LD_PICFLAG="$LD_PICFLAG -Wl,-z,now"
++fi
+ 
+ 
+ # Determine what to build for 'gnattools'.  Test after the above,
+diff --git a/gnattools/configure.ac b/gnattools/configure.ac
+index c9cdb694a15e..0fc400d7d1d4 100644
+--- a/gnattools/configure.ac
++++ b/gnattools/configure.ac
+@@ -101,14 +101,24 @@ AC_SUBST(warn_cflags)
+ AC_ARG_ENABLE(host-pie,
+ [AS_HELP_STRING([--enable-host-pie],
+ 		[build host code as PIE])],
+-[PICFLAG=-fPIE; LD_PICFLAG=-pie], [PICFLAG=-fno-PIE; LD_PICFLAG=-no-pie])
++[enable_host_pie=$enableval], [enable_host_pie=no])
++if test x$enable_host_pie = xyes ; then
++   PICFLAG=-fPIE
++   LD_PICFLAG=-pie
++else
++   PICFLAG=-fno-PIE
++   LD_PICFLAG=-no-pie
++fi
+ AC_SUBST(PICFLAG)
+ 
+ # Enable --enable-host-bind-now
+ AC_ARG_ENABLE(host-bind-now,
+ [AS_HELP_STRING([--enable-host-bind-now],
+        [link host code as BIND_NOW])],
+-[LD_PICFLAG="$LD_PICFLAG -Wl,-z,now"], [])
++[enable_host_bind_now=$enableval], [enable_host_bind_now=no])
++if test x$enable_host_bind_now = xyes ; then
++   LD_PICFLAG="$LD_PICFLAG -Wl,-z,now"
++fi
+ AC_SUBST(LD_PICFLAG)
+ 
+ # Determine what to build for 'gnattools'.  Test after the above,
+diff --git a/libbacktrace/configure b/libbacktrace/configure
+index 1006223d00b4..bf5dcb35483f 100755
+--- a/libbacktrace/configure
++++ b/libbacktrace/configure
+@@ -12911,17 +12911,29 @@ fi
+ # Enable --enable-host-pie.
+ # Check whether --enable-host-pie was given.
+ if test "${enable_host_pie+set}" = set; then :
+-  enableval=$enable_host_pie; PIC_FLAG=-fPIE
++  enableval=$enable_host_pie; enable_host_pie=$enableval
+ else
+-  PIC_FLAG=
++  enable_host_pie=no
+ fi
+ 
++if test x$enable_host_pie = xyes ; then
++   PIC_FLAG=-fPIE
++else
++   PIC_FLAG=
++fi
+ # Enable --enable-host-shared.
+ # Check whether --enable-host-shared was given.
+ if test "${enable_host_shared+set}" = set; then :
+-  enableval=$enable_host_shared; PIC_FLAG=-fPIC
++  enableval=$enable_host_shared; enable_host_shared=$enableval
++else
++  enable_host_shared=no
+ fi
+ 
++if test x$enable_host_shared = xyes ; then
++   PIC_FLAG=-fPIC
++else
++   PIC_FLAG=
++fi
+ 
+ 
+ # Enable Intel CET on Intel CET enabled host if jit is enabled.
+diff --git a/libbacktrace/configure.ac b/libbacktrace/configure.ac
+index 192992c79d46..9120eb6831b1 100644
+--- a/libbacktrace/configure.ac
++++ b/libbacktrace/configure.ac
+@@ -179,13 +179,23 @@ fi
+ # Enable --enable-host-pie.
+ AC_ARG_ENABLE(host-pie,
+ [AS_HELP_STRING([--enable-host-pie],
+-                [build host code as PIE])],
+-[PIC_FLAG=-fPIE], [PIC_FLAG=])
++		[build host code as PIE])],
++[enable_host_pie=$enableval], [enable_host_pie=no])
++if test x$enable_host_pie = xyes ; then
++   PIC_FLAG=-fPIE
++else
++   PIC_FLAG=
++fi
+ # Enable --enable-host-shared.
+ AC_ARG_ENABLE(host-shared,
+ [AS_HELP_STRING([--enable-host-shared],
+ 		[build host code as shared libraries])],
+-[PIC_FLAG=-fPIC])
++[enable_host_shared=$enableval], [enable_host_shared=no])
++if test x$enable_host_shared = xyes ; then
++   PIC_FLAG=-fPIC
++else
++   PIC_FLAG=
++fi
+ AC_SUBST(PIC_FLAG)
+ 
+ # Enable Intel CET on Intel CET enabled host if jit is enabled.
+diff --git a/libcody/configure b/libcody/configure
+index 0e536c0ccb06..cae5836f1062 100755
+--- a/libcody/configure
++++ b/libcody/configure
+@@ -2648,7 +2648,9 @@ fi
+ # Enable --enable-host-pie.
+ # Check whether --enable-host-pie was given.
+ if test "${enable_host_pie+set}" = set; then :
+-  enableval=$enable_host_pie;
++  enableval=$enable_host_pie; enable_host_pie=$enableval
++else
++  enable_host_pie=no
+ fi
+ 
+ 
+diff --git a/libcody/configure.ac b/libcody/configure.ac
+index 14e8dd4a2260..7b84270edd5f 100644
+--- a/libcody/configure.ac
++++ b/libcody/configure.ac
+@@ -69,7 +69,8 @@ AC_SUBST(enable_host_shared)
+ # Enable --enable-host-pie.
+ AC_ARG_ENABLE(host-pie,
+ [AS_HELP_STRING([--enable-host-pie],
+-		[build host code as PIE])])
++		[build host code as PIE])],
++[enable_host_pie=$enableval], [enable_host_pie=no])
+ AC_SUBST(enable_host_pie)
+ 
+ if test x$enable_host_shared = xyes; then
+diff --git a/libcpp/configure b/libcpp/configure
+index dea5ad963ca4..20a2bf8f24df 100755
+--- a/libcpp/configure
++++ b/libcpp/configure
+@@ -9166,7 +9166,9 @@ fi
+ # Enable --enable-host-pie.
+ # Check whether --enable-host-pie was given.
+ if test "${enable_host_pie+set}" = set; then :
+-  enableval=$enable_host_pie;
++  enableval=$enable_host_pie; enable_host_pie=$enableval
++else
++  enable_host_pie=no
+ fi
+ 
+ 
+diff --git a/libcpp/configure.ac b/libcpp/configure.ac
+index 5f26356570d5..9790c812afe1 100644
+--- a/libcpp/configure.ac
++++ b/libcpp/configure.ac
+@@ -211,7 +211,8 @@ AC_SUBST(enable_host_shared)
+ # Enable --enable-host-pie.
+ AC_ARG_ENABLE(host-pie,
+ [AS_HELP_STRING([--enable-host-pie],
+-		[build host code as PIE])])
++		[build host code as PIE])],
++[enable_host_pie=$enableval], [enable_host_pie=no])
+ AC_SUBST(enable_host_pie)
+ 
+ if test x$enable_host_shared = xyes; then
+diff --git a/libdecnumber/configure b/libdecnumber/configure
+index f06c7ac1d3f6..464d0eaba057 100755
+--- a/libdecnumber/configure
++++ b/libdecnumber/configure
+@@ -5198,7 +5198,9 @@ fi
+ # Enable --enable-host-pie.
+ # Check whether --enable-host-pie was given.
+ if test "${enable_host_pie+set}" = set; then :
+-  enableval=$enable_host_pie;
++  enableval=$enable_host_pie; enable_host_pie=$enableval
++else
++  enable_host_pie=no
+ fi
+ 
+ 
+diff --git a/libdecnumber/configure.ac b/libdecnumber/configure.ac
+index 4994f95bc4c7..fb21216df915 100644
+--- a/libdecnumber/configure.ac
++++ b/libdecnumber/configure.ac
+@@ -106,7 +106,8 @@ AC_SUBST(enable_host_shared)
+ # Enable --enable-host-pie.
+ AC_ARG_ENABLE(host-pie,
+ [AS_HELP_STRING([--enable-host-pie],
+-		[build host code as PIE])])
++		[build host code as PIE])],
++[enable_host_pie=$enableval], [enable_host_pie=no])
+ AC_SUBST(enable_host_pie)
+ 
+ if test x$enable_host_shared = xyes; then
+diff --git a/lto-plugin/configure b/lto-plugin/configure
+index 2e37612e60bb..8fe195727457 100755
+--- a/lto-plugin/configure
++++ b/lto-plugin/configure
+@@ -5682,7 +5682,9 @@ fi
+ # Enable --enable-host-bind-now
+ # Check whether --enable-host-bind-now was given.
+ if test "${enable_host_bind_now+set}" = set; then :
+-  enableval=$enable_host_bind_now;
++  enableval=$enable_host_bind_now; enable_host_bind_now=$enableval
++else
++  enable_host_bind_now=no
+ fi
+ 
+ 
+@@ -12630,7 +12632,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 12633 "configure"
++#line 12635 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -12736,7 +12738,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 12739 "configure"
++#line 12741 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+diff --git a/lto-plugin/configure.ac b/lto-plugin/configure.ac
+index c051b8c62837..09473d7f8e39 100644
+--- a/lto-plugin/configure.ac
++++ b/lto-plugin/configure.ac
+@@ -29,7 +29,8 @@ fi
+ # Enable --enable-host-bind-now
+ AC_ARG_ENABLE(host-bind-now,
+ [AS_HELP_STRING([--enable-host-bind-now],
+-       [link host code as BIND_NOW])])
++       [link host code as BIND_NOW])],
++[enable_host_bind_now=$enableval], [enable_host_bind_now=no])
+ AC_SUBST(enable_host_bind_now)
+ 
+ if test x$enable_host_bind_now = xyes; then
+diff --git a/zlib/configure b/zlib/configure
+index 6bc5a28e164e..38bd7bb9badc 100755
+--- a/zlib/configure
++++ b/zlib/configure
+@@ -12050,7 +12050,9 @@ fi
+ # Enable --enable-host-pie.
+ # Check whether --enable-host-pie was given.
+ if test "${enable_host_pie+set}" = set; then :
+-  enableval=$enable_host_pie;
++  enableval=$enable_host_pie; enable_host_pie=$enableval
++else
++  enable_host_pie=no
+ fi
+ 
+ 
+diff --git a/zlib/configure.ac b/zlib/configure.ac
+index 434bfcb072a4..5e9f421a21e6 100644
+--- a/zlib/configure.ac
++++ b/zlib/configure.ac
+@@ -132,7 +132,8 @@ AC_SUBST(enable_host_shared)
+ # Enable --enable-host-pie.
+ AC_ARG_ENABLE(host-pie,
+ [AS_HELP_STRING([--enable-host-pie],
+-		[build host code as PIE])])
++		[build host code as PIE])],
++[enable_host_pie=$enableval], [enable_host_pie=no])
+ AC_SUBST(enable_host_pie)
+ 
+ if test x$enable_host_shared = xyes; then
+
+base-commit: 136ef3b4dd3d9ccf9c974e0dde01f7383027499b
+-- 
+2.53.0
+
