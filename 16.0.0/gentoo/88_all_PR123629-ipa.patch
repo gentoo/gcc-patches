@@ -1,0 +1,76 @@
+From 32bd375af7b0aa9bb289a7da636bd4d29c52c47b Mon Sep 17 00:00:00 2001
+Message-ID: <32bd375af7b0aa9bb289a7da636bd4d29c52c47b.1771940379.git.sam@gentoo.org>
+From: Martin Jambor <mjambor@suse.cz>
+Date: Tue, 24 Feb 2026 11:41:07 +0100
+Subject: [PATCH] ipa: Meet same speculative and certain polymorphic contexts
+ (PR123629)
+
+Hi,
+
+PR 123629 is a somewhat complicated situation.  IPA-CP clones for a
+known speculative polymorphic context in a situation when a caller
+bringing the known context has itself already been cloned, and now we
+can determine that the context coming from that clone is not
+speculative (but otherwise the same).  This confuses the meet function
+of contexts which gives up and returns a useless context, which in
+turn triggers an assert because the value we originally cloned for is
+nowhere to be found in the data structures which describe what we know
+about the function clone.
+
+This patch changes the meet function so that it can deal with this
+situation.  When one of the contexts does not have a certain
+component, the other one is moved to the speculative one.
+
+The patch does not have a testcase, because even though Josef Melcr has
+heroically managed to reduce the original Firefox LTO failure to six
+small files, possibly a lot of work would be needed to make their LTO
+link pass when this is fixed.
+
+The patch has passed bootstrap and testing on x86_64-linux, I have also
+LTO-bootstrapped it with -O3 and profiled-bootstrapped it.
+
+OK for master?
+
+Thanks,
+
+Martin
+
+gcc/ChangeLog:
+
+2026-02-23  Martin Jambor  <mjambor@suse.cz>
+
+PR ipa/123629
+	* ipa-polymorphic-call.cc
+	(ipa_polymorphic_call_context::meet_with): When an outer context is
+	NULL, call make_speculative on the other one.
+---
+ gcc/ipa-polymorphic-call.cc | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/gcc/ipa-polymorphic-call.cc b/gcc/ipa-polymorphic-call.cc
+index 5e53c217e33c..b32dc70806f5 100644
+--- a/gcc/ipa-polymorphic-call.cc
++++ b/gcc/ipa-polymorphic-call.cc
+@@ -2482,12 +2482,14 @@ ipa_polymorphic_call_context::meet_with (ipa_polymorphic_call_context ctx,
+       updated = true;
+     }
+ 
+-  /* If call is known to be invalid, we are done.  */
++  /* If a certain context is known to be invalid, we can move to comparing
++     speculation.  Because the second context might be a certain one which can
++     be met with the speculation of the first, make it speculative.  */
+   if (!outer_type)
+-    ;
++    ctx.make_speculative ();
+   else if (!ctx.outer_type)
+     {
+-      clear_outer_type ();
++      make_speculative ();
+       updated = true;
+     }
+   /* If types are known to be same, merging is quite easy.  */
+
+base-commit: a8150eea4e228a387305714554071cf10a6f180f
+-- 
+2.53.0
+
