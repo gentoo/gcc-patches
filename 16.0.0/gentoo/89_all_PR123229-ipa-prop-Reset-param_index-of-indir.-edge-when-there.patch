@@ -1,0 +1,129 @@
+From df63b520e9739c07448fd600a6a905391b5e8728 Mon Sep 17 00:00:00 2001
+Message-ID: <df63b520e9739c07448fd600a6a905391b5e8728.1772195584.git.sam@gentoo.org>
+From: Martin Jambor <mjambor@suse.cz>
+Date: Fri, 27 Feb 2026 11:20:02 +0100
+Subject: [PATCH] ipa-prop: Reset param_index of indir. edge when there are no
+ jfuncs (PR123229)
+
+Hi,
+
+in my commit r16-6149-g14ee9a2b41bafa I have added an early exit to
+update_indirect_edges_after_inlining which was however wrong, as
+demonstrated by the PR123229 testcase.  This patch reverts that change,
+restoring the previous behavior in this regard.
+
+In the testcase, the edge being inlined is a call to a thunk, which do
+not have jump functions associated with them.  This means that with
+the early exit we neither reset the parameter index associated with
+the indirect edge nor update the edges and the usage flags associated
+with them
+
+In the testcase, this meant that the param_used_by_indirect_call flag
+was not updated, which in turn meant that the inlining edge cost cache
+did not copy necessary information into the context which led to the
+fact that two contexts which were not the same were considered the
+same, and the checking code that evaluations in the cache should match
+a re-evaluation triggered.  But unfortunately this bug can probably
+have all sorts of weird and unexpected consequences.
+
+The testcase also shows that inlined thunks are a barrier to
+devirtualization which is something I will try to address next stage1.
+
+I'm currently bootstrapping&testing and O3-lto-bootstrapping this on
+x86_64-linux.  I plan to commit it if they pass because it is
+essentially a revert of my own change, even if only of a small bit of
+the patch.
+
+Martin
+
+gcc/ChangeLog:
+
+2026-02-27  Martin Jambor  <mjambor@suse.cz>
+
+	PR ipa/123229
+	* ipa-prop.cc (update_indirect_edges_after_inlining): Reset parameter
+	index associated with an indirect edge if the inlined edge does not
+	have any jump functions.
+
+gcc/testsuite/ChangeLog:
+
+2026-02-27  Martin Jambor  <mjambor@suse.cz>
+
+PR ipa/123229
+	* g++.dg/ipa/pr123229.C: New test.
+---
+ gcc/ipa-prop.cc                     |  5 ++--
+ gcc/testsuite/g++.dg/ipa/pr123229.C | 36 +++++++++++++++++++++++++++++
+ 2 files changed, 38 insertions(+), 3 deletions(-)
+ create mode 100644 gcc/testsuite/g++.dg/ipa/pr123229.C
+
+diff --git a/gcc/ipa-prop.cc b/gcc/ipa-prop.cc
+index 12e936ba29bf..385912c37901 100644
+--- a/gcc/ipa-prop.cc
++++ b/gcc/ipa-prop.cc
+@@ -4539,8 +4539,6 @@ update_indirect_edges_after_inlining (struct cgraph_edge *cs,
+ 
+   ipa_check_create_edge_args ();
+   class ipa_edge_args *top = ipa_edge_args_sum->get (cs);
+-  if (!top)
+-    return res;
+   cgraph_node *new_root
+     = cs->caller->inlined_to ? cs->caller->inlined_to : cs->caller;
+   ipa_node_params *new_root_info = ipa_node_params_sum->get (new_root);
+@@ -4552,7 +4550,8 @@ update_indirect_edges_after_inlining (struct cgraph_edge *cs,
+     {
+       next_ie = ie->next_callee;
+ 
+-      if (ie->indirect_info->param_index < 0
++      if (!top
++	  || ie->indirect_info->param_index < 0
+ 	  || ie->indirect_info->param_index >= ipa_get_cs_argument_count (top))
+ 	{
+ 	  ie->indirect_info->param_index = -1;
+diff --git a/gcc/testsuite/g++.dg/ipa/pr123229.C b/gcc/testsuite/g++.dg/ipa/pr123229.C
+new file mode 100644
+index 000000000000..7c4931871d9a
+--- /dev/null
++++ b/gcc/testsuite/g++.dg/ipa/pr123229.C
+@@ -0,0 +1,36 @@
++/* { dg-do compile } */
++/* { dg-options "-O3 -fno-exceptions" } */
++
++class a {
++  virtual int c();
++};
++struct e {
++  virtual e *d(unsigned) const;
++  void m_fn3() { d(0); }
++} *f, *g;
++struct h : a, e {
++  e *d(unsigned) const { return i(); }
++  virtual h *i() const;
++};
++struct j {
++  virtual void k(e *);
++};
++void l(j &m) {
++  m.k(g);
++  while (1) {
++    m.k(f);
++    f->m_fn3();
++  }
++}
++struct n : j {
++  void k(e *m) {
++    if (o)
++      m->m_fn3();
++  }
++  bool o;
++};
++void p() {
++  n b;
++  l(b);
++}
++
+
+base-commit: 622b68c6e14b9c289f64709ca772b02cb5855cb1
+-- 
+2.53.0
+
