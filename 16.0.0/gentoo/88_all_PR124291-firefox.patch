@@ -1,4 +1,75 @@
-https://gcc.gnu.org/bugzilla/show_bug.cgi?id=124291#c12
+From 82ef5f5e7d240747cad2eb697f97b95323f76c74 Mon Sep 17 00:00:00 2001
+Message-ID: <82ef5f5e7d240747cad2eb697f97b95323f76c74.1772799281.git.sam@gentoo.org>
+From: Martin Jambor <mjambor@suse.cz>
+Date: Fri, 6 Mar 2026 13:09:01 +0100
+Subject: [PATCH] ipa-cp: Allow more precise contexts in the verifier
+ (PR124291)
+
+Hi,
+
+similarly to PR123629, the issue again stems from that when propagating
+polymorphic contexts, when there are no known "values" in the corresponding
+lattice of the caller we use just the information on the edge and when
+there are some we combine them with the information, and from the fact that
+we iterate the propagation in strongly connected components of the call
+graph (SCCs).
+
+In the first iteration over such SCC, we process the edge from
+unmark/1097720 to onChild/1097719 before we determined the lattices of the
+caller.  In the second iteration, we already know what context there will
+be in the first unmarks's parameter and so can add a more precise value to
+the corresponding lattice of onChild.  Because we always add values to the
+lattices and never "improve" them, we get two values for the call.
+
+In PR123629, that actually described reality well because the caller's
+lattice had the variable flag set, without cloning the caller we could not
+assume we could use the caller's lattice value and so both values were
+possible (and in fact both cases happened, the problem was that their meet
+failed).
+
+In this case however, one could argue that the lattices contain wrong info
+or at least information that is misleading because the caller's lattice
+contains just that single "constant" and the variable flag is not set.  We
+know that regardless of cloning decisions for the caller the more precise
+derived value will be the case.  And indeed since I changed the cloning
+code to re-gather all constants for the given set of callers, that code
+arrives at the more precise context.  For the record they only differ in
+the fact that the more precise one has the dynamic flag cleared.
+
+I have thought about how to fix up the lattices in one way or another but
+so far it has always turned ugly.  Therefore this patch simply changes the
+verification to simply allow this situation because even though the final
+result is just a bit more precise than what was expected, it is however
+correct.  There will not be any attempt to clone for the more precise
+context because all the call graph edges will have been redirected away.
+The only "issue" is that the less precise contexts take up place in the
+lattice, which has a limited length.  That should not be a problem in
+practice.
+
+I do not have a simple testcase, the issue was discovered by Sam when
+building Firefox with both LTO and PGO.  However Sam has reported in
+Bugzilla that with this patch the build succeeds.  Needless to say, I
+have bootstrapped, tested and LTOprofieldbootstrapped the patch.
+
+OK for master?
+
+Thanks,
+
+Martin
+
+gcc/ChangeLog:
+
+2026-03-06  Martin Jambor  <mjambor@suse.cz>
+
+PR ipa/124291
+	* ipa-cp.cc (ipcp_val_replacement_ok_p): Allow more precise
+	contexts that what the clone was originally intended for.
+---
+ gcc/ipa-cp.cc | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/gcc/ipa-cp.cc b/gcc/ipa-cp.cc
+index b4e01a92344e..4765ef972b9d 100644
 --- a/gcc/ipa-cp.cc
 +++ b/gcc/ipa-cp.cc
 @@ -5920,11 +5920,19 @@ ipcp_val_replacement_ok_p (vec<tree> &,
@@ -25,3 +96,8 @@ https://gcc.gnu.org/bugzilla/show_bug.cgi?id=124291#c12
  }
  
  /* Decide whether to create a special version of NODE for value VAL of
+
+base-commit: e1077ad5753148892871fa146f3948b55c46f7e3
+-- 
+2.53.0
+
