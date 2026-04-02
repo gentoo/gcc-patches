@@ -1,7 +1,8 @@
-From c012b20eca546ec60878058094e59267ebfba1a9 Mon Sep 17 00:00:00 2001
+From a80ab24d90b14b3d4971843693b09c30b511ae42 Mon Sep 17 00:00:00 2001
+Message-ID: <a80ab24d90b14b3d4971843693b09c30b511ae42.1775133863.git.sam@gentoo.org>
 From: James Le Cuirot <chewi@gentoo.org>
 Date: Mon, 23 Dec 2024 16:50:25 +0000
-Subject: [PATCH 3/3] Allow setting target sysroot with ESYSROOT env var for
+Subject: [PATCH] Allow setting target sysroot with ESYSROOT env var for
  cross-compilers
 
 The variable is ignored for native compilers, when it matches BROOT, and
@@ -21,10 +22,10 @@ Signed-off-by: James Le Cuirot <chewi@gentoo.org>
  2 files changed, 40 insertions(+)
 
 diff --git a/gcc/doc/invoke.texi b/gcc/doc/invoke.texi
-index 0a7a81b20..d66f53b65 100644
+index 7749513bfb44..99e293a1d71b 100644
 --- a/gcc/doc/invoke.texi
 +++ b/gcc/doc/invoke.texi
-@@ -19355,6 +19355,10 @@ for this option.  If your linker does not support this option, the
+@@ -18901,6 +18901,10 @@ for this option.  If your linker does not support this option, the
  header file aspect of @option{--sysroot} still works, but the
  library aspect does not.
  
@@ -35,7 +36,7 @@ index 0a7a81b20..d66f53b65 100644
  @opindex no-sysroot-suffix
  @item --no-sysroot-suffix
  For some targets, a suffix is added to the root directory specified
-@@ -37590,6 +37594,13 @@ using GCC also uses these directories when searching for ordinary
+@@ -37535,6 +37539,13 @@ using GCC also uses these directories when searching for ordinary
  libraries for the @option{-l} option (but directories specified with
  @option{-L} come first).
  
@@ -46,14 +47,14 @@ index 0a7a81b20..d66f53b65 100644
 +matches @env{BROOT}, and when the target machine does not match @env{CHOST}
 +(if set).  The @option{--sysroot} option takes precedence.
 +
- @vindex LANG
- @cindex locale definition
- @item LANG
+ @vindex GCC_EXTRA_DIAGNOSTIC_OUTPUT
+ @item GCC_EXTRA_DIAGNOSTIC_OUTPUT
+ If @env{GCC_EXTRA_DIAGNOSTIC_OUTPUT} is set to one of the following values,
 diff --git a/gcc/gcc.cc b/gcc/gcc.cc
-index 4188f0049..e88c7067f 100644
+index 43b0158ee02b..dc973f541516 100644
 --- a/gcc/gcc.cc
 +++ b/gcc/gcc.cc
-@@ -5486,6 +5486,35 @@ process_command (unsigned int decoded_options_count,
+@@ -5525,6 +5525,35 @@ process_command (unsigned int decoded_options_count,
        gcc_assert (!compare_debug_opt);
      }
  
@@ -89,6 +90,8 @@ index 4188f0049..e88c7067f 100644
    /* Set up the search paths.  We add directories that we expect to
       contain GNU Toolchain components before directories specified by
       the machine description so that we will find GNU components (like
+
+base-commit: 37b6f073bb1f81bdde024edc9b30f476d6db14e5
 -- 
-2.47.1
+2.53.0
 
