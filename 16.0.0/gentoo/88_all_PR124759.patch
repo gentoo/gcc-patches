@@ -1,0 +1,163 @@
+From 2aabf241fa40a72a6e0b0148cb3d205f7f06eb8c Mon Sep 17 00:00:00 2001
+Message-ID: <2aabf241fa40a72a6e0b0148cb3d205f7f06eb8c.1775260018.git.sam@gentoo.org>
+From: "H.J. Lu" <hjl.tools@gmail.com>
+Date: Fri, 3 Apr 2026 15:55:17 +0800
+Subject: [PATCH] Correct x86: Call ix86_access_stack_p only for larger
+ alignment
+
+commit f511bf93f947199a9f9099fee87b7052e5515fb9
+Author: H.J. Lu <hjl.tools@gmail.com>
+Date:   Sun Mar 29 14:30:28 2026 -0700
+
+    x86: Call ix86_access_stack_p only for larger alignment
+
+has 2 issues:
+
+1. It is incorrect to use GET_MODE_ALIGNMENT as memory alignment since
+memory alignment can be different from mode alignment as in
+
+(set (reg:OI 20 xmm0 [orig:112 s ] [112])
+     (mem/c:OI (plus:DI (reg/f:DI 7 sp)
+            (const_int -32 [0xffffffffffffffe0])) [3 s+0 S32 A128]))
+
+MEM_ALIGN should be used instead.
+
+2. It replaced:
+
+  HARD_REG_SET hard_stack_slot_access = stack_slot_access;
+  ...
+      bool symbolic_const_load_p = false;
+
+      if (!TEST_HARD_REG_BIT (hard_stack_slot_access, regno))
+	...
+        symbolic_const_load_p = true;
+      ...
+
+      if (!symbolic_const_load_p
+          || ix86_access_stack_p...)
+	call ix86_update_stack_alignment.
+
+with
+
+      if (ix86_need_alignment_p...
+          && ix86_access_stack_p...)
+	call ix86_update_stack_alignment.
+
+Since ix86_access_stack_p excludes registers on hard_stack_slot_access,
+stack alignment isn't updated for registers on hard_stack_slot_access.
+Instead, we should do
+
+      if (ix86_need_alignment_p...
+          && (TEST_HARD_REG_BIT (hard_stack_slot_access, regno)
+	      || ix86_access_stack_p...))
+	call ix86_update_stack_alignment.
+
+gcc/
+
+	PR target/124759
+	* config/i386/i386.cc (ix86_need_alignment_p_1): Replace
+	GET_MODE_ALIGNMENT with MEM_ALIGN.
+	(ix86_find_max_used_stack_alignment): Restore
+	hard_stack_slot_access handling.
+
+gcc/testsuite/
+
+	PR target/124759
+	* gcc.target/i386/pr124759.c: New test.
+
+Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
+---
+ gcc/config/i386/i386.cc                  | 17 +++++++++-----
+ gcc/testsuite/gcc.target/i386/pr124759.c | 29 ++++++++++++++++++++++++
+ 2 files changed, 40 insertions(+), 6 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr124759.c
+
+diff --git a/gcc/config/i386/i386.cc b/gcc/config/i386/i386.cc
+index 39136ce5042d..146b83f6d1ee 100644
+--- a/gcc/config/i386/i386.cc
++++ b/gcc/config/i386/i386.cc
+@@ -8789,7 +8789,7 @@ ix86_need_alignment_p_1 (rtx set, unsigned int alignment)
+   rtx dest = SET_DEST (set);
+ 
+   if (MEM_P (dest))
+-    return GET_MODE_ALIGNMENT (GET_MODE (dest)) > alignment;
++    return MEM_ALIGN (dest) > alignment;
+ 
+   const_rtx src = SET_SRC (set);
+ 
+@@ -8799,7 +8799,7 @@ ix86_need_alignment_p_1 (rtx set, unsigned int alignment)
+       auto op = *iter;
+ 
+       if (MEM_P (op))
+-	return GET_MODE_ALIGNMENT (GET_MODE (op)) > alignment;
++	return MEM_ALIGN (op) > alignment;
+     }
+ 
+   return false;
+@@ -8890,6 +8890,9 @@ ix86_find_max_used_stack_alignment (unsigned int &stack_alignment,
+       bitmap_set_bit (worklist, HARD_FRAME_POINTER_REGNUM);
+     }
+ 
++  /* Registers on HARD_STACK_SLOT_ACCESS always access stack.  */
++  HARD_REG_SET hard_stack_slot_access = stack_slot_access;
++
+   calculate_dominance_info (CDI_DOMINATORS);
+ 
+   unsigned int regno;
+@@ -8926,10 +8929,12 @@ ix86_find_max_used_stack_alignment (unsigned int &stack_alignment,
+ 	  /* Call ix86_access_stack_p only if INSN needs alignment >
+ 	     STACK_ALIGNMENT.  */
+ 	  if (ix86_need_alignment_p (insn, stack_alignment)
+-	      && ix86_access_stack_p (regno, BLOCK_FOR_INSN (insn),
+-				      set_up_by_prologue, prologue_used,
+-				      reg_dominate_bbs_known,
+-				      reg_dominate_bbs))
++	      && (TEST_HARD_REG_BIT (hard_stack_slot_access, regno)
++		  || ix86_access_stack_p (regno, BLOCK_FOR_INSN (insn),
++					  set_up_by_prologue,
++					  prologue_used,
++					  reg_dominate_bbs_known,
++					  reg_dominate_bbs)))
+ 	    {
+ 	      /* Update stack alignment if REGNO is used for stack
+ 		 access.  */
+diff --git a/gcc/testsuite/gcc.target/i386/pr124759.c b/gcc/testsuite/gcc.target/i386/pr124759.c
+new file mode 100644
+index 000000000000..b5a86b7b9bed
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr124759.c
+@@ -0,0 +1,29 @@
++/* { dg-do run { target avx_runtime } } */
++/* { dg-options "-fhardened -O3 -mavx" } */
++
++struct a {
++  unsigned long long b;
++  unsigned long long c;
++  int d;
++  char e;
++  int f;
++} g;
++int h = 1, i, j;
++long long k, l, n;
++int m[1]={};
++short o;
++static inline short p(short q, short r) { return q + r; }
++int main() {
++  for (; h < 3; h = p(h, 1))
++    if (h) {
++      k |= 4;
++      struct a s = {8, 2, 2, 4, 15};
++      for (int n = 0; n != 54; n++)
++        if (m[l])
++          if (i)
++            o = 0;
++      g = s;
++      j &= 4073709551610LL;
++    }
++  return 0;
++}
+
+base-commit: 831c9cedac94daf620dd6910085ad94106940efe
+-- 
+2.53.0
+
