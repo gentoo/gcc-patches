@@ -1,5 +1,4 @@
-From 2aabf241fa40a72a6e0b0148cb3d205f7f06eb8c Mon Sep 17 00:00:00 2001
-Message-ID: <2aabf241fa40a72a6e0b0148cb3d205f7f06eb8c.1775260018.git.sam@gentoo.org>
+From 097b879d8edf58e5156ebb1975a883caf99a63a7 Mon Sep 17 00:00:00 2001
 From: "H.J. Lu" <hjl.tools@gmail.com>
 Date: Fri, 3 Apr 2026 15:55:17 +0800
 Subject: [PATCH] Correct x86: Call ix86_access_stack_p only for larger
@@ -20,7 +19,8 @@ memory alignment can be different from mode alignment as in
      (mem/c:OI (plus:DI (reg/f:DI 7 sp)
             (const_int -32 [0xffffffffffffffe0])) [3 s+0 S32 A128]))
 
-MEM_ALIGN should be used instead.
+MEM_ALIGN should be used instead and memory with SYMBOLIC_CONST should
+be skipped.
 
 2. It replaced:
 
@@ -47,6 +47,9 @@ Since ix86_access_stack_p excludes registers on hard_stack_slot_access,
 stack alignment isn't updated for registers on hard_stack_slot_access.
 Instead, we should do
 
+The compile times of PR target/124165 and PR target/124684 test are
+unchanged.
+
       if (ix86_need_alignment_p...
           && (TEST_HARD_REG_BIT (hard_stack_slot_access, regno)
 	      || ix86_access_stack_p...))
@@ -54,47 +57,79 @@ Instead, we should do
 
 gcc/
 
+	PR target/124789
 	PR target/124759
-	* config/i386/i386.cc (ix86_need_alignment_p_1): Replace
-	GET_MODE_ALIGNMENT with MEM_ALIGN.
+	* config/i386/i386.cc (ix86_need_alignment_p_2): New function.
+	(ix86_need_alignment_p_1): Replace GET_MODE_ALIGNMENT with
+	MEM_ALIGN.
 	(ix86_find_max_used_stack_alignment): Restore
 	hard_stack_slot_access handling.
 
 gcc/testsuite/
 
+	PR target/124789
 	PR target/124759
 	* gcc.target/i386/pr124759.c: New test.
 
 Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
 ---
- gcc/config/i386/i386.cc                  | 17 +++++++++-----
- gcc/testsuite/gcc.target/i386/pr124759.c | 29 ++++++++++++++++++++++++
- 2 files changed, 40 insertions(+), 6 deletions(-)
+ gcc/config/i386/i386.cc                  | 39 ++++++++++++++++++++----
+ gcc/testsuite/gcc.target/i386/pr124759.c | 29 ++++++++++++++++++
+ 2 files changed, 62 insertions(+), 6 deletions(-)
  create mode 100644 gcc/testsuite/gcc.target/i386/pr124759.c
 
 diff --git a/gcc/config/i386/i386.cc b/gcc/config/i386/i386.cc
-index 39136ce5042d..146b83f6d1ee 100644
+index 39136ce5042..ed7c830a41d 100644
 --- a/gcc/config/i386/i386.cc
 +++ b/gcc/config/i386/i386.cc
-@@ -8789,7 +8789,7 @@ ix86_need_alignment_p_1 (rtx set, unsigned int alignment)
+@@ -8781,6 +8781,28 @@ ix86_access_stack_p (unsigned int regno, basic_block bb,
+   return false;
+ }
+ 
++/* Return true if OP isn't a memory operand with SYMBOLIC_CONST and
++   needs alignment > ALIGNMENT.  */
++
++static bool
++ix86_need_alignment_p_2 (const_rtx op, unsigned int alignment)
++{
++  tree mem_expr = MEM_EXPR (op);
++  if (!mem_expr)
++    return MEM_ALIGN (op) > alignment;
++
++  tree var = get_base_address (mem_expr);
++  if (!VAR_P (var))
++    return MEM_ALIGN (op) > alignment;
++
++  op = DECL_RTL (var);
++  if (!op)
++    return MEM_ALIGN (op) > alignment;
++
++  rtx x = XEXP (op, 0);
++  return !SYMBOLIC_CONST (x) && MEM_ALIGN (op) > alignment;
++}
++
+ /* Return true if SET needs alignment > ALIGNMENT.  */
+ 
+ static bool
+@@ -8789,7 +8811,7 @@ ix86_need_alignment_p_1 (rtx set, unsigned int alignment)
    rtx dest = SET_DEST (set);
  
    if (MEM_P (dest))
 -    return GET_MODE_ALIGNMENT (GET_MODE (dest)) > alignment;
-+    return MEM_ALIGN (dest) > alignment;
++    return ix86_need_alignment_p_2 (dest, alignment);
  
    const_rtx src = SET_SRC (set);
  
-@@ -8799,7 +8799,7 @@ ix86_need_alignment_p_1 (rtx set, unsigned int alignment)
+@@ -8799,7 +8821,7 @@ ix86_need_alignment_p_1 (rtx set, unsigned int alignment)
        auto op = *iter;
  
        if (MEM_P (op))
 -	return GET_MODE_ALIGNMENT (GET_MODE (op)) > alignment;
-+	return MEM_ALIGN (op) > alignment;
++	return ix86_need_alignment_p_2 (op, alignment);
      }
  
    return false;
-@@ -8890,6 +8890,9 @@ ix86_find_max_used_stack_alignment (unsigned int &stack_alignment,
+@@ -8890,6 +8912,9 @@ ix86_find_max_used_stack_alignment (unsigned int &stack_alignment,
        bitmap_set_bit (worklist, HARD_FRAME_POINTER_REGNUM);
      }
  
@@ -104,7 +139,7 @@ index 39136ce5042d..146b83f6d1ee 100644
    calculate_dominance_info (CDI_DOMINATORS);
  
    unsigned int regno;
-@@ -8926,10 +8929,12 @@ ix86_find_max_used_stack_alignment (unsigned int &stack_alignment,
+@@ -8926,10 +8951,12 @@ ix86_find_max_used_stack_alignment (unsigned int &stack_alignment,
  	  /* Call ix86_access_stack_p only if INSN needs alignment >
  	     STACK_ALIGNMENT.  */
  	  if (ix86_need_alignment_p (insn, stack_alignment)
@@ -123,7 +158,7 @@ index 39136ce5042d..146b83f6d1ee 100644
  		 access.  */
 diff --git a/gcc/testsuite/gcc.target/i386/pr124759.c b/gcc/testsuite/gcc.target/i386/pr124759.c
 new file mode 100644
-index 000000000000..b5a86b7b9bed
+index 00000000000..b5a86b7b9be
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/i386/pr124759.c
 @@ -0,0 +1,29 @@
@@ -156,8 +191,5 @@ index 000000000000..b5a86b7b9bed
 +    }
 +  return 0;
 +}
-
-base-commit: 831c9cedac94daf620dd6910085ad94106940efe
 -- 
 2.53.0
-
