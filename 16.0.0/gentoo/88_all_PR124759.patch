@@ -1,4 +1,4 @@
-From 097b879d8edf58e5156ebb1975a883caf99a63a7 Mon Sep 17 00:00:00 2001
+From 8f6d085c91953e32fbd0137add55274130ea3a93 Mon Sep 17 00:00:00 2001
 From: "H.J. Lu" <hjl.tools@gmail.com>
 Date: Fri, 3 Apr 2026 15:55:17 +0800
 Subject: [PATCH] Correct x86: Call ix86_access_stack_p only for larger
@@ -57,9 +57,11 @@ unchanged.
 
 gcc/
 
-	PR target/124789
 	PR target/124759
-	* config/i386/i386.cc (ix86_need_alignment_p_2): New function.
+	PR target/124789
+	* config/i386/i386.cc (ix86_access_stack_p): Check if register
+	is set in the immediate dominator.
+	(ix86_need_alignment_p_2): New function.
 	(ix86_need_alignment_p_1): Replace GET_MODE_ALIGNMENT with
 	MEM_ALIGN.
 	(ix86_find_max_used_stack_alignment): Restore
@@ -67,25 +69,93 @@ gcc/
 
 gcc/testsuite/
 
-	PR target/124789
 	PR target/124759
+	PR target/124789
 	* gcc.target/i386/pr124759.c: New test.
 
 Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
 ---
- gcc/config/i386/i386.cc                  | 39 ++++++++++++++++++++----
- gcc/testsuite/gcc.target/i386/pr124759.c | 29 ++++++++++++++++++
- 2 files changed, 62 insertions(+), 6 deletions(-)
+ gcc/config/i386/i386.cc                  | 95 +++++++++++++++++++-----
+ gcc/testsuite/gcc.target/i386/pr124759.c | 29 ++++++++
+ 2 files changed, 107 insertions(+), 17 deletions(-)
  create mode 100644 gcc/testsuite/gcc.target/i386/pr124759.c
 
 diff --git a/gcc/config/i386/i386.cc b/gcc/config/i386/i386.cc
-index 39136ce5042..ed7c830a41d 100644
+index 39136ce5042..f7adddb6ff9 100644
 --- a/gcc/config/i386/i386.cc
 +++ b/gcc/config/i386/i386.cc
-@@ -8781,6 +8781,28 @@ ix86_access_stack_p (unsigned int regno, basic_block bb,
-   return false;
- }
+@@ -8753,6 +8753,11 @@ ix86_access_stack_p (unsigned int regno, basic_block bb,
  
+   bitmap_set_bit (reg_dominate_bbs_known[regno], bb->index);
+ 
++  unsigned int n_basic_blocks = n_basic_blocks_for_fn (cfun);
++  rtx_insn **set_insns = XNEWVEC (rtx_insn *, n_basic_blocks);
++  rtx_insn *insn;
++  auto_bitmap set_bbs;
++
+   /* Get all BBs which set REGNO and dominate the current BB from all
+      DEFs of REGNO.  */
+   for (df_ref def = DF_REG_DEF_CHAIN (regno);
+@@ -8765,20 +8770,71 @@ ix86_access_stack_p (unsigned int regno, basic_block bb,
+ 	basic_block set_bb = DF_REF_BB (def);
+ 	if (dominated_by_p (CDI_DOMINATORS, bb, set_bb))
+ 	  {
+-	    rtx_insn *insn = DF_REF_INSN (def);
+-	    /* Return true if INSN requires stack.  */
+-	    if (requires_stack_frame_p (insn, prologue_used,
+-					set_up_by_prologue))
+-	      {
+-		bitmap_set_bit (reg_dominate_bbs[regno], bb->index);
+-		return true;
+-	      }
++	    /* Record the set BB and the set INSN.  */
++	    insn = DF_REF_INSN (def);
++	    bitmap_set_bit (set_bbs, set_bb->index);
++	    set_insns[set_bb->index] = insn;
+ 	  }
+       }
+ 
+-  /* When we get here, REGNO used in the current BB doesn't access
+-     stack.  */
+-  return false;
++  basic_block dom_bb = get_immediate_dominator (CDI_DOMINATORS, bb);
++  if (dom_bb && bitmap_bit_p (set_bbs, dom_bb->index))
++    {
++      /* When REGNO is set in DOM_BB, return true if the set INSN
++	 requires stack.  */
++      insn = set_insns[dom_bb->index];
++      free (set_insns);
++      /* Return true if INSN requires stack.  */
++      if (requires_stack_frame_p (insn, prologue_used,
++				  set_up_by_prologue))
++	{
++	  bitmap_set_bit (reg_dominate_bbs[regno], bb->index);
++	  return true;
++	}
++      else
++	return false;
++    }
++
++  bool access_stack_p = false;
++  bitmap_iterator bi;
++  unsigned int bb_index;
++  EXECUTE_IF_SET_IN_BITMAP (set_bbs, 0, bb_index, bi)
++    {
++      insn = set_insns[bb_index];
++      /* Return true if INSN requires stack.  */
++      if (requires_stack_frame_p (insn, prologue_used,
++				  set_up_by_prologue))
++	{
++	  bitmap_set_bit (reg_dominate_bbs[regno], bb->index);
++	  access_stack_p = true;
++	  break;
++	}
++    }
++
++  free (set_insns);
++  return access_stack_p;
++}
++
 +/* Return true if OP isn't a memory operand with SYMBOLIC_CONST and
 +   needs alignment > ALIGNMENT.  */
 +
@@ -97,21 +167,19 @@ index 39136ce5042..ed7c830a41d 100644
 +    return MEM_ALIGN (op) > alignment;
 +
 +  tree var = get_base_address (mem_expr);
-+  if (!VAR_P (var))
++  if (!VAR_P (var) || !DECL_RTL_SET_P (var))
 +    return MEM_ALIGN (op) > alignment;
 +
-+  op = DECL_RTL (var);
-+  if (!op)
++  rtx x = DECL_RTL (var);
++  if (!x || !MEM_P (x))
 +    return MEM_ALIGN (op) > alignment;
 +
-+  rtx x = XEXP (op, 0);
++  x = XEXP (x, 0);
 +  return !SYMBOLIC_CONST (x) && MEM_ALIGN (op) > alignment;
-+}
-+
- /* Return true if SET needs alignment > ALIGNMENT.  */
+ }
  
- static bool
-@@ -8789,7 +8811,7 @@ ix86_need_alignment_p_1 (rtx set, unsigned int alignment)
+ /* Return true if SET needs alignment > ALIGNMENT.  */
+@@ -8789,7 +8845,7 @@ ix86_need_alignment_p_1 (rtx set, unsigned int alignment)
    rtx dest = SET_DEST (set);
  
    if (MEM_P (dest))
@@ -120,7 +188,7 @@ index 39136ce5042..ed7c830a41d 100644
  
    const_rtx src = SET_SRC (set);
  
-@@ -8799,7 +8821,7 @@ ix86_need_alignment_p_1 (rtx set, unsigned int alignment)
+@@ -8799,7 +8855,7 @@ ix86_need_alignment_p_1 (rtx set, unsigned int alignment)
        auto op = *iter;
  
        if (MEM_P (op))
@@ -129,7 +197,7 @@ index 39136ce5042..ed7c830a41d 100644
      }
  
    return false;
-@@ -8890,6 +8912,9 @@ ix86_find_max_used_stack_alignment (unsigned int &stack_alignment,
+@@ -8890,6 +8946,9 @@ ix86_find_max_used_stack_alignment (unsigned int &stack_alignment,
        bitmap_set_bit (worklist, HARD_FRAME_POINTER_REGNUM);
      }
  
@@ -139,7 +207,7 @@ index 39136ce5042..ed7c830a41d 100644
    calculate_dominance_info (CDI_DOMINATORS);
  
    unsigned int regno;
-@@ -8926,10 +8951,12 @@ ix86_find_max_used_stack_alignment (unsigned int &stack_alignment,
+@@ -8926,10 +8985,12 @@ ix86_find_max_used_stack_alignment (unsigned int &stack_alignment,
  	  /* Call ix86_access_stack_p only if INSN needs alignment >
  	     STACK_ALIGNMENT.  */
  	  if (ix86_need_alignment_p (insn, stack_alignment)
