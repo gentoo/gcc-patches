@@ -1,10 +1,9 @@
-https://inbox.sourceware.org/gcc-patches/CAMe9rOohcmgwZMmTsn5orrCP6rB-+1Mzx=-AQT-uS5nz192zfg@mail.gmail.com/
+https://inbox.sourceware.org/gcc-patches/CAMe9rOrf_Gcx-o2rGvzSH3UzLE41rJ85b04oXrdU71-wvg1guQ@mail.gmail.com/2-v6-0001-x86-Rewrite-ix86_find_max_used_stack_alignment.patch
 
-From c5cd0034d4035bcad0967faff05675ecd39a0d65 Mon Sep 17 00:00:00 2001
-Message-ID: <c5cd0034d4035bcad0967faff05675ecd39a0d65.1775892870.git.sam@gentoo.org>
+From 169bcf41ba24012b16c555f28d71ed067216d51e Mon Sep 17 00:00:00 2001
 From: "H.J. Lu" <hjl.tools@gmail.com>
 Date: Tue, 7 Apr 2026 23:16:38 +0800
-Subject: [PATCH] x86: Rewrite ix86_find_max_used_stack_alignment
+Subject: [PATCH v6] x86: Rewrite ix86_find_max_used_stack_alignment
 
 Revert changes in ix86_find_max_used_stack_alignment
 
@@ -61,13 +60,13 @@ Co-Authored-By: Richard Biener <rguenther@suse.de>
 ---
  gcc/alias.cc            |   5 +-
  gcc/alias.h             |   1 +
- gcc/config/i386/i386.cc | 393 ++++++++++++----------------------------
+ gcc/config/i386/i386.cc | 392 ++++++++++++----------------------------
  gcc/function.cc         |   6 +
  gcc/rtl.h               |   2 +
- 5 files changed, 124 insertions(+), 283 deletions(-)
+ 5 files changed, 123 insertions(+), 283 deletions(-)
 
 diff --git a/gcc/alias.cc b/gcc/alias.cc
-index 6e16b21327f7..cc70ce5ce40f 100644
+index 6e16b21327f..cc70ce5ce40 100644
 --- a/gcc/alias.cc
 +++ b/gcc/alias.cc
 @@ -232,9 +232,6 @@ static GTY((deletable)) vec<rtx, va_gc> *old_reg_base_value;
@@ -90,7 +89,7 @@ index 6e16b21327f7..cc70ce5ce40f 100644
  {
    auto_vec<std::pair<cselib_val *, struct elt_loc_list *>, 32> visited_vals;
 diff --git a/gcc/alias.h b/gcc/alias.h
-index 4bd49bb0fa46..1e43111f5807 100644
+index 4bd49bb0fa4..1e43111f580 100644
 --- a/gcc/alias.h
 +++ b/gcc/alias.h
 @@ -42,6 +42,7 @@ int compare_base_decls (tree, tree);
@@ -102,10 +101,10 @@ index 4bd49bb0fa46..1e43111f5807 100644
  /* This alias set can be used to force a memory to conflict with all
     other memories, creating a barrier across which no memory reference
 diff --git a/gcc/config/i386/i386.cc b/gcc/config/i386/i386.cc
-index 9d1a2af70647..d77dc1feefd2 100644
+index 9d1a2af7064..64a0e953873 100644
 --- a/gcc/config/i386/i386.cc
 +++ b/gcc/config/i386/i386.cc
-@@ -8598,221 +8598,125 @@ output_probe_stack_range (rtx reg, rtx end)
+@@ -8598,221 +8598,124 @@ output_probe_stack_range (rtx reg, rtx end)
    return "";
  }
  
@@ -239,7 +238,7 @@ index 9d1a2af70647..d77dc1feefd2 100644
 -  for (df_ref ref = DF_REG_USE_CHAIN (regno);
 -       ref != NULL;
 -       ref = DF_REF_NEXT_REG (ref))
-+  rtx base = find_base_term (XEXP (op, 0));
++  rtx base = find_base_term (x);
 +  if (base)
      {
 -      if (DF_REF_IS_ARTIFICIAL (ref))
@@ -255,7 +254,7 @@ index 9d1a2af70647..d77dc1feefd2 100644
 +  /* RTL points-to isn't available.  */
 +  bool ok;
 +  struct ix86_address parts;
-+  ok = ix86_decompose_address (XEXP (op, 0), &parts);
++  ok = ix86_decompose_address (x, &parts);
 +  gcc_assert (ok);
  
 -      if (!NONJUMP_INSN_P (insn))
@@ -285,14 +284,13 @@ index 9d1a2af70647..d77dc1feefd2 100644
 +  if (mem_expr)
 +    {
 +      tree var = get_base_address (mem_expr);
-+      /* Skip if OP references an argument passed on stack.  */
-+      if (TREE_CODE (var) == PARM_DECL)
-+	return;
++      /* Skip if
  
 -      for (int i = 0; i < XVECLEN (pat, 0); i++)
 -	{
 -	  rtx exp = XVECEXP (pat, 0, i);
-+      /* Skip if OP is a memory operand of memory reference in
++	 1. OP references an argument passed on stack.
++	 2. OP is a memory operand of memory reference in
  
 -	  if (GET_CODE (exp) == SET)
 -	    ix86_find_all_reg_uses_1 (regset, exp,
@@ -364,12 +362,9 @@ index 9d1a2af70647..d77dc1feefd2 100644
 -  tree mem_expr = MEM_EXPR (op);
 -  if (!mem_expr)
 -    return need_alignment;
-+	 from gcc.target/i386/apx-ndd-seg-1.c.  */
-+      if (TREE_CODE (var) == MEM_REF
-+	  || TREE_CODE (var) == TARGET_MEM_REF)
-+	return;
-+      /* Skip if OP is a memory operand of static or external variable
-+	 in
++	 from gcc.target/i386/apx-ndd-seg-1.c.
++
++	 3. OP is a memory operand of static or external variable in
  
 -  tree var = get_base_address (mem_expr);
 -  if (!VAR_P (var) || !DECL_RTL_SET_P (var))
@@ -384,7 +379,10 @@ index 9d1a2af70647..d77dc1feefd2 100644
 -  if (!MEM_P (x))
 -    return need_alignment;
 +	 from gcc.target/i386/pr123210.c.  */
-+      else if (decl_in_symtab_p (var))
++      if (TREE_CODE (var) == PARM_DECL
++	  || TREE_CODE (var) == MEM_REF
++	  || TREE_CODE (var) == TARGET_MEM_REF
++	  || decl_in_symtab_p (var))
 +	return;
 +    }
  
@@ -410,7 +408,7 @@ index 9d1a2af70647..d77dc1feefd2 100644
  
    const_rtx src = SET_SRC (set);
  
-@@ -8822,35 +8726,31 @@ ix86_need_alignment_p_1 (rtx set, unsigned int alignment)
+@@ -8822,35 +8725,31 @@ ix86_need_alignment_p_1 (rtx set, unsigned int alignment)
        auto op = *iter;
  
        if (MEM_P (op))
@@ -455,7 +453,7 @@ index 9d1a2af70647..d77dc1feefd2 100644
  }
  
  /* Set stack_frame_required to false if stack frame isn't required.
-@@ -8871,103 +8771,38 @@ ix86_find_max_used_stack_alignment (unsigned int &stack_alignment,
+@@ -8871,103 +8770,38 @@ ix86_find_max_used_stack_alignment (unsigned int &stack_alignment,
    add_to_hard_reg_set (&set_up_by_prologue, Pmode,
  		       HARD_FRAME_POINTER_REGNUM);
  
@@ -582,7 +580,7 @@ index 9d1a2af70647..d77dc1feefd2 100644
  
  /* Finalize stack_realign_needed and frame_pointer_needed flags, which
 diff --git a/gcc/function.cc b/gcc/function.cc
-index 109821c16fc9..dc08dc1d58a4 100644
+index 109821c16fc..dc08dc1d58a 100644
 --- a/gcc/function.cc
 +++ b/gcc/function.cc
 @@ -6091,6 +6091,9 @@ make_epilogue_seq (void)
@@ -606,7 +604,7 @@ index 109821c16fc9..dc08dc1d58a4 100644
  
  /* Reposition the prologue-end and epilogue-begin notes after
 diff --git a/gcc/rtl.h b/gcc/rtl.h
-index eebcc18a4f1a..d95cb8afb792 100644
+index eebcc18a4f1..d95cb8afb79 100644
 --- a/gcc/rtl.h
 +++ b/gcc/rtl.h
 @@ -4010,6 +4010,8 @@ extern struct target_rtl *this_target_rtl;
@@ -618,8 +616,5 @@ index eebcc18a4f1a..d95cb8afb792 100644
  
  /* All references to certain hard regs, except those created
     by allocating pseudo regs into them (when that's possible),
-
-base-commit: a0d97fa4e447ec8ff8dc10f48a31b3c148bec758
 -- 
 2.53.0
-
