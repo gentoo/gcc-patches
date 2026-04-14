@@ -2,7 +2,6 @@
 
 	- 89_all_x86-Rewrite-ix86_find_max_used_stack_alignment.patch
 	+ 89_all_PR124809--Register-equivalences-only-once-per-statement.patch
-	+ 90_all_PR124868-tree-optimization-124868-path-isolation-wrong-code.patch
 
 44	12 April 2026
 
