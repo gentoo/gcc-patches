@@ -1,0 +1,134 @@
+From dc87c1d69adc52108c9e9f79803f353f608efafb Mon Sep 17 00:00:00 2001
+Message-ID: <dc87c1d69adc52108c9e9f79803f353f608efafb.1776140648.git.sam@gentoo.org>
+From: Andrew MacLeod <amacleod@redhat.com>
+Date: Mon, 13 Apr 2026 13:37:36 -0400
+Subject: [PATCH] Register equivalences only once per statement.
+
+When a copy statement is rewritten, do not register a new equivalence between
+the LHS and RHS.
+
+	PR tree-optimization/124809
+	gcc/
+	* value-relation.cc (equiv_oracle::equiv_oracle): Allocate lhs
+	equivalence bitmap.
+	(relation_oracle::record): Check if LHS has already created an
+	equivalence record.
+	* value-relation.h (relation_oracle::relation_oracle): New.
+	(relation_oracle::m_lhs_equiv_set_p): New.
+
+gcc/testsuite/
+	* gcc.dg/pr124809.c: New.
+---
+ gcc/testsuite/gcc.dg/pr124809.c | 45 +++++++++++++++++++++++++++++++++
+ gcc/value-relation.cc           | 12 +++++++++
+ gcc/value-relation.h            |  3 +++
+ 3 files changed, 60 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.dg/pr124809.c
+
+diff --git a/gcc/testsuite/gcc.dg/pr124809.c b/gcc/testsuite/gcc.dg/pr124809.c
+new file mode 100644
+index 000000000000..cc6f6efa4166
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/pr124809.c
+@@ -0,0 +1,45 @@
++/* { dg-do run } */
++/* { dg-options "-O1 -fno-tree-ch -fno-tree-dce" } */
++unsigned short a, c, d;
++short f(short g, short h) { return h; }
++short f1(short g, short h) { return g; }
++__attribute__((noipa)) void sink(...){__builtin_abort();}
++__attribute__((noinline))
++int i(signed char g) {
++  unsigned short j;
++  int b=0, k;
++  while (d < 8) {
++    if ((b = a != g) ^ a) {
++      j = b + a;
++      k = j;
++      return a ? 0 : k >> a;
++    }
++   b = f(d && c, a);
++  }
++  sink(b);
++  return 100;
++}
++__attribute__((noinline))
++int i1(signed char g) {
++  unsigned short j;
++  int b=0, k;
++  while (d < 8) {
++    if ((b = a != g) ^ a) {
++      j = b + a;
++      k = j;
++      return a ? 0 : k >> a;
++    }
++   b = f1(a, d && c);
++  }
++  sink(b);
++  return 100;
++}
++int main() {
++  int t = i(1);
++  if (t != 1)
++    __builtin_abort();
++  t = i1(1);
++  if (t != 1)
++    __builtin_abort();
++  return 0;
++}
+diff --git a/gcc/value-relation.cc b/gcc/value-relation.cc
+index ce5e0c60d680..4bf6da3fbd55 100644
+--- a/gcc/value-relation.cc
++++ b/gcc/value-relation.cc
+@@ -321,6 +321,9 @@ equiv_oracle::equiv_oracle ()
+   m_self_equiv.safe_grow_cleared (num_ssa_names + 1);
+   m_partial.create (0);
+   m_partial.safe_grow_cleared (num_ssa_names + 1);
++  // Create a bitmap to avoid registering multiple equivalences from a LHS.
++  // See PR 124809.
++  m_lhs_equiv_set_p = BITMAP_ALLOC (&m_bitmaps);
+ }
+ 
+ // Destruct an equivalency oracle.
+@@ -1103,6 +1106,15 @@ relation_oracle::record (gimple *stmt, relation_kind k, tree op1, tree op2)
+ 	return false;
+     }
+ 
++  // If the LHS of a statement has already been processed and an equivalence
++  // registered, do not register another one.  See PR 124809.
++  if (m_lhs_equiv_set_p && relation_equiv_p (k)
++      && gimple_get_lhs (stmt) == op1)
++    {
++      if (bitmap_bit_p (m_lhs_equiv_set_p, SSA_NAME_VERSION (op1)))
++	return false;
++      bitmap_set_bit (m_lhs_equiv_set_p, SSA_NAME_VERSION (op1));
++    }
+   bool ret = record (gimple_bb (stmt), k, op1, op2);
+ 
+   if (ret && dump_file && (dump_flags & TDF_DETAILS))
+diff --git a/gcc/value-relation.h b/gcc/value-relation.h
+index ee0a20624709..f80533007993 100644
+--- a/gcc/value-relation.h
++++ b/gcc/value-relation.h
+@@ -97,6 +97,7 @@ void adjust_equivalence_range (vrange &range);
+ class relation_oracle
+ {
+ public:
++  relation_oracle () { m_lhs_equiv_set_p = NULL; }
+   virtual ~relation_oracle () { }
+ 
+   // register a relation between 2 ssa names.
+@@ -128,6 +129,8 @@ protected:
+   virtual relation_kind query (basic_block, const_bitmap, const_bitmap)
+     { return VREL_VARYING; }
+   friend class path_oracle;
++  // Used to Avoid registering multiple eqiuvalences from the same statement.
++  bitmap m_lhs_equiv_set_p;
+ };
+ 
+ // Instance with no storage used for default queries with no active oracle.
+
+base-commit: 16354b6adaf1d441c33239bad0dfae8a32db4fc3
+-- 
+2.53.0
+
