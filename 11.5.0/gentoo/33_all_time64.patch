@@ -1,4 +1,5 @@
-From b2ee3846dfcea638e0fbf2d550234f1c7594fcdb Mon Sep 17 00:00:00 2001
+From be842315ec7d3af9b8d7164cefa3775d989171e0 Mon Sep 17 00:00:00 2001
+Message-ID: <be842315ec7d3af9b8d7164cefa3775d989171e0.1776421782.git.sam@gentoo.org>
 From: =?UTF-8?q?Micha=C5=82=20G=C3=B3rny?= <mgorny@gentoo.org>
 Date: Fri, 1 Nov 2024 07:48:37 +0100
 Subject: [PATCH] Support forcing _TIME_BITS=64 for time64 profiles
@@ -15,11 +16,11 @@ Signed-off-by: Michał Górny <mgorny@gentoo.org>
  1 file changed, 9 insertions(+)
 
 diff --git a/gcc/c-family/c-cppbuiltin.c b/gcc/c-family/c-cppbuiltin.c
-index 8bbfe84b2..962cbd414 100644
+index b6599dff224f..9a74f27ffa2f 100644
 --- a/gcc/c-family/c-cppbuiltin.c
 +++ b/gcc/c-family/c-cppbuiltin.c
-@@ -1593,6 +1593,15 @@ c_cpp_builtins (cpp_reader *pfile)
-     builtin_define_with_int_value ("_FORTIFY_SOURCE", GENTOO_FORTIFY_SOURCE_LEVEL);
+@@ -1433,6 +1433,15 @@ c_cpp_builtins (cpp_reader *pfile)
+     builtin_define_with_int_value ("_FORTIFY_SOURCE", 2);
  #endif
  
 +#ifndef _GENTOO_TIME64_FORCE
@@ -34,6 +35,6 @@ index 8bbfe84b2..962cbd414 100644
    /* Misc.  */
    if (flag_gnu89_inline)
      cpp_define (pfile, "__GNUC_GNU_INLINE__");
--- 
-2.47.0
 
+-- 
+2.53.0
