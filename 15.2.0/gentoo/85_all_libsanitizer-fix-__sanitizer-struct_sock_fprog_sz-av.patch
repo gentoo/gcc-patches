@@ -1,0 +1,63 @@
+From 24dcb419f1957c96f9ae9b2d882f656b96ebec0c Mon Sep 17 00:00:00 2001
+Message-ID: <24dcb419f1957c96f9ae9b2d882f656b96ebec0c.1776805383.git.sam@gentoo.org>
+From: Marian Buschsieweke <maribu@users.noreply.github.com>
+Date: Thu, 9 Apr 2026 05:11:15 +0200
+Subject: [PATCH] libsanitizer: fix __sanitizer::struct_sock_fprog_sz
+ availability (#183411) [PR124248]
+
+Cherry picked from LLVM commit dabd8cc2334917272fe73b70626fd3a5f9e63cf5.
+
+`struct sock_fprog` is not provided by glibc, but rather by the linux
+headers (`#include <linux/filter.h`). It seems that glibc due to an
+implementation detail internally includes `<linux/filter.h>` somewhere
+other C libs (e.g. musl) do not, which previously caused build failures
+and let to disabling `struct sock_fprog` on non-glibc Linux systems.
+
+This adds the missing include and provides it again for all Linux
+systems regardless of C lib.
+
+libsanitizer/ChangeLog:
+	PR sanitizer/124248
+
+	* sanitizer_common/sanitizer_platform_limits_posix.cpp (struct_sock_fprog_sz):
+	Make available on non-glibc Linux systems.
+
+Reviewed-by: Jakub Jelinek <jakub@redhat.com>
+(cherry picked from commit 6fd78515cc230b276ed5a2845ed4bf3a5c70055b)
+---
+ .../sanitizer_common/sanitizer_platform_limits_posix.cpp       | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/libsanitizer/sanitizer_common/sanitizer_platform_limits_posix.cpp b/libsanitizer/sanitizer_common/sanitizer_platform_limits_posix.cpp
+index 9856ac3c3ec4..767695e05e20 100644
+--- a/libsanitizer/sanitizer_common/sanitizer_platform_limits_posix.cpp
++++ b/libsanitizer/sanitizer_common/sanitizer_platform_limits_posix.cpp
+@@ -74,6 +74,7 @@
+ #include <sys/vt.h>
+ #include <linux/cdrom.h>
+ #include <linux/fd.h>
++#include <linux/filter.h>
+ #if SANITIZER_ANDROID
+ #include <linux/fs.h>
+ #endif
+@@ -507,6 +508,7 @@ unsigned struct_ElfW_Phdr_sz = sizeof(Elf_Phdr);
+   unsigned struct_seq_event_rec_sz = sizeof(struct seq_event_rec);
+   unsigned struct_synth_info_sz = sizeof(struct synth_info);
+   unsigned struct_vt_mode_sz = sizeof(struct vt_mode);
++  unsigned struct_sock_fprog_sz = sizeof(struct sock_fprog);
+ #endif // SANITIZER_LINUX
+ 
+ #if SANITIZER_GLIBC
+@@ -534,7 +536,6 @@ unsigned struct_ElfW_Phdr_sz = sizeof(Elf_Phdr);
+ 
+   unsigned struct_audio_buf_info_sz = sizeof(struct audio_buf_info);
+   unsigned struct_ppp_stats_sz = sizeof(struct ppp_stats);
+-  unsigned struct_sock_fprog_sz = sizeof(struct sock_fprog);
+ #  endif  // SANITIZER_GLIBC
+ 
+ #  if !SANITIZER_ANDROID && !SANITIZER_APPLE
+
+base-commit: dbc88caa740df7ad05b75f00a338ea83e0b2bb92
+-- 
+2.54.0
+
