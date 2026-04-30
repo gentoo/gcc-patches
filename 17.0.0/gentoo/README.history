@@ -1,3 +1,10 @@
+2	????
+
+	U 03_all_default-warn-trampolines.patch
+	U 04_all_nossp-on-nostdlib.patch
+	U 15_all_DEF_GENTOO_GLIBCXX_ASSERTIONS.patch
+	U 37_all_PR66487-object-lifetime-instrumentation-for-Valgrind.patch
+
 1	26 April 2026
 
 	+ 01_all_default-fortify-source.patch
