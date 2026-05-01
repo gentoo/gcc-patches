@@ -4,6 +4,7 @@
 	U 04_all_nossp-on-nostdlib.patch
 	U 15_all_DEF_GENTOO_GLIBCXX_ASSERTIONS.patch
 	U 37_all_PR66487-object-lifetime-instrumentation-for-Valgrind.patch
+	+ 89_all_PR125139-Revert-PATCH-v3-match.pd-A-bool-0-unsigned-A-bool-PR.patch
 
 1	26 April 2026
 
