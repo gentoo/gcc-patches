@@ -1,0 +1,139 @@
+https://gcc.gnu.org/bugzilla/show_bug.cgi?id=120870#c42
+
+From 96f53a0a1128de738d6e30d2e3cac7aaf3121b09 Mon Sep 17 00:00:00 2001
+From: "H.J. Lu" <hjl.tools@gmail.com>
+Date: Sun, 10 May 2026 18:36:26 +0800
+Subject: [PATCH] x86: Use BX_REG for DRAP register in preserve_none function
+
+When DRAP register is used to align the stack, it is used to to restore
+stack pointer in epilogue.  Although DRAP register isn't preserved, it
+must be unchanged between prologue and epilogue so that stack pointer
+can be restored.  In preserve_none function, mark BX_REG as fixed and
+use it for DRAP register.
+
+gcc/
+
+	PR target/120870
+	* config/i386/i386.cc (X86_PRESERVE_NONE_DRAP_REG): New.
+	(ix86_conditional_register_usage): Mark X86_PRESERVE_NONE_DRAP_REG
+	as fixed in preserve_none function.
+	(find_drap_reg): Return X86_PRESERVE_NONE_DRAP_REG for
+	preserve_none functions with tail call.
+
+gcc/testsuite/
+
+	PR target/120870
+	* gcc.target/i386/pr120870.c: New test.
+
+Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
+---
+ gcc/config/i386/i386.cc                  | 37 ++++++++++++++++++++----
+ gcc/testsuite/gcc.target/i386/pr120870.c | 35 ++++++++++++++++++++++
+ 2 files changed, 66 insertions(+), 6 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/i386/pr120870.c
+
+diff --git a/gcc/config/i386/i386.cc b/gcc/config/i386/i386.cc
+index a9bb5a13708..b98fcba12d5 100644
+--- a/gcc/config/i386/i386.cc
++++ b/gcc/config/i386/i386.cc
+@@ -496,6 +496,12 @@ ix86_profile_before_prologue (void)
+   return flag_fentry != 0;
+ }
+ 
++/* In preserve_none functions, reserve BX_REG for DRAP register.
++
++   FIXME: Why is BX_REG the only working DRAP register in preserve_none
++   functions?  */
++#define X86_PRESERVE_NONE_DRAP_REG BX_REG
++
+ /* Update register usage after having seen the compiler flags.  */
+ 
+ static void
+@@ -507,12 +513,28 @@ ix86_conditional_register_usage (void)
+      except fixed_regs and registers used for function return value
+      since aggregate_value_p checks call_used_regs[regno] on return
+      value.  */
+-  if (cfun
+-      && (cfun->machine->call_saved_registers
+-	  == TYPE_NO_CALLER_SAVED_REGISTERS))
+-    for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
+-      if (!fixed_regs[i] && !ix86_function_value_regno_p (i))
+-	call_used_regs[i] = 0;
++  if (cfun)
++    {
++      if (cfun->machine->call_saved_registers
++	  == TYPE_NO_CALLER_SAVED_REGISTERS)
++	{
++	  for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
++	    if (!fixed_regs[i] && !ix86_function_value_regno_p (i))
++	      call_used_regs[i] = 0;
++	}
++      else if (cfun->machine->call_saved_registers
++	       == TYPE_PRESERVE_NONE)
++	{
++	  /* When DRAP register is used to align the stack, it is used
++	     to to restore stack pointer in epilogue.  Although DRAP
++	     register isn't preserved, it must be unchanged between
++	     prologue and epilogue so that stack pointer can be
++	     restored.  In preserve_none function, mark BX_REG as
++	     fixed and use it for DRAP register.  */
++	  call_used_regs[X86_PRESERVE_NONE_DRAP_REG] = 0;
++	  fixed_regs[X86_PRESERVE_NONE_DRAP_REG] = 1;
++	}
++    }
+ 
+   /* For 32-bit targets, disable the REX registers.  */
+   if (! TARGET_64BIT)
+@@ -7958,6 +7980,9 @@ pro_epilogue_adjust_stack (rtx dest, rtx src, rtx offset,
+ static unsigned int
+ find_drap_reg (void)
+ {
++  if (cfun->machine->call_saved_registers == TYPE_PRESERVE_NONE)
++    return X86_PRESERVE_NONE_DRAP_REG;
++
+   tree decl = cfun->decl;
+ 
+   /* Always use callee-saved register if there are no caller-saved
+diff --git a/gcc/testsuite/gcc.target/i386/pr120870.c b/gcc/testsuite/gcc.target/i386/pr120870.c
+new file mode 100644
+index 00000000000..31d38391133
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/pr120870.c
+@@ -0,0 +1,35 @@
++/* { dg-do run } */
++/* { dg-options "-O0 -march=x86-64-v3" } */
++
++void
++ext (long a, long b, long c, long d, long e, long f, long g)
++{
++}
++
++__attribute__ ((preserve_none)) void
++tail (long a, long b)
++{
++}
++
++__attribute__ ((preserve_none)) void
++caller (long a, long b, long c, long d, long e, long f, long g)
++{
++  __attribute__ ((aligned (32))) long x[4]; // for stack alignment
++  ext (a, b, c, d, e, f, g);
++  __attribute__ ((musttail)) return tail (a + b, b + c);
++}
++
++__attribute__ ((noipa))
++static void
++do_test ()
++{
++  caller (1, 2, 3, 4, 5, 6, 7);
++}
++
++int
++main (void)
++{
++  if (__builtin_cpu_supports ("x86-64-v3"))
++    do_test ();
++  return 0;
++}
+-- 
+2.54.0
