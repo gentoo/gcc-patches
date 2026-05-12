@@ -1,27 +1,33 @@
-From 14d4340bee977f626ec09b17957e7db51a42106c Mon Sep 17 00:00:00 2001
-Message-ID: <14d4340bee977f626ec09b17957e7db51a42106c.1778590548.git.sam@gentoo.org>
+From c4ea39d73c1fa51b44fa73a48cf62a4ab75dba6b Mon Sep 17 00:00:00 2001
+Message-ID: <c4ea39d73c1fa51b44fa73a48cf62a4ab75dba6b.1778624222.git.sam@gentoo.org>
 From: "H.J. Lu" <hjl.tools@gmail.com>
 Date: Sun, 10 May 2026 18:36:26 +0800
 Subject: [PATCH] x86-64: Use R11 for DRAP register in preserve_none functions
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
 
-In 64-bit mode, in preserve_none functions, we can use any register for
-DRAP, except for R12, R13, R14, R15, DI, SI (which are used for parameter
-passing), SP and BP.  Use R11 instead.  Since no-callee-saved functions
-don't use R10 nor R13 for parameter passing, they are OK for DRAP.  In
-32-bit mode, since preserve_none functions don't change parameter passing,
-the existing choice is OK.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+In 64-bit mode, for preserve_none functions, DRAP may use any register
+except AX, R12–R15, DI, SI (argument registers), SP, and BP. Use R11.
+In non-callee-saved functions, R10 and R13 are also available since they
+are not used for parameter passing.  In 32-bit mode, preserve_none does
+not affect parameter passing, so the current approach remains valid.
 
 DRAP register is used to restore stack pointer in epilogue for stack
 realignment.  Always save and restore DRAP register between prologue
 and epilogue so that stack pointer can be restored.
 
-Tested with CPython 3.14.4 on Linux/x86-64.
+Tested on Linux/x86-64 and with CPython 3.14.4.
 
 gcc/
 
 	PR target/120870
 	* config/i386/i386.cc (ix86_save_reg): Return true for DRAP
-	register.
+	register early at entry.
 	(find_drap_reg): Use R11_REG in preserve_none functions in
 	64-bit mode.
 
@@ -34,15 +40,15 @@ gcc/testsuite/
 Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
 Co-Authored-By: Uros Bizjak <ubizjak@gmail.com>
 ---
- gcc/config/i386/i386.cc                    | 16 ++++++++++
+ gcc/config/i386/i386.cc                    | 17 +++++++----
  gcc/testsuite/gcc.target/i386/pr120870-1.c | 35 ++++++++++++++++++++++
  gcc/testsuite/gcc.target/i386/pr120870-2.c |  6 ++++
- 3 files changed, 57 insertions(+)
+ 3 files changed, 53 insertions(+), 5 deletions(-)
  create mode 100644 gcc/testsuite/gcc.target/i386/pr120870-1.c
  create mode 100644 gcc/testsuite/gcc.target/i386/pr120870-2.c
 
 diff --git a/gcc/config/i386/i386.cc b/gcc/config/i386/i386.cc
-index 9aecd51119f3..46bef11d3f80 100644
+index 9aecd51119f3..2744c7495780 100644
 --- a/gcc/config/i386/i386.cc
 +++ b/gcc/config/i386/i386.cc
 @@ -6776,6 +6776,13 @@ ix86_save_reg (unsigned int regno, bool maybe_eh_return, bool ignore_outlined)
@@ -59,16 +65,24 @@ index 9aecd51119f3..46bef11d3f80 100644
    switch (cfun->machine->call_saved_registers)
      {
      case TYPE_DEFAULT_CALL_SAVED_REGISTERS:
-@@ -7946,6 +7953,15 @@ find_drap_reg (void)
+@@ -6851,11 +6858,6 @@ ix86_save_reg (unsigned int regno, bool maybe_eh_return, bool ignore_outlined)
+ 	return false;
+     }
+ 
+-  if (crtl->drap_reg
+-      && regno == REGNO (crtl->drap_reg)
+-      && !cfun->machine->no_drap_save_restore)
+-    return true;
+-
+   return (df_regs_ever_live_p (regno)
+ 	  && !call_used_or_fixed_reg_p (regno)
+ 	  && (regno != HARD_FRAME_POINTER_REGNUM || !frame_pointer_needed));
+@@ -7946,6 +7948,11 @@ find_drap_reg (void)
       registers.  */
    if (TARGET_64BIT)
      {
-+      /* In preserve_none functions, we can use any register for DRAP,
-+	 except for R12_REG, R13_REG, R14_REG, R15_REG, DI_REG, SI_REG
-+	 (which are used for parameter passing), SP_REG and BP_REG.
-+	 Pick R11_REG instead.  Since no-callee-saved functions don't
-+	 use R10_REG nor R13_REG for parameter passing, they are OK
-+	 for DRAP.  */
++      /* In preserve_none functions, any register can be used for DRAP,
++	 except AX, R12–R15, DI, SI (argument registers), SP, and BP.  */
 +      if (cfun->machine->call_saved_registers == TYPE_PRESERVE_NONE)
 +	return R11_REG;
 +
@@ -129,7 +143,7 @@ index 000000000000..7e68718d81a3
 +
 +#include "pr120870-1.c"
 
-base-commit: 7ec6968058b393882580b18d1268a83776fd7d8f
+base-commit: db3bb1099797354bb3a9ea4fd833380305304db1
 -- 
 2.54.0
 
