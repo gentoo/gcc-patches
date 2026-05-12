@@ -1,27 +1,29 @@
-https://gcc.gnu.org/bugzilla/show_bug.cgi?id=120870#c46
-
-From 9ef4c5bb20e93fb523b25d56c728c8dfed86e1d0 Mon Sep 17 00:00:00 2001
+From 14d4340bee977f626ec09b17957e7db51a42106c Mon Sep 17 00:00:00 2001
+Message-ID: <14d4340bee977f626ec09b17957e7db51a42106c.1778590548.git.sam@gentoo.org>
 From: "H.J. Lu" <hjl.tools@gmail.com>
 Date: Sun, 10 May 2026 18:36:26 +0800
-Subject: [PATCH v2] x86: Use BX_REG for DRAP register in preserve_none
- function
+Subject: [PATCH] x86-64: Use R11 for DRAP register in preserve_none functions
+
+In 64-bit mode, in preserve_none functions, we can use any register for
+DRAP, except for R12, R13, R14, R15, DI, SI (which are used for parameter
+passing), SP and BP.  Use R11 instead.  Since no-callee-saved functions
+don't use R10 nor R13 for parameter passing, they are OK for DRAP.  In
+32-bit mode, since preserve_none functions don't change parameter passing,
+the existing choice is OK.
 
 DRAP register is used to restore stack pointer in epilogue for stack
-realignment.  Although DRAP register isn't preserved, it must be
-unchanged between prologue and epilogue so that stack pointer can be
-restored.  In no-callee-saved and preserve_none functions, make r12-r15
-available as the local general purpose registers, mark BX_REG as fixed
-and use it for DRAP register.
+realignment.  Always save and restore DRAP register between prologue
+and epilogue so that stack pointer can be restored.
+
+Tested with CPython 3.14.4 on Linux/x86-64.
 
 gcc/
 
 	PR target/120870
-	* config/i386/i386.cc (X86_NO_CALLEE_DRAP_REG): New.
-	(ix86_conditional_register_usage): Mark X86_NO_CALLEE_DRAP_REG
-	as fixed and make r12-r15 available as the local general purpose
-	registers in no-callee-saved and preserve_none function.
-	(find_drap_reg): Return X86_PRESERVE_NONE_DRAP_REG for
-	no-callee-saved and preserve_none functions
+	* config/i386/i386.cc (ix86_save_reg): Return true for DRAP
+	register.
+	(find_drap_reg): Use R11_REG in preserve_none functions in
+	64-bit mode.
 
 gcc/testsuite/
 
@@ -30,102 +32,52 @@ gcc/testsuite/
 	* gcc.target/i386/pr120870-2.c: Likewise.
 
 Signed-off-by: H.J. Lu <hjl.tools@gmail.com>
+Co-Authored-By: Uros Bizjak <ubizjak@gmail.com>
 ---
- gcc/config/i386/i386.cc                    | 60 ++++++++++++++++++----
- gcc/testsuite/gcc.target/i386/pr120870-1.c | 35 +++++++++++++
- gcc/testsuite/gcc.target/i386/pr120870-2.c |  6 +++
- 3 files changed, 91 insertions(+), 10 deletions(-)
+ gcc/config/i386/i386.cc                    | 16 ++++++++++
+ gcc/testsuite/gcc.target/i386/pr120870-1.c | 35 ++++++++++++++++++++++
+ gcc/testsuite/gcc.target/i386/pr120870-2.c |  6 ++++
+ 3 files changed, 57 insertions(+)
  create mode 100644 gcc/testsuite/gcc.target/i386/pr120870-1.c
  create mode 100644 gcc/testsuite/gcc.target/i386/pr120870-2.c
 
 diff --git a/gcc/config/i386/i386.cc b/gcc/config/i386/i386.cc
-index e73c2d7f7d0..fe878435d80 100644
+index 9aecd51119f3..46bef11d3f80 100644
 --- a/gcc/config/i386/i386.cc
 +++ b/gcc/config/i386/i386.cc
-@@ -496,6 +496,14 @@ ix86_profile_before_prologue (void)
-   return flag_fentry != 0;
- }
- 
-+/* In no-callee-saved and preserve_none functions, reserve BX_REG for
-+   DRAP register.
-+
-+   FIXME: Why is BX_REG the only working DRAP register in preserve_none
-+   functions?  Is is because only BX_REG is 0 in CALL_USED_REGISTERS
-+   which has some permanent impacts on register allocator.  */
-+#define X86_NO_CALLEE_DRAP_REG BX_REG
-+
- /* Update register usage after having seen the compiler flags.  */
- 
- static void
-@@ -503,16 +511,43 @@ ix86_conditional_register_usage (void)
+@@ -6776,6 +6776,13 @@ ix86_save_reg (unsigned int regno, bool maybe_eh_return, bool ignore_outlined)
  {
-   int i, c_mask;
+   rtx reg;
  
--  /* If there are no caller-saved registers, preserve all registers.
--     except fixed_regs and registers used for function return value
--     since aggregate_value_p checks call_used_regs[regno] on return
--     value.  */
--  if (cfun
--      && (cfun->machine->call_saved_registers
--	  == TYPE_NO_CALLER_SAVED_REGISTERS))
--    for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
--      if (!fixed_regs[i] && !ix86_function_value_regno_p (i))
--	call_used_regs[i] = 0;
-+  if (cfun)
-+    switch (cfun->machine->call_saved_registers)
-+      {
-+      case TYPE_DEFAULT_CALL_SAVED_REGISTERS:
-+	break;
++  /* Save and restore DRAP register between prologue and epilogue so
++     that stack pointer can be restored.  */
++  if (crtl->drap_reg
++      && regno == REGNO (crtl->drap_reg)
++      && !cfun->machine->no_drap_save_restore)
++    return true;
 +
-+      case TYPE_NO_CALLER_SAVED_REGISTERS:
-+	/* If there are no caller-saved registers, preserve all
-+	   registers.  except fixed_regs and registers used for
-+	   function return value since aggregate_value_p checks
-+	   call_used_regs[regno] on return value.  */
-+	for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
-+	  if (!fixed_regs[i] && !ix86_function_value_regno_p (i))
-+	    call_used_regs[i] = 0;
-+	break;
+   switch (cfun->machine->call_saved_registers)
+     {
+     case TYPE_DEFAULT_CALL_SAVED_REGISTERS:
+@@ -7946,6 +7953,15 @@ find_drap_reg (void)
+      registers.  */
+   if (TARGET_64BIT)
+     {
++      /* In preserve_none functions, we can use any register for DRAP,
++	 except for R12_REG, R13_REG, R14_REG, R15_REG, DI_REG, SI_REG
++	 (which are used for parameter passing), SP_REG and BP_REG.
++	 Pick R11_REG instead.  Since no-callee-saved functions don't
++	 use R10_REG nor R13_REG for parameter passing, they are OK
++	 for DRAP.  */
++      if (cfun->machine->call_saved_registers == TYPE_PRESERVE_NONE)
++	return R11_REG;
 +
-+      case TYPE_NO_CALLEE_SAVED_REGISTERS:
-+      case TYPE_PRESERVE_NONE:
-+	  /* DRAP register is used to restore stack pointer in epilogue
-+	     for stack realignment.  Although DRAP register isn't
-+	     preserved, it must be unchanged between prologue and
-+	     epilogue so that stack pointer can be restored.  In
-+	     no-callee-saved and preserve_none function, mark BX_REG
-+	     as fixed and use it for DRAP register.  */
-+	  fixed_regs[X86_NO_CALLEE_DRAP_REG] = 1;
-+
-+	  if (TARGET_64BIT)
-+	    {
-+	      /* Make R12_REG, R13_REG, R14_REG, R15_REG available as
-+		 the local general purpose registers.  */
-+	      call_used_regs[R12_REG] = 1;
-+	      call_used_regs[R13_REG] = 1;
-+	      call_used_regs[R14_REG] = 1;
-+	      call_used_regs[R15_REG] = 1;
-+	    }
-+	  break;
-+      }
- 
-   /* For 32-bit targets, disable the REX registers.  */
-   if (! TARGET_64BIT)
-@@ -7940,6 +7975,11 @@ pro_epilogue_adjust_stack (rtx dest, rtx src, rtx offset,
- static unsigned int
- find_drap_reg (void)
- {
-+  if (cfun->machine->call_saved_registers == TYPE_PRESERVE_NONE
-+      || (cfun->machine->call_saved_registers
-+	  == TYPE_NO_CALLEE_SAVED_REGISTERS))
-+    return X86_NO_CALLEE_DRAP_REG;
-+
-   tree decl = cfun->decl;
- 
-   /* Always use callee-saved register if there are no caller-saved
+       /* Use R13 for nested function or function need static chain.
+ 	 Since function with tail call may use any caller-saved
+ 	 registers in epilogue, DRAP must not use caller-saved
 diff --git a/gcc/testsuite/gcc.target/i386/pr120870-1.c b/gcc/testsuite/gcc.target/i386/pr120870-1.c
 new file mode 100644
-index 00000000000..31d38391133
+index 000000000000..31d383911333
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/i386/pr120870-1.c
 @@ -0,0 +1,35 @@
@@ -166,7 +118,7 @@ index 00000000000..31d38391133
 +}
 diff --git a/gcc/testsuite/gcc.target/i386/pr120870-2.c b/gcc/testsuite/gcc.target/i386/pr120870-2.c
 new file mode 100644
-index 00000000000..7e68718d81a
+index 000000000000..7e68718d81a3
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/i386/pr120870-2.c
 @@ -0,0 +1,6 @@
@@ -176,5 +128,8 @@ index 00000000000..7e68718d81a
 +#define preserve_none no_callee_saved_registers
 +
 +#include "pr120870-1.c"
+
+base-commit: 7ec6968058b393882580b18d1268a83776fd7d8f
 -- 
 2.54.0
+
