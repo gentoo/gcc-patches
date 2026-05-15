@@ -2,10 +2,10 @@
 anyway for packaging testing purposes. These tests seemed to hang.
 --- a/gcc/testsuite/lib/target-supports.exp
 +++ b/gcc/testsuite/lib/target-supports.exp
-@@ -799,7 +799,7 @@ proc check_profiling_available { test_what } {
+@@ -794,7 +794,7 @@ proc check_profiling_available { test_what } {
+ 	    verbose "autofdo not supported"
+ 	    return 0
  	}
- 	puts $wrapper
- 	global srcdir
 -	set status [remote_exec host "$wrapper true -v >/dev/null"]
 +	set status [remote_exec host "false >/dev/null"]
  	if { [lindex $status 0] != 0 } {
