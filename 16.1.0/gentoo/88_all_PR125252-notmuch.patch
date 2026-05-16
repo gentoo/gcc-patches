@@ -1,0 +1,143 @@
+From 4c2190dad4e1e022106a3cc2ac5466fdd0cd94ec Mon Sep 17 00:00:00 2001
+Message-ID: <4c2190dad4e1e022106a3cc2ac5466fdd0cd94ec.1778522230.git.sam@gentoo.org>
+From: Martin Uecker <uecker@tugraz.at>
+Date: Mon, 11 May 2026 18:20:17 +0200
+Subject: [PATCH] fix TBAA error for function returning structure [PR125252]
+
+So, annoyingly, I got this wrong.
+
+Bootstrapped and regression tested on x86_64.
+
+Best,
+Martin
+
+    To fix PR122572 we globbed pointers to structure or union types nested
+    within other structure or union types to a void pointer when computing
+    the TYPE_CANONICAL.  But when doing this for function return types this
+    then leads to wrong aliasing decisions, because for some reason function
+    derivation behaves differently than pointer and array derivation.  Instead
+    of globbing to void, replace the nested structure or union type with an
+    incomplete type instead.
+
+            PR c/124252
+
+    gcc/c/ChangeLog:
+
+            * c-typeck.cc (ptr_to_tagged_member): Return type of member.
+            (c_type_canonical): Use incomplete type.
+
+    gcc/testsuite/ChangeLog:
+
+            * gcc.dg/pr125252.c
+
+c23: fix TBAA error for function returning structure [PR125252]
+---
+ gcc/c/c-typeck.cc               | 25 ++++++++++++++---------
+ gcc/testsuite/gcc.dg/pr125252.c | 36 +++++++++++++++++++++++++++++++++
+ 2 files changed, 52 insertions(+), 9 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.dg/pr125252.c
+
+diff --git a/gcc/c/c-typeck.cc b/gcc/c/c-typeck.cc
+index 6195d1795432..3ffeed73d8ce 100644
+--- a/gcc/c/c-typeck.cc
++++ b/gcc/c/c-typeck.cc
+@@ -579,8 +579,9 @@ c_reconstruct_complex_type (tree type, tree bottom)
+ 
+ /* Helper function for c_canonical_type.  Check whether FIELD
+    contains a pointer to a structure or union with tag,
+-   possibly nested in other type derivations.  */
+-static bool
++   possibly nested in other type derivations, and return the
++   type of this nested structure or union.  */
++static tree
+ ptr_to_tagged_member (tree field)
+ {
+   gcc_assert (FIELD_DECL == TREE_CODE (field));
+@@ -598,17 +599,17 @@ ptr_to_tagged_member (tree field)
+   if (ptr_seen
+       && RECORD_OR_UNION_TYPE_P (type)
+       && NULL_TREE != c_type_tag (type))
+-    return true;
++    return type;
+ 
+-  return false;
++  return NULL_TREE;
+ }
+ 
+ /* For a record or union type, make necessary adaptations so that the
+    type can be used as TYPE_CANONICAL.
+ 
+    If the TYPE contains a pointer (possibly nested in other type
+-   derivations) to a structure or union as a member, create a copy
+-   and change such pointers to void pointers.  Otherwise, the middle-end
++   derivations) to a structure or union as a member, create a copy and
++   change the nested type to an incomplete type.  Otherwise, the middle-end
+    gets confused when recording component aliases in the case where we
+    have formed equivalency classes that include types for which these
+    member pointers end up pointing to other structure or unions types
+@@ -635,9 +636,15 @@ c_type_canonical (tree type)
+   for (tree x = TYPE_FIELDS (type); x; x = DECL_CHAIN (x))
+     {
+       tree f = copy_node (x);
+-      if (ptr_to_tagged_member (x))
+-	TREE_TYPE (f) = c_reconstruct_complex_type (TREE_TYPE (x),
+-						    ptr_type_node);
++      if (tree m = ptr_to_tagged_member (x))
++	{
++	  tree new_node = make_node (TREE_CODE (m));
++	  TYPE_NAME (new_node) = TYPE_NAME (m);
++	  SET_TYPE_STRUCTURAL_EQUALITY (new_node);
++	  new_node = qualify_type (new_node, m);
++	  TREE_TYPE (f) = c_reconstruct_complex_type (TREE_TYPE (x),
++						      new_node);
++	}
+       *fields = f;
+       fields = &DECL_CHAIN (f);
+     }
+diff --git a/gcc/testsuite/gcc.dg/pr125252.c b/gcc/testsuite/gcc.dg/pr125252.c
+new file mode 100644
+index 000000000000..4e27fa159782
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/pr125252.c
+@@ -0,0 +1,36 @@
++/* { dg-do run } */
++/* { dg-options "-std=gnu23 -O2" } */
++
++
++int k;
++struct S {};
++
++#define T struct S
++
++T *get_sender () {
++  k = 1;
++  return (void *)0;
++}
++
++T *get_cc () { }
++
++void test () {
++        struct {
++                T *(*get_header) (void);
++        } reply_to_map[] = {
++                { get_sender },
++                { get_cc },
++        };
++
++        for (int i = 0; i < 2; i++) {
++                asm ("" ::"r"(reply_to_map[i].get_header ()));
++        }
++}
++
++int main() {
++        test ();
++
++        if (k != 1)
++            __builtin_abort();
++}
++
+
+base-commit: be1da01067c898a3e3979bfb1edd05f115ab2e3e
+-- 
+2.54.0
+
