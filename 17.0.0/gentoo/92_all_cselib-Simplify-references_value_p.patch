@@ -1,0 +1,119 @@
+From 07e811476db364a04e1283b8a14a509768a325d7 Mon Sep 17 00:00:00 2001
+Message-ID: <07e811476db364a04e1283b8a14a509768a325d7.1779281853.git.sam@gentoo.org>
+In-Reply-To: <9fa5e9011d02e3202607270f11ea7038da1f9917.1779281853.git.sam@gentoo.org>
+References: <9fa5e9011d02e3202607270f11ea7038da1f9917.1779281853.git.sam@gentoo.org>
+From: Richard Sandiford <rdsandiford@googlemail.com>
+Date: Wed, 20 May 2026 10:19:42 +0100
+Subject: [PATCH 3/3] cselib: Simplify references_value_p
+
+The previous patch removed the only caller of references_value_p
+to want the only_useless behaviour.  This patch therefore removes
+that parameter and converts the function to an iterator.
+
+I don't have numbers to show that using an iterator is better after the
+previous patch.  But converting to an iterator was the first low-hanging
+fruit that I tried for the insn-extract.cc slowness, at a time when
+references_value_p accounted for over 50% of compile time on aarch64.
+It made a significant difference then.
+
+gcc/
+	* cselib.h (references_value_p): Remove only_useless parameter.
+	* cselib.cc (references_value_p): Likewise.  Use rtx iterators.
+	(invariant_or_equiv_p): Update accordingly.
+	* postreload.cc (reload_cse_simplify_set): Likewise.
+	* var-tracking.cc (reverse_op): Likewise.
+---
+ gcc/cselib.cc       | 27 ++++++---------------------
+ gcc/cselib.h        |  2 +-
+ gcc/postreload.cc   |  2 +-
+ gcc/var-tracking.cc |  2 +-
+ 4 files changed, 9 insertions(+), 24 deletions(-)
+
+diff --git a/gcc/cselib.cc b/gcc/cselib.cc
+index e029d827fcdd..53f2ea185688 100644
+--- a/gcc/cselib.cc
++++ b/gcc/cselib.cc
+@@ -515,7 +515,7 @@ invariant_or_equiv_p (cselib_val *v)
+     {
+       if (CONSTANT_P (v->locs->loc)
+ 	  && (GET_CODE (v->locs->loc) != CONST
+-	      || !references_value_p (v->locs->loc, 0)))
++	      || !references_value_p (v->locs->loc)))
+ 	return true;
+       /* Although a debug expr may be bound to different expressions,
+ 	 we can preserve it as if it was constant, to get unification
+@@ -673,27 +673,12 @@ cselib_find_slot (machine_mode mode, rtx x, hashval_t hash,
+    removed.  */
+ 
+ bool
+-references_value_p (const_rtx x, int only_useless)
++references_value_p (const_rtx x)
+ {
+-  const enum rtx_code code = GET_CODE (x);
+-  const char *fmt = GET_RTX_FORMAT (code);
+-  int i, j;
+-
+-  if (GET_CODE (x) == VALUE
+-      && (! only_useless
+-	  || (CSELIB_VAL_PTR (x)->locs == 0 && !PRESERVED_VALUE_P (x))))
+-    return true;
+-
+-  for (i = GET_RTX_LENGTH (code) - 1; i >= 0; i--)
+-    {
+-      if (fmt[i] == 'e' && references_value_p (XEXP (x, i), only_useless))
+-	return true;
+-      else if (fmt[i] == 'E')
+-	for (j = 0; j < XVECLEN (x, i); j++)
+-	  if (references_value_p (XVECEXP (x, i, j), only_useless))
+-	    return true;
+-    }
+-
++  subrtx_iterator::array_type array;
++  FOR_EACH_SUBRTX (iter, array, x, ALL)
++    if (GET_CODE (*iter) == VALUE)
++      return true;
+   return false;
+ }
+ 
+diff --git a/gcc/cselib.h b/gcc/cselib.h
+index 69256a02632a..df7771e030ef 100644
+--- a/gcc/cselib.h
++++ b/gcc/cselib.h
+@@ -94,7 +94,7 @@ extern bool fp_setter_insn (rtx_insn *);
+ extern machine_mode cselib_reg_set_mode (const_rtx);
+ extern bool rtx_equal_for_cselib_1 (rtx, rtx, machine_mode, int);
+ extern bool cselib_redundant_set_p (rtx);
+-extern bool references_value_p (const_rtx, int);
++extern bool references_value_p (const_rtx);
+ extern rtx cselib_expand_value_rtx (rtx, bitmap, int);
+ typedef rtx (*cselib_expand_callback)(rtx, bitmap, int, void *);
+ extern rtx cselib_expand_value_rtx_cb (rtx, bitmap, int,
+diff --git a/gcc/postreload.cc b/gcc/postreload.cc
+index 80a65796efb8..117e449fedd2 100644
+--- a/gcc/postreload.cc
++++ b/gcc/postreload.cc
+@@ -387,7 +387,7 @@ reload_cse_simplify_set (rtx set, rtx_insn *insn)
+       rtx this_rtx = l->loc;
+       int this_cost;
+ 
+-      if (CONSTANT_P (this_rtx) && ! references_value_p (this_rtx, 0))
++      if (CONSTANT_P (this_rtx) && ! references_value_p (this_rtx))
+ 	{
+ 	  if (extend_op != UNKNOWN)
+ 	    {
+diff --git a/gcc/var-tracking.cc b/gcc/var-tracking.cc
+index e7065e81ca55..8bf9bd580798 100644
+--- a/gcc/var-tracking.cc
++++ b/gcc/var-tracking.cc
+@@ -5900,7 +5900,7 @@ reverse_op (rtx val, const_rtx expr, rtx_insn *insn)
+      prefer non-ENTRY_VALUE locations whenever possible.  */
+   for (l = v->locs, count = 0; l; l = l->next, count++)
+     if (CONSTANT_P (l->loc)
+-	&& (GET_CODE (l->loc) != CONST || !references_value_p (l->loc, 0)))
++	&& (GET_CODE (l->loc) != CONST || !references_value_p (l->loc)))
+       return;
+     /* Avoid creating too large locs lists.  */
+     else if (count == param_max_vartrack_reverse_op_size)
+-- 
+2.54.0
+
