@@ -1,0 +1,100 @@
+From 2c4188fdedf4d9205860d98c795beb987c50d18d Mon Sep 17 00:00:00 2001
+Message-ID: <2c4188fdedf4d9205860d98c795beb987c50d18d.1780776708.git.sam@gentoo.org>
+From: Andrew Pinski <andrew.pinski@oss.qualcomm.com>
+Date: Thu, 4 Jun 2026 22:42:02 -0700
+Subject: [PATCH] cselim: Prevent cselim doing store sinking when there are
+ loads in the middle bb [PR125612]
+
+r17-1273-g391ee229b737eb added support for the case where the middle bb was non-empty but
+with a trailing store. This meant if there was a load in the middle bb, it might cause
+nontrapping to have the lhs in it. So we now need to check for a load in the middle-bb
+to reject this case.
+
+Bootstrapped and tested on x86_64-linux-gnu.
+
+	PR tree-optimization/125612
+
+gcc/ChangeLog:
+
+	* tree-ssa-phiopt.cc (cond_store_replacement): For the case where
+	lhs is "known" to be nontrapping make sure there are no loads in
+	the middle bb.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.dg/tree-ssa/pr125612-1.c: New test.
+
+Signed-off-by: Andrew Pinski <andrew.pinski@oss.qualcomm.com>
+---
+ gcc/testsuite/gcc.dg/tree-ssa/pr125612-1.c | 26 ++++++++++++++++++++++
+ gcc/tree-ssa-phiopt.cc                     | 19 +++++++++++++++-
+ 2 files changed, 44 insertions(+), 1 deletion(-)
+ create mode 100644 gcc/testsuite/gcc.dg/tree-ssa/pr125612-1.c
+
+diff --git a/gcc/testsuite/gcc.dg/tree-ssa/pr125612-1.c b/gcc/testsuite/gcc.dg/tree-ssa/pr125612-1.c
+new file mode 100644
+index 000000000000..201f2f4fb3f2
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/tree-ssa/pr125612-1.c
+@@ -0,0 +1,26 @@
++/* { dg-do run } */
++/* { dg-options "-O3 -fno-tree-dse -fno-tree-dce -fdump-tree-cselim-details" } */
++/* PR tree-optimization/125612 */
++
++/* The conditional store of `h[2000]` should not become unconditional since
++   it traps. */
++
++int a, b, c = 2, d, e[4], f, i;
++void g() {
++  int h[5];
++  e[0] = 2;
++  while (1) {
++    if (e[b]) {
++      if (!c)
++        h[2000] &= 1;
++      return;
++    }
++  }
++}
++int main() {
++  for (; i < 4; i++)
++    g();
++  return 0;
++}
++
++/* { dg-final { scan-tree-dump-not "Conditional store replacement happened" "cselim"} } */
+diff --git a/gcc/tree-ssa-phiopt.cc b/gcc/tree-ssa-phiopt.cc
+index 6005a945a8c1..eec65a7b68d5 100644
+--- a/gcc/tree-ssa-phiopt.cc
++++ b/gcc/tree-ssa-phiopt.cc
+@@ -3032,7 +3032,24 @@ cond_store_replacement (basic_block middle_bb, basic_block join_bb, edge e0,
+   /* Prove that we can move the store down.  We could also check
+      TREE_THIS_NOTRAP here, but in that case we also could move stores,
+      whose value is not available readily, which we want to avoid.  */
+-  if (!nontrap->contains (lhs))
++  if (nontrap->contains (lhs))
++    {
++      /* Make sure there is no load in the middle bb,
++	 this invalidates nontrap.
++	 FIXME: this is over conserative, this check could be made to
++	 allow loads unrelated to lhs.  */
++      tree vuse = gimple_vuse (assign);
++      imm_use_iterator iter;
++      gimple *use_stmt;
++      FOR_EACH_IMM_USE_STMT (use_stmt, iter, vuse)
++	{
++	  if (use_stmt == assign)
++	    continue;
++	  if (gimple_bb (use_stmt) == middle_bb)
++	    return false;
++	}
++    }
++  else
+     {
+       /* If LHS is an access to a local variable without address-taken
+ 	 (or when we allow data races) and known not to trap, we could
+
+base-commit: d84a302d4f0a440aa602f9688d339532a21c81a1
+-- 
+2.54.0
+
