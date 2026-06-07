@@ -1,7 +1,6 @@
 5	????
 
 	- 89_all_PR125252-notmuch.patch
-	+ 88_all_PR125612-cselim-Prevent-cselim-doing-store-sinking-when-there.patch
 
 4	18 May 2026
 
