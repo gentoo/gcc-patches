@@ -1,6 +1,7 @@
 8	????
 
 	- 88_all_PR125790.patch
+	+ 88_all_libsanitizer-parallelize-subdir-builds.patch
 
 7	15 June 2026
 

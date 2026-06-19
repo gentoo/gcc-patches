@@ -1,0 +1,112 @@
+https://inbox.sourceware.org/gcc-patches/uvY3ov6z9JVUdrxo5KDeX-utnxhYs8Rg-tq2n--sENYM5cqIn1gzy9ydN-EnZ0rS-T6geiNQO8qhXNT3ccoazNWUQDdnvHG4ZA-wEaVA9RQ=@protonmail.com/
+
+From f1a99616ee0000cc927f6e0c041dd742de54c895 Mon Sep 17 00:00:00 2001
+Message-ID: <f1a99616ee0000cc927f6e0c041dd742de54c895.1781912666.git.sam@gentoo.org>
+From: Harmen Stoppels <me@harmenstoppels.nl>
+Date: Thu, 18 Jun 2026 13:04:28 +0200
+Subject: [PATCH] libsanitizer: parallelize subdir builds
+
+Automake normally builds subdirectories sequentially, which makes the
+libsanitizer builds effectively sequential as there is little parallelism per
+subdirectory. This patch replaces the all-recursive loop with an explicit
+dependency graph: asan and hwasan depend on lsan, while others just need
+sanitizer_common.
+
+Exposing this DAG to make raises the CPU load from 2.3 to 3.7, yielding a
+roughly 30% reduction in build time on multi-core machines.
+
+libsanitizer/ChangeLog:
+
+* Makefile.am: Override all-recursive and define explicit
+	DAG dependencies for all-* targets to enable parallel builds.
+	* Makefile.in: Regenerate.
+---
+ libsanitizer/Makefile.am | 24 ++++++++++++++++++++++++
+ libsanitizer/Makefile.in | 20 ++++++++++++++++++++
+ 2 files changed, 44 insertions(+)
+
+diff --git a/libsanitizer/Makefile.am b/libsanitizer/Makefile.am
+index 53e20bdac2c5..2e3245c8d871 100644
+--- a/libsanitizer/Makefile.am
++++ b/libsanitizer/Makefile.am
+@@ -26,6 +26,30 @@ endif
+ if HWASAN_SUPPORTED
+ SUBDIRS += hwasan
+ endif
++
++# Override all-recursive and explicitly define the dependency graph
++# to increase parallelism during the build.
++
++all-sanitizer_common all-interception all-libbacktrace:
++	+cd $(@:all-%=%) && $(MAKE) $(AM_MAKEFLAGS) all
++
++SANITIZER_BASE_DEPS = all-sanitizer_common
++if !USING_MAC_INTERPOSE
++SANITIZER_BASE_DEPS += all-interception
++endif
++if LIBBACKTRACE_SUPPORTED
++SANITIZER_BASE_DEPS += all-libbacktrace
++endif
++
++all-lsan all-ubsan all-tsan: $(SANITIZER_BASE_DEPS)
++	+cd $(@:all-%=%) && $(MAKE) $(AM_MAKEFLAGS) all
++
++all-asan all-hwasan: $(SANITIZER_BASE_DEPS) all-lsan
++	+cd $(@:all-%=%) && $(MAKE) $(AM_MAKEFLAGS) all
++
++all-recursive: $(SUBDIRS:%=all-%)
++
++.PHONY: $(SUBDIRS:%=all-%)
+ endif
+ 
+ ## Force DIST_SUBDIRS so that make distclean works
+diff --git a/libsanitizer/Makefile.in b/libsanitizer/Makefile.in
+index fa6fe9e26a3e..280e45cdbe49 100644
+--- a/libsanitizer/Makefile.in
++++ b/libsanitizer/Makefile.in
+@@ -98,6 +98,8 @@ target_triplet = @target@
+ @LIBBACKTRACE_SUPPORTED_TRUE@@SANITIZER_SUPPORTED_TRUE@am__append_3 = libbacktrace
+ @SANITIZER_SUPPORTED_TRUE@@TSAN_SUPPORTED_TRUE@am__append_4 = tsan
+ @HWASAN_SUPPORTED_TRUE@@SANITIZER_SUPPORTED_TRUE@am__append_5 = hwasan
++@SANITIZER_SUPPORTED_TRUE@@USING_MAC_INTERPOSE_FALSE@am__append_6 = all-interception
++@LIBBACKTRACE_SUPPORTED_TRUE@@SANITIZER_SUPPORTED_TRUE@am__append_7 = all-libbacktrace
+ subdir = .
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+ am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+@@ -370,6 +372,8 @@ nodist_saninclude_HEADERS = $(am__append_1)
+ @SANITIZER_SUPPORTED_TRUE@SUBDIRS = sanitizer_common $(am__append_2) \
+ @SANITIZER_SUPPORTED_TRUE@	$(am__append_3) lsan asan ubsan \
+ @SANITIZER_SUPPORTED_TRUE@	$(am__append_4) $(am__append_5)
++@SANITIZER_SUPPORTED_TRUE@SANITIZER_BASE_DEPS = all-sanitizer_common \
++@SANITIZER_SUPPORTED_TRUE@	$(am__append_6) $(am__append_7)
+ DIST_SUBDIRS = $(SUBDIRS)
+ gcc_version := $(shell @get_gcc_base_ver@ $(top_srcdir)/../gcc/BASE-VER)
+ 
+@@ -765,6 +769,22 @@ uninstall-am: uninstall-nodist_sanincludeHEADERS \
+ .PRECIOUS: Makefile
+ 
+ 
++# Override all-recursive and explicitly define the dependency graph
++# to increase parallelism during the build.
++
++@SANITIZER_SUPPORTED_TRUE@all-sanitizer_common all-interception all-libbacktrace:
++@SANITIZER_SUPPORTED_TRUE@	+cd $(@:all-%=%) && $(MAKE) $(AM_MAKEFLAGS) all
++
++@SANITIZER_SUPPORTED_TRUE@all-lsan all-ubsan all-tsan: $(SANITIZER_BASE_DEPS)
++@SANITIZER_SUPPORTED_TRUE@	+cd $(@:all-%=%) && $(MAKE) $(AM_MAKEFLAGS) all
++
++@SANITIZER_SUPPORTED_TRUE@all-asan all-hwasan: $(SANITIZER_BASE_DEPS) all-lsan
++@SANITIZER_SUPPORTED_TRUE@	+cd $(@:all-%=%) && $(MAKE) $(AM_MAKEFLAGS) all
++
++@SANITIZER_SUPPORTED_TRUE@all-recursive: $(SUBDIRS:%=all-%)
++
++@SANITIZER_SUPPORTED_TRUE@.PHONY: $(SUBDIRS:%=all-%)
++
+ # GNU Make needs to see an explicit $(MAKE) variable in the command it
+ # runs to enable its job server during parallel builds.  Hence the
+ # comments below.
+
+base-commit: 1184375b0c7158b7a739489915724c08532d7b17
+-- 
+2.54.0
+
