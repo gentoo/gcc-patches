@@ -2,7 +2,7 @@
 anyway for packaging testing purposes. These tests seemed to hang.
 --- a/gcc/testsuite/lib/target-supports.exp
 +++ b/gcc/testsuite/lib/target-supports.exp
-@@ -794,7 +794,7 @@ proc check_profiling_available { test_what } {
+@@ -829,7 +829,7 @@ proc check_profiling_available { test_what } {
  	    verbose "autofdo not supported"
  	    return 0
  	}
