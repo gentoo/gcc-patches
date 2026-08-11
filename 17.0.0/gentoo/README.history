@@ -1,3 +1,8 @@
+12	????
+
+	+ 87_all_toplevel-do-not-make-libstdc-configure-wait-for-libg.patch
+	+ 88_all_libstdc-build-the-source-directories-in-parallel.patch
+
 11	9 August 2026
 
 	U 36_all_no-afdo-testing.patch
