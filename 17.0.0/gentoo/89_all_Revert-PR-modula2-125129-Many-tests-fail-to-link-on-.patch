@@ -1,0 +1,4729 @@
+From 806d3f58b2899f09841272bbcca58e04f73d2618 Mon Sep 17 00:00:00 2001
+Message-ID: <806d3f58b2899f09841272bbcca58e04f73d2618.1786838930.git.sam@gentoo.org>
+From: Sam James <sam@gentoo.org>
+Date: Sun, 16 Aug 2026 01:08:43 +0100
+Subject: [PATCH] Revert "PR modula2/125129: Many tests fail to link on
+ FreeBSD"
+
+This reverts commit b3275d4a1f199872dffd9df4967673722f270671.
+
+Bug: https://gcc.gnu.org/PR126893
+Bug: https://gcc.gnu.org/PR126847
+---
+ gcc/doc/gm2.texi                              |   4 -
+ gcc/m2/Make-lang.in                           | 246 +++----
+ gcc/m2/gm2-compiler/M2Options.def             |  14 -
+ gcc/m2/gm2-compiler/M2Options.mod             |  22 -
+ gcc/m2/gm2-compiler/M2Quads.mod               |   3 +-
+ gcc/m2/gm2-gcc/m2builtins.cc                  |  58 +-
+ gcc/m2/gm2-gcc/m2options.h                    |   2 -
+ gcc/m2/gm2-lang.cc                            |   3 -
+ .../SYSTEM.def                                |   7 +-
+ .../SYSTEM.mod                                |   0
+ .../ComplexMath.def                           |   7 +-
+ .../ComplexMath.mod                           |  20 +-
+ .../LongComplexMath.def                       |   7 +-
+ .../LongComplexMath.mod                       |  20 +-
+ .../SYSTEM.def                                |  15 +-
+ .../SYSTEM.mod                                |   0
+ .../ShortComplexMath.def                      |   7 +-
+ .../ShortComplexMath.mod                      |  20 +-
+ gcc/m2/gm2-libs-min/SYSTEM.def                |   7 +-
+ .../Builtins.def                              |  18 +-
+ .../Builtins.mod                              |  51 +-
+ .../SYSTEM.def                                |  14 +-
+ .../SYSTEM.mod                                |   0
+ .../cbuiltin.def                              |  28 +-
+ gcc/m2/lang.opt                               |   4 -
+ gcc/m2/tools-src/def2doc.py                   | 139 +---
+ gcc/m2/tools-src/makeSystem                   |  12 +-
+ gcc/m2/tools-src/mktargetsrc.py               | 417 -----------
+ .../run/pass/exceptions-run-pass.exp          |   4 +-
+ gcc/testsuite/lib/gm2.exp                     |   6 +-
+ libgm2/Makefile.am                            |   9 +-
+ libgm2/Makefile.in                            |  30 +-
+ libgm2/aclocal.m4                             |   2 -
+ libgm2/ax_python_devel.m4                     | 522 -------------
+ libgm2/config.h.in                            |   3 -
+ libgm2/configure                              | 683 +-----------------
+ libgm2/configure.ac                           |   5 +-
+ libgm2/libm2cor/Makefile.am                   |  29 +-
+ libgm2/libm2cor/Makefile.in                   |  54 +-
+ libgm2/libm2iso/Makefile.am                   | 152 +---
+ libgm2/libm2iso/Makefile.in                   | 159 +---
+ libgm2/libm2log/Makefile.am                   |  45 +-
+ libgm2/libm2log/Makefile.in                   |  79 +-
+ libgm2/libm2min/Makefile.am                   |  14 +-
+ libgm2/libm2min/Makefile.in                   |  43 +-
+ libgm2/libm2pim/Makefile.am                   |  92 +--
+ libgm2/libm2pim/Makefile.in                   | 120 +--
+ 47 files changed, 434 insertions(+), 2762 deletions(-)
+ rename gcc/m2/{gm2-libs-cor-common => gm2-libs-coroutines}/SYSTEM.def (98%)
+ rename gcc/m2/{gm2-libs-cor-common => gm2-libs-coroutines}/SYSTEM.mod (100%)
+ rename gcc/m2/{gm2-libs-iso-common => gm2-libs-iso}/ComplexMath.def (90%)
+ rename gcc/m2/{gm2-libs-iso-common => gm2-libs-iso}/ComplexMath.mod (90%)
+ rename gcc/m2/{gm2-libs-iso-common => gm2-libs-iso}/LongComplexMath.def (89%)
+ rename gcc/m2/{gm2-libs-iso-common => gm2-libs-iso}/LongComplexMath.mod (90%)
+ rename gcc/m2/{gm2-libs-iso-common => gm2-libs-iso}/SYSTEM.def (97%)
+ rename gcc/m2/{gm2-libs-iso-common => gm2-libs-iso}/SYSTEM.mod (100%)
+ rename gcc/m2/{gm2-libs-iso-common => gm2-libs-iso}/ShortComplexMath.def (91%)
+ rename gcc/m2/{gm2-libs-iso-common => gm2-libs-iso}/ShortComplexMath.mod (90%)
+ rename gcc/m2/{gm2-libs-pim-common => gm2-libs}/Builtins.def (93%)
+ rename gcc/m2/{gm2-libs-pim-common => gm2-libs}/Builtins.mod (94%)
+ rename gcc/m2/{gm2-libs-pim-common => gm2-libs}/SYSTEM.def (94%)
+ rename gcc/m2/{gm2-libs-pim-common => gm2-libs}/SYSTEM.mod (100%)
+ rename gcc/m2/{gm2-libs-pim-common => gm2-libs}/cbuiltin.def (88%)
+ delete mode 100644 gcc/m2/tools-src/mktargetsrc.py
+ delete mode 100644 libgm2/ax_python_devel.m4
+
+diff --git a/gcc/doc/gm2.texi b/gcc/doc/gm2.texi
+index b4ecef2c5a01..6e14ffe64d3f 100644
+--- a/gcc/doc/gm2.texi
++++ b/gcc/doc/gm2.texi
+@@ -406,10 +406,6 @@ The default implementation and module filename suffix is @file{.def}.
+ If this option is used GNU Modula-2 will still fall back to this
+ default if a requested definition module is not found.
+ 
+-@item -fdump-builtins
+-Display all builtin procedure functions.
+-This is an internal command line option.
+-
+ @item -fdump-system-exports
+ display all inbuilt system items.
+ This is an internal command-line option.
+diff --git a/gcc/m2/Make-lang.in b/gcc/m2/Make-lang.in
+index dd4d6e688d66..11079927eb85 100644
+--- a/gcc/m2/Make-lang.in
++++ b/gcc/m2/Make-lang.in
+@@ -38,13 +38,6 @@ GM2_1 = ./gm2 -B./m2/stage1 -g -fm2-g $(CM2DEP)
+ 
+ GM2_FOR_TARGET = $(STAGE_CC_WRAPPER) ./gm2 -B./ -B$(build_tooldir)/bin/ -L$(objdir)/../ld $(TFLAGS)
+ 
+-define escape_path
+-$(shell echo "$(1)" | sed 's/ /\\ /g')
+-endef
+-
+-GM2_FOR_TARGET_ESC := $(call escape_path,$(GM2_FOR_TARGET))
+-
+-
+ # FIXME: Get from gcc-plugin.m4 instead of hardcoding.
+ ifeq (,$(findstring darwin,$(host)))
+   soext=.so
+@@ -64,6 +57,13 @@ TEXISRC = $(srcdir)/doc/gm2.texi \
+           m2/Builtins.texi \
+           m2/gpl_v3_without_node.texi
+ 
++RSTSRC =  $(srcdir)/doc/gm2.texi \
++          m2/gm2-libs.rst \
++          m2/gm2-ebnf.rst \
++          m2/SYSTEM-pim.rst \
++          m2/SYSTEM-iso.rst \
++          m2/Builtins.rst
++
+ # Define the names for selecting modula-2 in LANGUAGES.
+ m2 modula-2 modula2: gm2$(exeext) xgcc$(exeext) cc1gm2$(exeext) $(GCC_PASSES)
+ m2.serial = cc1gm2$(exeext)
+@@ -242,17 +242,31 @@ m2/gm2-libs.texi: gm2-libs.texi-check; @true
+ 
+ ifeq ($(HAVE_PYTHON),yes)
+ gm2-libs.texi-check: m2/SYSTEM-pim.texi m2/SYSTEM-iso.texi m2/Builtins.texi \
+-                     m2/gm2-libs-coroutines/SYSTEM.def
++                     $(objdir)/m2/gm2-libs-coroutines/SYSTEM.def
+ 	-test -d m2/gm2-libs-log || $(mkinstalldirs) m2/gm2-libs-log
+ 	-test -d m2/gm2-libs-iso || $(mkinstalldirs) m2/gm2-libs-iso
+ 	-test -d m2/gm2-libs || $(mkinstalldirs) m2/gm2-libs
+-	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -t -uLibraries -s$(srcdir)/m2 -b$(objdir)/m2 -o m2/gm2-libs.texi
++	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -t -uLibraries -s$(srcdir)/m2 -b$(objdir)/m2 -o $(objdir)/m2/gm2-libs.texi
+ else
+ gm2-libs.texi-check:
+-	cp $(srcdir)/m2/target-independent/m2/gm2-libs.texi m2/gm2-libs.texi
++	cp $(srcdir)/m2/target-independent/m2/gm2-libs.texi $(objdir)/m2/gm2-libs.texi
+ endif
+ 	$(STAMP) gm2-libs.texi-check
+ 
++# gm2-libs.rst
++
++m2/gm2-libs.rst: gm2-libs.rst-check; @true
++
++ifeq ($(HAVE_PYTHON),yes)
++gm2-libs.rst-check: m2/SYSTEM-pim.texi m2/SYSTEM-iso.texi m2/Builtins.texi \
++                     $(objdir)/m2/gm2-libs-coroutines/SYSTEM.def
++	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -x -uLibraries -s$(srcdir)/m2 -b$(objdir)/m2 -o $(objdir)/m2/gm2-libs.rst
++else
++gm2-libs.rst-check:
++	cp $(srcdir)/m2/target-independent/m2/gm2-libs.rst $(objdir)/m2/gm2-libs.rst
++endif
++	$(STAMP) gm2-libs.rst-check
++
+ # gm2-ebnf.texi
+ 
+ m2/gm2-ebnf.texi: gm2-ebnf.texi-check; @true
+@@ -261,45 +275,93 @@ gm2-ebnf.texi-check: $(PGE) $(srcdir)/m2/gm2-compiler/P0SyntaxCheck.bnf
+ 	$(PGE) -c -p -t -f $(srcdir)/m2/gm2-compiler/P0SyntaxCheck.bnf -o m2/gm2-ebnf.texi
+ 	$(STAMP) gm2-ebnf.texi-check
+ 
++# gm2-ebnf.rst
++
++m2/gm2-ebnf.rst: gm2-ebnf.rst-check; @true
++
++gm2-ebnf.rst-check: $(PGE) $(srcdir)/m2/gm2-compiler/P0SyntaxCheck.bnf
++	$(PGE) -c -p -t -f $(srcdir)/m2/gm2-compiler/P0SyntaxCheck.bnf -o m2/gm2-ebnf.rst
++	$(STAMP) gm2-ebnf.rst-check
++
+ # SYSTEM-pim.texi
+ 
+ m2/SYSTEM-pim.texi: SYSTEM-pim-texi-check; @true
+ 
+ ifeq ($(HAVE_PYTHON),yes)
+-SYSTEM-pim-texi-check: m2/gm2-libs-pim-common/SYSTEM.def
+-	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -t -s$(srcdir) -fm2/gm2-libs-pim-common/SYSTEM.def -o m2/SYSTEM-pim.texi
++SYSTEM-pim-texi-check: $(objdir)/m2/gm2-libs/SYSTEM.def
++	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -t -b$(objdir)/m2 -f$(objdir)/m2/gm2-libs/SYSTEM.def -o $(objdir)/m2/SYSTEM-pim.texi
+ else
+-SYSTEM-pim-texi-check: m2/gm2-libs-pim-common/SYSTEM.def
+-	cp $(srcdir)/m2/target-independent/m2/SYSTEM-pim.texi m2/SYSTEM-pim.texi
++SYSTEM-pim-texi-check: $(objdir)/m2/gm2-libs/SYSTEM.def
++	cp $(srcdir)/m2/target-independent/m2/SYSTEM-pim.texi $(objdir)/m2/SYSTEM-pim.texi
+ endif
+ 	$(STAMP) SYSTEM-pim-texi-check
+ 
+-# SYSTEM-iso.texi
++# SYSTEM-pim.rst
++
++m2/SYSTEM-pim.rst: SYSTEM-pim-rst-check; @true
++
++ifeq ($(HAVE_PYTHON),yes)
++SYSTEM-pim-rst-check: $(objdir)/m2/gm2-libs/SYSTEM.def
++	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -x -b$(objdir)/m2 -f$(objdir)/m2/gm2-libs/SYSTEM.def -o $(objdir)/m2/SYSTEM-pim.rst
++else
++SYSTEM-pim-rst-check: $(objdir)/m2/gm2-libs/SYSTEM.def
++	cp $(srcdir)/m2/target-independent/m2/SYSTEM-pim.rst $(objdir)/m2/SYSTEM-pim.rst
++endif
++	$(STAMP) SYSTEM-pim-rst-check
++
++# SYSTEM-pim.texi
+ 
+ m2/SYSTEM-iso.texi:  SYSTEM-iso.texi-check; @true
+ 
+ ifeq ($(HAVE_PYTHON),yes)
+-SYSTEM-iso.texi-check:  m2/gm2-libs-iso-common/SYSTEM.def
+-	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -t -s$(srcdir) -fm2/gm2-libs-iso-common/SYSTEM.def -o m2/SYSTEM-iso.texi
++SYSTEM-iso.texi-check:  $(objdir)/m2/gm2-libs-iso/SYSTEM.def
++	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -t -b$(objdir)/m2 -f$(objdir)/m2/gm2-libs-iso/SYSTEM.def -o $(objdir)/m2/SYSTEM-iso.texi
+ else
+-SYSTEM-iso.texi-check:  m2/gm2-libs-iso-common/SYSTEM.def
+-	cp $(srcdir)/m2/target-independent/m2/SYSTEM-iso.texi m2/SYSTEM-iso.texi
++SYSTEM-iso.texi-check:  $(objdir)/m2/gm2-libs-iso/SYSTEM.def
++	cp $(srcdir)/m2/target-independent/m2/SYSTEM-iso.texi $(objdir)/m2/SYSTEM-iso.texi
+ endif
+ 	$(STAMP) SYSTEM-iso.texi-check
+ 
++# SYSTEM-pim.rst
++
++m2/SYSTEM-iso.rst:  SYSTEM-iso.rst-check; @true
++
++ifeq ($(HAVE_PYTHON),yes)
++SYSTEM-iso.rst-check:  $(objdir)/m2/gm2-libs-iso/SYSTEM.def
++	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -x -b$(objdir)/m2 -f$(objdir)/m2/gm2-libs-iso/SYSTEM.def -o $(objdir)/m2/SYSTEM-iso.rst
++else
++SYSTEM-iso.rst-check:  $(objdir)/m2/gm2-libs-iso/SYSTEM.def
++	cp $(srcdir)/m2/target-independent/m2/SYSTEM-iso.rst $(objdir)/m2/SYSTEM-iso.rst
++endif
++	$(STAMP) SYSTEM-iso.rst-check
++
++
+ # m2/Builtins.texi
+ 
+ m2/Builtins.texi:  Builtins.texi-check; @true
+ 
+ ifeq ($(HAVE_PYTHON),yes)
+-Builtins.texi-check:  m2/gm2-libs-pim-common/Builtins.def
+-	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -t -s$(srcdir) -fm2/gm2-libs-pim-common/Builtins.def -o m2/Builtins.texi
++Builtins.texi-check:  m2/gm2-libs/Builtins.def
++	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -t -b./ -f$(srcdir)/m2/gm2-libs/Builtins.def -o $(objdir)/m2/Builtins.texi
+ else
+-Builtins.texi-check:  m2/gm2-libs-pim-common/Builtins.def
+-	cp $(srcdir)/m2/target-independent/m2/Builtins.texi m2/Builtins.texi
++Builtins.texi-check:  m2/gm2-libs/Builtins.def
++	cp $(srcdir)/m2/target-independent/m2/Builtins.texi $(objdir)/m2/Builtins.texi
+ endif
+ 	$(STAMP) Builtins.texi-check
+ 
++# m2/Builtins.rst
++
++m2/Builtins.rst:  Builtins.rst-check; @true
++
++ifeq ($(HAVE_PYTHON),yes)
++Builtins.rst-check:  m2/gm2-libs/Builtins.def
++	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -x -b./ -f$(srcdir)/m2/gm2-libs/Builtins.def -o $(objdir)/m2/Builtins.rst
++else
++Builtins.rst-check:  m2/gm2-libs/Builtins.def
++	cp $(srcdir)/m2/target-independent/m2/Builtins.rst $(objdir)/m2/Builtins.rst
++endif
++	$(STAMP) Builtins.rst-check
++
+ m2/gpl_v3_without_node.texi: doc/include/gpl_v3.texi
+ 	grep -v "^@node" $< > $@
+ 
+@@ -434,7 +496,6 @@ MC_COPYRIGHT=
+ 
+ MC_ARGS= --olang=c++ \
+  --h-file-prefix=$(SRC_PREFIX) \
+- -I$(srcdir)/m2/gm2-libs-pim-common \
+  -I$(srcdir)/m2/gm2-libs \
+  -I$(srcdir)/m2/gm2-compiler \
+  -I$(srcdir)/m2/gm2-libiberty \
+@@ -1397,8 +1458,7 @@ GM2_BOOT_INCLUDES=-I. \
+   -Im2/gm2-compiler-boot \
+   -I$(srcdir)m2/gm2-gcc \
+   -Im2/gm2-libiberty \
+-  -I$(srcdir)/m2/gm2-libiberty \
+-  -I$(srcdir)/m2/mc-boot-ch
++  -I$(srcdir)/m2/gm2-libiberty
+ 
+ GCC_COLOR=m2/gm2-gcc/m2color.o diagnostic-color.o
+ 
+@@ -1410,17 +1470,12 @@ m2/boot-bin/mc$(exeext): $(BUILD-MC-BOOT-O) $(BUILD-MC-INTERFACE-O) \
+ 
+ m2/mc-boot/$(SRC_PREFIX)%.o: m2/mc-boot/$(SRC_PREFIX)%.cc m2/gm2-libs/gm2-libs-host.h
+ 	-test -d $(@D)/$(DEPDIR) || $(mkinstalldirs) $(@D)/$(DEPDIR)
+-	$(CXX) $(CM2DEP) $(CXXFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) \
+-         -g -c -I. -I$(srcdir)/m2/mc-boot-ch -I$(srcdir)/m2/mc-boot \
+-         -I$(srcdir)/../include -I$(srcdir) $(INCLUDES) \
+-         -I$(srcdir)/m2/mc-boot-ch $< -o $@
++	$(CXX) $(CM2DEP) $(CXXFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) -g -c -I. -I$(srcdir)/m2/mc-boot-ch -I$(srcdir)/m2/mc-boot -I$(srcdir)/../include -I$(srcdir) $(INCLUDES) $< -o $@
+ 	$(POSTCOMPILE)
+ 
+ m2/mc-boot-ch/$(SRC_PREFIX)%.o: m2/mc-boot-ch/$(SRC_PREFIX)%.c m2/gm2-libs/gm2-libs-host.h
+ 	-test -d $(@D)/$(DEPDIR) || $(mkinstalldirs) $(@D)/$(DEPDIR)
+-	$(CXX) $(CM2DEP) $(CXXFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) -DHAVE_CONFIG_H \
+-         -g -c -I. -Im2/gm2-libs -I$(srcdir)/../include -I$(srcdir) $(INCLUDES) \
+-         -I$(srcdir)/m2/mc-boot-ch -Im2/gm2-libs $< -o $@
++	$(CXX) $(CM2DEP) $(CXXFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) -DHAVE_CONFIG_H -g -c -I. -Im2/gm2-libs -I$(srcdir)/../include -I$(srcdir) $(INCLUDES) -Im2/gm2-libs $< -o $@
+ 	$(POSTCOMPILE)
+ 
+ m2/mc-boot-ch/$(SRC_PREFIX)%.o: m2/mc-boot-ch/$(SRC_PREFIX)%.cc m2/gm2-libs/gm2-libs-host.h
+@@ -1481,56 +1536,47 @@ m2/gm2-libs-boot/wrapc.o: $(srcdir)/m2/gm2-libs-ch/wrapc.c m2/gm2-libs-boot/$(SR
+ 	$(CXX) $(CM2DEP) -c -DHAVE_CONFIG_H $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) -Im2/gm2-libs -I$(srcdir)/m2 -Im2 -I. -Im2/gm2-libs-boot -Im2/gm2-libs $(INCLUDES) $< -o $@
+ 	$(POSTCOMPILE)
+ 
+-MC_BOOT_INCLUDES = -Im2/gm2-libs -I$(srcdir)/m2 -Im2 -I. -Im2/gm2-libs-boot -I$(srcdir)/m2/mc-boot-ch
+-
+ m2/gm2-libs-boot/UnixArgs.o: $(srcdir)/m2/gm2-libs-ch/UnixArgs.cc m2/gm2-libs-boot/$(SRC_PREFIX)UnixArgs.h $(GM2-LIBS-BOOT-H)
+ 	-test -d $(@D)/$(DEPDIR) || $(mkinstalldirs) $(@D)/$(DEPDIR)
+-	$(CXX) $(CM2DEP) -c -DIN_GCC $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) \
+-         $(MC_BOOT_INCLUDES) $(INCLUDES) $< -o $@
++	$(CXX) $(CM2DEP) -c -DIN_GCC $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) -Im2/gm2-libs -I$(srcdir)/m2 -Im2 -I. -Im2/gm2-libs-boot $(INCLUDES) $< -o $@
+ 	$(POSTCOMPILE)
+ 
+ m2/gm2-libs-boot/choosetemp.o: m2/gm2-libs-ch/choosetemp.c m2/gm2-libiberty/Gchoosetemp.h $(GM2-LIBS-BOOT-H)
+ 	-test -d $(@D)/$(DEPDIR) || $(mkinstalldirs) $(@D)/$(DEPDIR)
+-	$(CXX) $(CM2DEP) -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) $(MC_BOOT_INCLUDES) \
+-         -Im2/gm2-libiberty -I$(srcdir)/m2/gm2-libiberty/ $(INCLUDES) $< -o $@
++	$(CXX) $(CM2DEP) -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) -Im2/gm2-libs -I$(srcdir)/m2 -Im2 -I. -Im2/gm2-libs-boot -Im2/gm2-libiberty -I$(srcdir)/m2/gm2-libiberty/ $(INCLUDES) $< -o $@
+ 	$(POSTCOMPILE)
+ 
+ m2/gm2-libs-boot/errno.o: $(srcdir)/m2/gm2-libs-ch/errno.c m2/gm2-libs-boot/$(SRC_PREFIX)errno.h $(GM2-LIBS-BOOT-H)
+ 	-test -d $(@D)/$(DEPDIR) || $(mkinstalldirs) $(@D)/$(DEPDIR)
+-	$(CXX) $(CM2DEP) -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) \
+-         $(MC_BOOT_INCLUDES) $(INCLUDES) $< -o $@
++	$(CXX) $(CM2DEP) -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) -Im2/gm2-libs -I$(srcdir)/m2 -Im2 -I. -Im2/gm2-libs-boot $(INCLUDES) $< -o $@
+ 	$(POSTCOMPILE)
+ 
+ m2/gm2-libs-boot/dtoa.o: $(srcdir)/m2/gm2-libs-ch/dtoa.cc $(GM2-LIBS-BOOT-H)
+ 	-test -d $(@D)/$(DEPDIR) || $(mkinstalldirs) $(@D)/$(DEPDIR)
+-	$(CXX) $(CM2DEP) -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) $(MC_BOOT_INCLUDES) \
+-          $(INCLUDES) $< -o $@
++	$(CXX) $(CM2DEP) -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) -Im2/gm2-libs-boot -Im2/gm2-libs -I$(srcdir)/m2 -Im2 -I. -Im2/gm2-libs-boot $(INCLUDES) $< -o $@
+ 	$(POSTCOMPILE)
+ 
+ m2/gm2-libs-boot/ldtoa.o: $(srcdir)/m2/gm2-libs-ch/ldtoa.cc $(GM2-LIBS-BOOT-H)
+ 	-test -d $(@D)/$(DEPDIR) || $(mkinstalldirs) $(@D)/$(DEPDIR)
+-	$(CXX) $(CM2DEP) -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) $(MC_BOOT_INCLUDES) \
+-          $(INCLUDES) $< -o $@
++	$(CXX) $(CM2DEP) -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) -Im2/gm2-libs-boot -Im2/gm2-libs -I$(srcdir)/m2 -Im2 -I. -Im2/gm2-libs-boot $(INCLUDES) $< -o $@
+ 	$(POSTCOMPILE)
+ 
+ m2/gm2-libs-boot/termios.o: $(srcdir)/m2/gm2-libs-ch/termios.c $(BUILD-LIBS-BOOT-H) $(GM2-LIBS-BOOT-H)
+ 	-test -d $(@D)/$(DEPDIR) || $(mkinstalldirs) $(@D)/$(DEPDIR)
+-	$(CXX) $(CM2DEP) -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) $(MC_BOOT_INCLUDES) \
+-          $(INCLUDES) $< -o $@
++	$(CXX) $(CM2DEP) -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) -Im2/gm2-libs -I$(srcdir)/m2 -Im2 -I. -Im2/gm2-libs-boot $(INCLUDES) $< -o $@
+ 	$(POSTCOMPILE)
+ 
+ m2/gm2-libs-boot/SysExceptions.o: $(srcdir)/m2/gm2-libs-ch/SysExceptions.c \
+                                   m2/gm2-libs-boot/$(SRC_PREFIX)SysExceptions.h $(GM2-LIBS-BOOT-H)
+ 	-test -d $(@D)/$(DEPDIR) || $(mkinstalldirs) $(@D)/$(DEPDIR)
+-	$(CXX) $(CM2DEP) -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) $(MC_BOOT_INCLUDES) \
+-          $(INCLUDES) $< -o $@
++	$(CXX) $(CM2DEP) -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) -Im2/gm2-libs -I$(srcdir)/m2 -Im2 -I. -Im2/gm2-libs-boot $(INCLUDES) $< -o $@
+ 	$(POSTCOMPILE)
+ 
+ m2/gm2-libs-boot/SysStorage.o: $(srcdir)/m2/gm2-libs/SysStorage.mod $(MCDEPS) $(BUILD-BOOT-H)
+ 	-test -d $(@D)/$(DEPDIR) || $(mkinstalldirs) $(@D)/$(DEPDIR)
+ 	$(MC) -o=m2/gm2-libs-boot/SysStorage.c $(srcdir)/m2/gm2-libs/SysStorage.mod
+ 	$(COMPILER) $(CM2DEP) -DIN_GCC -c $(CFLAGS) $(GM2_PICFLAGS) $(MC_SRC_FLAGS) \
+-          $(MC_BOOT_INCLUDES) $(MCINCLUDES) $(INCLUDES) \
++          -I$(srcdir)/m2 -Im2 -I. -Im2/gm2-libs-boot $(MCINCLUDES) $(INCLUDES) \
+           m2/gm2-libs-boot/SysStorage.c -o m2/gm2-libs-boot/SysStorage.o
+ 	$(POSTCOMPILE)
+ 
+@@ -1715,96 +1761,39 @@ m2/gm2config.aci:
+                 --target=$(target) --program-suffix=$(exeext)' ; \
+         fi
+ 
+-ifeq ($(HAVE_PYTHON),yes)
+-m2/gm2-libs/Builtins.def: $(GM2_PROG_DEP)
+-	-test -d $(@D) || $(mkinstalldirs) $(@D)
+-	$(PYTHON) $(srcdir)/m2/tools-src/mktargetsrc.py --fpim \
+-             -D=$(srcdir)/m2/gm2-libs-pim-common/Builtins.def \
+-             -M=$(srcdir)/m2/gm2-libs-pim-common/Builtins.mod \
+-             -I=$(srcdir)/m2/gm2-libs \
+-             -I=$(srcdir)/m2/gm2-libs-pim-common \
+-             -C=$(GM2_FOR_TARGET_ESC) -o $@
+-else
+-m2/gm2-libs/Builtins.def: $(GM2_PROG_DEP)
+-	-test -d $(@D) || $(mkinstalldirs) $(@D)
+-	-cp -p $(srcdir)/m2/gm2-libs-common/Builtins.def $@
+-endif
+-
+-ifeq ($(HAVE_PYTHON),yes)
+-m2/gm2-libs/Builtins.mod: $(GM2_PROG_DEP)
+-	-test -d $(@D) || $(mkinstalldirs) $(@D)
+-	$(PYTHON) $(srcdir)/m2/tools-src/mktargetsrc.py --fpim \
+-             -M=$(srcdir)/m2/gm2-libs-pim-common/Builtins.mod \
+-             -I=$(srcdir)/m2/gm2-libs \
+-             -I=$(srcdir)/m2/gm2-libs-pim-common \
+-             -C=$(GM2_FOR_TARGET_ESC) -o $@
+-else
+-m2/gm2-libs/Builtins.mod: $(GM2_PROG_DEP)
+-	-test -d $(@D) || $(mkinstalldirs) $(@D)
+-	-cp -p $(srcdir)/m2/gm2-libs-common/Builtins.mod $@
+-endif
+-
+-ifeq ($(HAVE_PYTHON),yes)
+-m2/gm2-libs/SYSTEM.def: $(GM2_PROG_DEP)
+-	-test -d $(@D) || $(mkinstalldirs) $(@D)
+-	$(PYTHON) $(srcdir)/m2/tools-src/mktargetsrc.py --fpim \
+-	    -D=$(srcdir)/m2/gm2-libs-pim-common/SYSTEM.def \
+-	    -M=$(srcdir)/m2/gm2-libs-pim-common/SYSTEM.mod \
+-	    -I=$(srcdir)/m2/gm2-libs \
+-	    -I=$(srcdir)/m2/gm2-libs-pim-common \
+-	    -C=$(GM2_FOR_TARGET_ESC) -o $@
+-else
+-m2/gm2-libs/SYSTEM.def: $(GM2_PROG_DEP)
++$(objdir)/m2/gm2-libs-min/SYSTEM.def: $(GM2_PROG_DEP)
+ 	-test -d $(@D) || $(mkinstalldirs) $(@D)
+ 	$(SHELL) $(srcdir)/m2/tools-src/makeSystem -fpim \
+-             $(srcdir)/m2/gm2-libs-pim-common/SYSTEM.def \
+-             $(srcdir)/m2/gm2-libs-pim-common/SYSTEM.mod \
+-             -I$(srcdir)/m2/gm2-libs \
+-             -I$(srcdir)/m2/gm2-libs-pim-common \
++             $(srcdir)/m2/gm2-libs-min/SYSTEM.def \
++             $(srcdir)/m2/gm2-libs-min/SYSTEM.mod \
++             -I$(srcdir)/m2/gm2-libs-min -I$(srcdir)/m2/gm2-libs \
+              "$(GM2_FOR_TARGET)" $@
+-endif
+ 
+-ifeq ($(HAVE_PYTHON),yes)
+-m2/gm2-libs-iso/SYSTEM.def: $(GM2_PROG_DEP)
+-	-test -d $(@D) || $(mkinstalldirs) $(@D)
+-	$(PYTHON) $(srcdir)/m2/tools-src/mktargetsrc.py --fpim \
+-	    -D=$(srcdir)/m2/gm2-libs-iso-common/SYSTEM.def \
+-	    -M=$(srcdir)/m2/gm2-libs-iso-common/SYSTEM.mod \
+-	    -I=$(srcdir)/m2/gm2-libs \
+-            -I=$(srcdir)/m2/gm2-libs-iso-common \
+-	    -C=$(GM2_FOR_TARGET_ESC) -o $@
+-else
+-m2/gm2-libs-iso/SYSTEM.def: $(GM2_PROG_DEP)
++$(objdir)/m2/gm2-libs/SYSTEM.def: $(GM2_PROG_DEP)
+ 	-test -d $(@D) || $(mkinstalldirs) $(@D)
++	echo "GM2_FOR_TARGET $(GM2_FOR_TARGET)"
++	echo "GCC_FOR_TARGET $(GCC_FOR_TARGET)"
+ 	$(SHELL) $(srcdir)/m2/tools-src/makeSystem -fpim \
+-             $(srcdir)/m2/gm2-libs-iso-common/SYSTEM.def \
+-             $(srcdir)/m2/gm2-libs-iso-common/SYSTEM.mod \
++             $(srcdir)/m2/gm2-libs/SYSTEM.def \
++             $(srcdir)/m2/gm2-libs/SYSTEM.mod \
+              -I$(srcdir)/m2/gm2-libs \
+-             -I$(srcdir)/m2/gm2-libs-iso-common \
+              "$(GM2_FOR_TARGET)" $@
+-endif
+ 
+-ifeq ($(HAVE_PYTHON),yes)
+-m2/gm2-libs-coroutines/SYSTEM.def: $(GM2_PROG_DEP)
++$(objdir)/m2/gm2-libs-iso/SYSTEM.def: $(GM2_PROG_DEP)
+ 	-test -d $(@D) || $(mkinstalldirs) $(@D)
+-	$(PYTHON) $(srcdir)/m2/tools-src/mktargetsrc.py --fpim \
+-	    -D=$(srcdir)/m2/gm2-libs-cor-common/SYSTEM.def \
+-	    -M=$(srcdir)/m2/gm2-libs-cor-common/SYSTEM.mod \
+-	    -I=$(srcdir)/m2/gm2-libs \
+-	    -I=$(srcdir)/m2/gm2-libs-cor-common \
+-	    -I=$(srcdir)/m2/gm2-libs-iso \
+-	    -C=$(GM2_FOR_TARGET_ESC) -o $@
+-else
+-m2/gm2-libs-coroutines/SYSTEM.def: $(GM2_PROG_DEP)
++	$(SHELL) $(srcdir)/m2/tools-src/makeSystem -fiso \
++             $(srcdir)/m2/gm2-libs-iso/SYSTEM.def \
++             $(srcdir)/m2/gm2-libs-iso/SYSTEM.mod \
++             -I$(srcdir)/m2/gm2-libs-iso -I$(srcdir)/m2/gm2-libs \
++             "$(GM2_FOR_TARGET)" $@
++
++$(objdir)/m2/gm2-libs-coroutines/SYSTEM.def: $(GM2_PROG_DEP)
+ 	-test -d $(@D) || $(mkinstalldirs) $(@D)
+ 	$(SHELL) $(srcdir)/m2/tools-src/makeSystem -fpim \
+-             $(srcdir)/m2/gm2-libs-cor-common/SYSTEM.def \
+-             $(srcdir)/m2/gm2-libs-cor-common/SYSTEM.mod \
+-             -I$(srcdir)/m2/gm2-libs \
+-             -I$(srcdir)/m2/gm2-libs-cor-common \
+-	     -I$(srcdir)/m2/gm2-libs-iso \
++             $(srcdir)/m2/gm2-libs-coroutines/SYSTEM.def \
++             $(srcdir)/m2/gm2-libs-coroutines/SYSTEM.mod \
++             -I$(srcdir)/m2/gm2-libs-coroutines -I$(srcdir)/m2/gm2-libs-iso -I$(srcdir)/m2/gm2-libs \
+              "$(GM2_FOR_TARGET)" $@
+-endif
+ 
+ build-compiler: $(GM2-COMP-MODS:%.mod=m2/gm2-compiler/%.o) \
+                 $(GM2-AUTO-MODS:%.mod=m2/gm2-compiler/%.o) \
+@@ -1830,8 +1819,7 @@ m2/gm2-libs/%.o: $(srcdir)/m2/gm2-libs/%.mod $(MCDEPS) $(BUILD-BOOT-H)
+ 
+ m2/gm2-libs/%.o: $(srcdir)/m2/gm2-libs-ch/%.c m2/gm2-libs/gm2-libs-host.h
+ 	-test -d $(@D)/$(DEPDIR) || $(mkinstalldirs) $(@D)/$(DEPDIR)
+-	$(CXX) $(CM2DEP) -DBUILD_GM2_LIBS -c $(CFLAGS) $(GM2_PICFLAGS) \
+-          -Im2/gm2-libs -I$(srcdir)/m2 -Im2/gm2-libs-boot $(INCLUDES) $< -o $@
++	$(CXX) $(CM2DEP) -DBUILD_GM2_LIBS -c $(CFLAGS) $(GM2_PICFLAGS) -Im2/gm2-libs -I$(srcdir)/m2 -Im2/gm2-libs-boot $(INCLUDES) $< -o $@
+ 	$(POSTCOMPILE)
+ 
+ m2/gm2-libs/%.o: $(srcdir)/m2/gm2-libs-ch/%.cc m2/gm2-libs/gm2-libs-host.h
+diff --git a/gcc/m2/gm2-compiler/M2Options.def b/gcc/m2/gm2-compiler/M2Options.def
+index 64eb9529e0dc..c603b52ec3f6 100644
+--- a/gcc/m2/gm2-compiler/M2Options.def
++++ b/gcc/m2/gm2-compiler/M2Options.def
+@@ -708,20 +708,6 @@ PROCEDURE SetSources (value: BOOLEAN) ;
+ PROCEDURE SetDumpSystemExports (value: BOOLEAN) ;
+ 
+ 
+-(*
+-   SetDumpBuiltins - set by -fdump_builtins.
+-*)
+-
+-PROCEDURE SetDumpBuiltins (value: BOOLEAN) ;
+-
+-
+-(*
+-   GetDumpBuiltins - return the value of -fdump_builtins.
+-*)
+-
+-PROCEDURE GetDumpBuiltins () : BOOLEAN ;
+-
+-
+ (*
+    SetSwig -
+ *)
+diff --git a/gcc/m2/gm2-compiler/M2Options.mod b/gcc/m2/gm2-compiler/M2Options.mod
+index 5c05d53af3c0..4842d7a960c5 100644
+--- a/gcc/m2/gm2-compiler/M2Options.mod
++++ b/gcc/m2/gm2-compiler/M2Options.mod
+@@ -78,7 +78,6 @@ VAR
+    UselistFilename,
+    RuntimeModuleOverride,
+    CppArgs              : String ;
+-   DumpBuiltinsFlag,
+    EnableForward,
+    DebugFunctionLineNumbers,
+    DebugTraceQuad,   (* -fm2-debug-trace=quad.  *)
+@@ -1271,26 +1270,6 @@ BEGIN
+ END SetDumpSystemExports ;
+ 
+ 
+-(*
+-   SetDumpBuiltins - set the value of -fdump-builtins.
+-*)
+-
+-PROCEDURE SetDumpBuiltins (value: BOOLEAN) ;
+-BEGIN
+-   DumpBuiltinsFlag := value
+-END SetDumpBuiltins ;
+-
+-
+-(*
+-   GetDumpBuiltins - return the value of -fdump-builtins.
+-*)
+-
+-PROCEDURE GetDumpBuiltins () : BOOLEAN ;
+-BEGIN
+-   RETURN DumpBuiltinsFlag
+-END GetDumpBuiltins ;
+-
+-
+ (*
+    SetSearchPath -
+ *)
+@@ -2240,5 +2219,4 @@ BEGIN
+    EnableForward                     := TRUE ;
+    OffTBits                          := 0 ;  (* Default to CSSIZE_T.  *)
+    WidesetFlag                       := TRUE ;
+-   DumpBuiltinsFlag                  := FALSE ;
+ END M2Options.
+diff --git a/gcc/m2/gm2-compiler/M2Quads.mod b/gcc/m2/gm2-compiler/M2Quads.mod
+index dd8eb95ffe7c..14e0f4b3e198 100644
+--- a/gcc/m2/gm2-compiler/M2Quads.mod
++++ b/gcc/m2/gm2-compiler/M2Quads.mod
+@@ -12807,7 +12807,8 @@ PROCEDURE BuildComponentValue ;
+ VAR
+    e1tok,
+    e2tok,
+-   consttok : CARDINAL ;
++   consttok,
++   virtpos  : CARDINAL ;
+    const,
+    e1, e2   : CARDINAL ;
+    nuldotdot,
+diff --git a/gcc/m2/gm2-gcc/m2builtins.cc b/gcc/m2/gm2-gcc/m2builtins.cc
+index 01d429abc910..a494ff7b1075 100644
+--- a/gcc/m2/gm2-gcc/m2builtins.cc
++++ b/gcc/m2/gm2-gcc/m2builtins.cc
+@@ -30,27 +30,26 @@ along with GNU Modula-2; see the file COPYING3.  If not see
+ #include "m2treelib.h"
+ #include "m2type.h"
+ #include "m2configure.h"
+-#include "m2options.h"
+ 
+ #undef DEBUGGING
+ 
+ #define GM2
+-#define GM2_BUG_REPORT \
+-  "Please report this crash to the GNU Modula-2 mailing list " \
++#define GM2_BUG_REPORT                                                        \
++  "Please report this crash to the GNU Modula-2 mailing list "                \
+   "<gm2@nongnu.org>\n"
+ 
+-#define ASSERT(X, Y) \
+-  { \
+-    if (!(X)) \
+-      { \
+-        debug_tree (Y); \
+-        internal_error ("%s:%d:assertion of condition %qs failed", \
+-			__FILE__, __LINE__, #X); \
+-      } \
++#define ASSERT(X, Y)                                                          \
++  {                                                                           \
++    if (!(X))                                                                 \
++      {                                                                       \
++        debug_tree (Y);                                                       \
++        internal_error ("%s:%d:assertion of condition %qs failed", __FILE__, __LINE__,  \
++                        #X);                                                  \
++      }                                                                       \
+   }
+-#define ERROR(X) \
+-  { \
+-    internal_error ("%s:%d:%s", __FILE__, __LINE__, X); \
++#define ERROR(X)                                                              \
++  {                                                                           \
++    internal_error ("%s:%d:%s", __FILE__, __LINE__, X);                     \
+   }
+ 
+ typedef enum {
+@@ -1448,15 +1447,6 @@ set_decl_function_code (tree decl, built_in_function f)
+   fndecl.function_code = f;
+ }
+ 
+-/* dump_available issue a printf containing builtin procedure name.  */
+-
+-static
+-void
+-dump_available (const char *name)
+-{
+-  printf ("builtin procedure function: %s\n", name);
+-}
+-
+ /* Define a single builtin.  */
+ 
+ static void
+@@ -1481,8 +1471,6 @@ define_builtin (enum built_in_function val, const char *name, tree prototype,
+   bmd.function_node = decl;
+   bmd.return_node = TREE_TYPE (prototype);
+   vec_safe_push (builtin_macros, bmd);
+-  if (M2Options_GetDumpBuiltins ())
+-    dump_available (libname);
+ }
+ 
+ /* Define a math type variant of the builtin function.  */
+@@ -1538,19 +1526,6 @@ define_builtin_gcc (void)
+ 		  "__builtin_ctzll", ECF_CONST | ECF_NOTHROW | ECF_LEAF);
+ }
+ 
+-/* dump_builtin check the availability of name and dump
+-   a message to stdout if -fdump-builtins was set.  */
+-
+-static
+-void
+-dump_builtin (struct builtin_function_entry *fe)
+-{
+-  if (M2Options_GetDumpBuiltins () && do_target_support_exists (fe))
+-    dump_available (fe->name);
+-}
+-
+-/* m2builtins_init declare function prototypes matching the available GCC builtins.  */
+-
+ void
+ m2builtins_init (location_t location)
+ {
+@@ -1597,10 +1572,7 @@ m2builtins_init (location_t location)
+       integer_type_node, tree_cons (NULL_TREE, long_long_unsigned_type_node, endlink));
+ 
+   for (i = 0; list_of_builtins[i].name != NULL; i++)
+-    {
+-      create_function_prototype (location, &list_of_builtins[i]);
+-      dump_builtin (&list_of_builtins[i]);
+-    }
++    create_function_prototype (location, &list_of_builtins[i]);
+ 
+   define_builtin (BUILT_IN_TRAP, "__builtin_trap",
+                   build_function_type_list (void_type_node, NULL_TREE),
+@@ -1629,7 +1601,7 @@ m2builtins_init (location_t location)
+   gm2_alloca_node = find_builtin_tree ("__builtin_alloca");
+   gm2_memcpy_node = find_builtin_tree ("__builtin_memcpy");
+   gm2_memset_node = find_builtin_tree ("__builtin_memset");
+-  gm2_strncpy_node = find_builtin_tree ("__builtin_strncpy");
++  gm2_strncpy_node = find_builtin_tree ("__builtin_strncpy");  
+   gm2_huge_valf_node = find_builtin_tree ("__builtin_huge_valf");
+   gm2_huge_val_node = find_builtin_tree ("__builtin_huge_val");
+   gm2_huge_vall_node = find_builtin_tree ("__builtin_huge_vall");
+diff --git a/gcc/m2/gm2-gcc/m2options.h b/gcc/m2/gm2-gcc/m2options.h
+index fcec4a9105e4..893fa41fcfd1 100644
+--- a/gcc/m2/gm2-gcc/m2options.h
++++ b/gcc/m2/gm2-gcc/m2options.h
+@@ -91,8 +91,6 @@ EXTERN bool M2Options_GetDebugFunctionLineNumbers (void);
+ EXTERN void M2Options_SetSources (bool value);
+ EXTERN bool M2Options_SetUnboundedByReference (bool value);
+ EXTERN void M2Options_SetDumpSystemExports (bool value);
+-EXTERN void M2Options_SetDumpBuiltins (bool value);
+-EXTERN bool M2Options_GetDumpBuiltins (void);
+ EXTERN void M2Options_SetOptimizing (unsigned int value);
+ EXTERN bool M2Options_SetQuiet (bool value);
+ EXTERN void M2Options_SetCC1Quiet (bool value);
+diff --git a/gcc/m2/gm2-lang.cc b/gcc/m2/gm2-lang.cc
+index 6ebaaa77751c..c34e8c1da19e 100644
+--- a/gcc/m2/gm2-lang.cc
++++ b/gcc/m2/gm2-lang.cc
+@@ -864,9 +864,6 @@ gm2_langhook_handle_option (
+     case OPT_fmod_:
+       M2Options_setmodextension (arg);
+       return 1;
+-    case OPT_fdump_builtins:
+-      M2Options_SetDumpBuiltins (value);
+-      return 1;
+     case OPT_fdump_system_exports:
+       M2Options_SetDumpSystemExports (value);
+       return 1;
+diff --git a/gcc/m2/gm2-libs-cor-common/SYSTEM.def b/gcc/m2/gm2-libs-coroutines/SYSTEM.def
+similarity index 98%
+rename from gcc/m2/gm2-libs-cor-common/SYSTEM.def
+rename to gcc/m2/gm2-libs-coroutines/SYSTEM.def
+index b31200bdaaa5..c5e23235d02e 100644
+--- a/gcc/m2/gm2-libs-cor-common/SYSTEM.def
++++ b/gcc/m2/gm2-libs-coroutines/SYSTEM.def
+@@ -34,9 +34,7 @@ DEFINITION MODULE SYSTEM ;
+ FROM COROUTINES IMPORT PROTECTION ;
+ 
+ EXPORT QUALIFIED (* the following are built into the compiler: *)
+-                 (* <SYSTEM_DATATYPES> *)
+-                 ADDRESS, WORD, BYTE, CSIZE_T, CSSIZE_T, COFF_T,
+-                 (* </SYSTEM_DATATYPES> *)
++                 ADDRESS, WORD, BYTE, CSIZE_T, CSSIZE_T, COFF_T, (* @SYSTEM_DATATYPES@ *)
+                  ADR, TSIZE, ROTATE, SHIFT, THROW, TBITSIZE,
+                  (* SIZE is exported depending upon -fpim2 and
+                     -fpedantic.  *)
+@@ -66,8 +64,7 @@ TYPE
+    move into another module in the future.  *)
+ 
+ (* The following types are supported on this target:
+-   <SYSTEM_TYPES>
+-   </SYSTEM_TYPES>
++   @SYSTEM_TYPES@
+ *)
+ 
+ 
+diff --git a/gcc/m2/gm2-libs-cor-common/SYSTEM.mod b/gcc/m2/gm2-libs-coroutines/SYSTEM.mod
+similarity index 100%
+rename from gcc/m2/gm2-libs-cor-common/SYSTEM.mod
+rename to gcc/m2/gm2-libs-coroutines/SYSTEM.mod
+diff --git a/gcc/m2/gm2-libs-iso-common/ComplexMath.def b/gcc/m2/gm2-libs-iso/ComplexMath.def
+similarity index 90%
+rename from gcc/m2/gm2-libs-iso-common/ComplexMath.def
+rename to gcc/m2/gm2-libs-iso/ComplexMath.def
+index 96df692456da..bc3d32e151bd 100644
+--- a/gcc/m2/gm2-libs-iso-common/ComplexMath.def
++++ b/gcc/m2/gm2-libs-iso/ComplexMath.def
+@@ -39,13 +39,13 @@ PROCEDURE __BUILTIN__ exp (z: COMPLEX): COMPLEX;
+ PROCEDURE __BUILTIN__ ln (z: COMPLEX): COMPLEX;
+   (* Returns the principal value of the natural logarithm of z *)
+ 
+-  (* <DEF_TARGET_PROCEDURE(sin,COMPLEX,COMPLEX,__builtin_csin,cbuiltin.csin)> *)
++PROCEDURE __BUILTIN__ sin (z: COMPLEX): COMPLEX;
+   (* Returns the sine of z *)
+ 
+-  (* <DEF_TARGET_PROCEDURE(cos,COMPLEX,COMPLEX,__builtin_ccos,cbuiltin.ccos)> *)
++PROCEDURE __BUILTIN__ cos (z: COMPLEX): COMPLEX;
+   (* Returns the cosine of z *)
+ 
+-  (* <DEF_TARGET_PROCEDURE(tan,COMPLEX,COMPLEX,__builtin_ctan,cbuiltin.ctan)> *)
++PROCEDURE __BUILTIN__ tan (z: COMPLEX): COMPLEX;
+   (* Returns the tangent of z *)
+ 
+ PROCEDURE __BUILTIN__ arcsin (z: COMPLEX): COMPLEX;
+@@ -70,3 +70,4 @@ PROCEDURE IsCMathException (): BOOLEAN;
+   *)
+ 
+ END ComplexMath.
++
+diff --git a/gcc/m2/gm2-libs-iso-common/ComplexMath.mod b/gcc/m2/gm2-libs-iso/ComplexMath.mod
+similarity index 90%
+rename from gcc/m2/gm2-libs-iso-common/ComplexMath.mod
+rename to gcc/m2/gm2-libs-iso/ComplexMath.mod
+index fbade8c4d914..d0a618c6dd01 100644
+--- a/gcc/m2/gm2-libs-iso-common/ComplexMath.mod
++++ b/gcc/m2/gm2-libs-iso/ComplexMath.mod
+@@ -86,13 +86,27 @@ END ln ;
+ 
+ 
+ (* Returns the sine of z *)
+-(* <MOD_TARGET_PROCEDURE(sin,COMPLEX,COMPLEX,__builtin_csin,cbuiltin.csin)> *)
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_csin)) sin (z: COMPLEX): COMPLEX;
++BEGIN
++   RETURN cbuiltin.csin (z)
++END sin ;
++
+ 
+ (* Returns the cosine of z *)
+-(* <MOD_TARGET_PROCEDURE(cos,COMPLEX,COMPLEX,__builtin_ccos,cbuiltin.ccos)> *)
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_ccos)) cos (z: COMPLEX): COMPLEX;
++BEGIN
++   RETURN cbuiltin.ccos (z)
++END cos ;
++
+ 
+ (* Returns the tangent of z *)
+-(* <MOD_TARGET_PROCEDURE(tan,COMPLEX,COMPLEX,__builtin_ctan,cbuiltin.ctan)> *)
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_ctan)) tan (z: COMPLEX): COMPLEX;
++BEGIN
++   RETURN cbuiltin.ctan (z)
++END tan ;
+ 
+ 
+ (* Returns the arcsine of z *)
+diff --git a/gcc/m2/gm2-libs-iso-common/LongComplexMath.def b/gcc/m2/gm2-libs-iso/LongComplexMath.def
+similarity index 89%
+rename from gcc/m2/gm2-libs-iso-common/LongComplexMath.def
+rename to gcc/m2/gm2-libs-iso/LongComplexMath.def
+index 86c67a15a41c..cf092d4532a4 100644
+--- a/gcc/m2/gm2-libs-iso-common/LongComplexMath.def
++++ b/gcc/m2/gm2-libs-iso/LongComplexMath.def
+@@ -39,14 +39,14 @@ PROCEDURE exp (z: LONGCOMPLEX): LONGCOMPLEX;
+ PROCEDURE ln (z: LONGCOMPLEX): LONGCOMPLEX;
+   (* Returns the principal value of the natural logarithm of z *)
+ 
++PROCEDURE sin (z: LONGCOMPLEX): LONGCOMPLEX;
+   (* Returns the sine of z *)
+-  (* <DEF_TARGET_PROCEDURE(sin,LONGCOMPLEX,LONGCOMPLEX,__builtin_csinl,cbuiltin.csinl)> *)
+ 
++PROCEDURE cos (z: LONGCOMPLEX): LONGCOMPLEX;
+   (* Returns the cosine of z *)
+-  (* <DEF_TARGET_PROCEDURE(cos,LONGCOMPLEX,LONGCOMPLEX,__builtin_ccosl,cbuiltin.ccosl)> *)
+ 
++PROCEDURE tan (z: LONGCOMPLEX): LONGCOMPLEX;
+   (* Returns the tangent of z *)
+-  (* <DEF_TARGET_PROCEDURE(tan,LONGCOMPLEX,LONGCOMPLEX,__builtin_ctanl,cbuiltin.ctanl)> *)
+ 
+ PROCEDURE arcsin (z: LONGCOMPLEX): LONGCOMPLEX;
+   (* Returns the arcsine of z *)
+@@ -70,3 +70,4 @@ PROCEDURE IsCMathException (): BOOLEAN;
+   *)
+ 
+ END LongComplexMath.
++
+diff --git a/gcc/m2/gm2-libs-iso-common/LongComplexMath.mod b/gcc/m2/gm2-libs-iso/LongComplexMath.mod
+similarity index 90%
+rename from gcc/m2/gm2-libs-iso-common/LongComplexMath.mod
+rename to gcc/m2/gm2-libs-iso/LongComplexMath.mod
+index 9203bbfcad8e..4bc414dd2216 100644
+--- a/gcc/m2/gm2-libs-iso-common/LongComplexMath.mod
++++ b/gcc/m2/gm2-libs-iso/LongComplexMath.mod
+@@ -86,13 +86,27 @@ END ln ;
+ 
+ 
+ (* Returns the sine of z *)
+-(* <MOD_TARGET_PROCEDURE(sin,LONGCOMPLEX,LONGCOMPLEX,__builtin_csinl,cbuiltin.csinl)> *)
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_csinl)) sin (z: LONGCOMPLEX): LONGCOMPLEX;
++BEGIN
++   RETURN cbuiltin.csinl (z)
++END sin ;
++
+ 
+ (* Returns the cosine of z *)
+-(* <MOD_TARGET_PROCEDURE(cos,LONGCOMPLEX,LONGCOMPLEX,__builtin_ccosl,cbuiltin.ccosl)> *)
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_ccosl)) cos (z: LONGCOMPLEX): LONGCOMPLEX;
++BEGIN
++   RETURN cbuiltin.ccosl (z)
++END cos ;
++
+ 
+ (* Returns the tangent of z *)
+-(* <MOD_TARGET_PROCEDURE(tan,LONGCOMPLEX,LONGCOMPLEX,__builtin_ctanl,cbuiltin.ctanl)> *)
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_ctanl)) tan (z: LONGCOMPLEX): LONGCOMPLEX;
++BEGIN
++   RETURN cbuiltin.ctanl (z)
++END tan ;
+ 
+ 
+ (* Returns the arcsine of z *)
+diff --git a/gcc/m2/gm2-libs-iso-common/SYSTEM.def b/gcc/m2/gm2-libs-iso/SYSTEM.def
+similarity index 97%
+rename from gcc/m2/gm2-libs-iso-common/SYSTEM.def
+rename to gcc/m2/gm2-libs-iso/SYSTEM.def
+index f95f8160eaf0..75d19ea2e620 100644
+--- a/gcc/m2/gm2-libs-iso-common/SYSTEM.def
++++ b/gcc/m2/gm2-libs-iso/SYSTEM.def
+@@ -17,9 +17,7 @@ DEFINITION MODULE SYSTEM;
+   (* The constants and types define underlying properties of storage *)
+ 
+ EXPORT QUALIFIED BITSPERLOC, LOCSPERWORD,
+-                 (* <SYSTEM_DATATYPES> *)
+-                 LOC, BYTE, WORD, ADDRESS, CSIZE_T, CSSIZE_T, COFF_T,
+-                 (* </SYSTEM_DATATYPES> *)
++                 LOC, BYTE, WORD, ADDRESS, CSIZE_T, CSSIZE_T, COFF_T, (* @SYSTEM_DATATYPES@  *)
+                  ADDADR, SUBADR, DIFADR, MAKEADR, ADR, ROTATE,
+                  SHIFT, CAST, TSIZE,
+                  (* Internal GM2 compiler functions *)
+@@ -45,18 +43,15 @@ CONST
+    COMPLEX64, COMPLEX128, CSIZE_T, CSSIZE_T.
+ 
+    Also note that the non-standard data types will
+-   move into another module in the future.
+-
+-TYPE
+-   <SYSTEM_TYPES>
+-   </SYSTEM_TYPES>
+-*)
+-
++   move into another module in the future.  *)
+ 
+ (*
+    All the data types and procedures below are declared internally.
+    ===============================================================
+ 
++TYPE
++   @SYSTEM_TYPES@
++
+ TYPE
+   LOC; (* A system basic type. Values are the uninterpreted
+           contents of the smallest addressable unit of storage *)
+diff --git a/gcc/m2/gm2-libs-iso-common/SYSTEM.mod b/gcc/m2/gm2-libs-iso/SYSTEM.mod
+similarity index 100%
+rename from gcc/m2/gm2-libs-iso-common/SYSTEM.mod
+rename to gcc/m2/gm2-libs-iso/SYSTEM.mod
+diff --git a/gcc/m2/gm2-libs-iso-common/ShortComplexMath.def b/gcc/m2/gm2-libs-iso/ShortComplexMath.def
+similarity index 91%
+rename from gcc/m2/gm2-libs-iso-common/ShortComplexMath.def
+rename to gcc/m2/gm2-libs-iso/ShortComplexMath.def
+index d9c698ed5b77..7cdd220947d7 100644
+--- a/gcc/m2/gm2-libs-iso-common/ShortComplexMath.def
++++ b/gcc/m2/gm2-libs-iso/ShortComplexMath.def
+@@ -54,14 +54,14 @@ PROCEDURE exp (z: SHORTCOMPLEX): SHORTCOMPLEX;
+ PROCEDURE ln (z: SHORTCOMPLEX): SHORTCOMPLEX;
+   (* Returns the principal value of the natural logarithm of z *)
+ 
++PROCEDURE sin (z: SHORTCOMPLEX): SHORTCOMPLEX;
+   (* Returns the sine of z *)
+-  (* <DEF_TARGET_PROCEDURE(sin,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_csinf,cbuiltin.csinf)> *)
+ 
++PROCEDURE cos (z: SHORTCOMPLEX): SHORTCOMPLEX;
+   (* Returns the cosine of z *)
+-  (* <DEF_TARGET_PROCEDURE(cos,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_ccosf,cbuiltin.ccosf)> *)
+ 
++PROCEDURE tan (z: SHORTCOMPLEX): SHORTCOMPLEX;
+   (* Returns the tangent of z *)
+-  (* <DEF_TARGET_PROCEDURE(tan,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_ctanf,cbuiltin.ctanf)> *)
+ 
+ PROCEDURE arcsin (z: SHORTCOMPLEX): SHORTCOMPLEX;
+   (* Returns the arcsine of z *)
+@@ -85,3 +85,4 @@ PROCEDURE IsCMathException (): BOOLEAN;
+   *)
+ 
+ END ShortComplexMath.
++
+diff --git a/gcc/m2/gm2-libs-iso-common/ShortComplexMath.mod b/gcc/m2/gm2-libs-iso/ShortComplexMath.mod
+similarity index 90%
+rename from gcc/m2/gm2-libs-iso-common/ShortComplexMath.mod
+rename to gcc/m2/gm2-libs-iso/ShortComplexMath.mod
+index acfbcb0b50b2..e7236a92bdd6 100644
+--- a/gcc/m2/gm2-libs-iso-common/ShortComplexMath.mod
++++ b/gcc/m2/gm2-libs-iso/ShortComplexMath.mod
+@@ -86,13 +86,27 @@ END ln ;
+ 
+ 
+ (* Returns the sine of z *)
+-(* <MOD_TARGET_PROCEDURE(sin,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_csinf,cbuiltin.csinf)> *)
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_csinf)) sin (z: SHORTCOMPLEX): SHORTCOMPLEX;
++BEGIN
++   RETURN cbuiltin.csinf (z)
++END sin ;
++
+ 
+ (* Returns the cosine of z *)
+-(* <MOD_TARGET_PROCEDURE(cos,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_ccosf,cbuiltin.ccosf)> *)
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_ccosf)) cos (z: SHORTCOMPLEX): SHORTCOMPLEX;
++BEGIN
++   RETURN cbuiltin.ccosf (z)
++END cos ;
++
+ 
+ (* Returns the tangent of z *)
+-(* <MOD_TARGET_PROCEDURE(tan,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_ctanf,cbuiltin.ctanf)> *)
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_ctanf)) tan (z: SHORTCOMPLEX): SHORTCOMPLEX;
++BEGIN
++   RETURN cbuiltin.ctanf (z)
++END tan ;
+ 
+ 
+ (* Returns the arcsine of z *)
+diff --git a/gcc/m2/gm2-libs-min/SYSTEM.def b/gcc/m2/gm2-libs-min/SYSTEM.def
+index 0a1a4e79abc8..6fe0bde8b3b2 100644
+--- a/gcc/m2/gm2-libs-min/SYSTEM.def
++++ b/gcc/m2/gm2-libs-min/SYSTEM.def
+@@ -27,9 +27,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+ DEFINITION MODULE SYSTEM ;
+ 
+ EXPORT QUALIFIED BITSPERBYTE, BYTESPERWORD,
+-                 (* <SYSTEM_DATATYPES> *)
+-                 ADDRESS, WORD, BYTE, CSIZE_T, CSSIZE_T, COFF_T,
+-                 (* </SYSTEM_DATATYPES> *)
++                 ADDRESS, WORD, BYTE, CSIZE_T, CSSIZE_T, COFF_T, (* @SYSTEM_DATATYPES@ *)
+                  ADR, TSIZE ;
+                  (* SIZE is also exported if -fpim2 is used *)
+ 
+@@ -40,8 +38,7 @@ CONST
+ 
+ (* all the following types are declared internally to gm2
+ TYPE
+-   <SYSTEM_TYPES>
+-   </SYSTEM_TYPES>
++   @SYSTEM_TYPES@
+ *)
+ 
+ 
+diff --git a/gcc/m2/gm2-libs-pim-common/Builtins.def b/gcc/m2/gm2-libs/Builtins.def
+similarity index 93%
+rename from gcc/m2/gm2-libs-pim-common/Builtins.def
+rename to gcc/m2/gm2-libs/Builtins.def
+index 126b8e3c3bf7..c0bb8425de14 100644
+--- a/gcc/m2/gm2-libs-pim-common/Builtins.def
++++ b/gcc/m2/gm2-libs/Builtins.def
+@@ -175,17 +175,17 @@ PROCEDURE __BUILTIN__ clnf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
+ PROCEDURE __BUILTIN__ cln (z: COMPLEX) : COMPLEX ;
+ PROCEDURE __BUILTIN__ clnl (z: LONGCOMPLEX) : LONGCOMPLEX ;
+ 
+-(* <DEF_BUILTIN_PROCEDURE(csins,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_csinf,cbuiltin.csinf)> *)
+-(* <DEF_BUILTIN_PROCEDURE(csin,COMPLEX,COMPLEX,__builtin_csin,cbuiltin.csin)> *)
+-(* <DEF_BUILTIN_PROCEDURE(csinl,LONGCOMPLEX,LONGCOMPLEX,__builtin_csinl,cbuiltin.csinl)> *)
++PROCEDURE __BUILTIN__ csinf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
++PROCEDURE __BUILTIN__ csin (z: COMPLEX) : COMPLEX ;
++PROCEDURE __BUILTIN__ csinl (z: LONGCOMPLEX) : LONGCOMPLEX ;
+ 
+-(* <DEF_BUILTIN_PROCEDURE(ccoss,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_ccosf,cbuiltin.ccosf)> *)
+-(* <DEF_BUILTIN_PROCEDURE(ccos,COMPLEX,COMPLEX,__builtin_ccos,cbuiltin.ccos)> *)
+-(* <DEF_BUILTIN_PROCEDURE(ccosl,LONGCOMPLEX,LONGCOMPLEX,__builtin_ccosl,cbuiltin.ccosl)> *)
++PROCEDURE __BUILTIN__ ccosf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
++PROCEDURE __BUILTIN__ ccos (z: COMPLEX) : COMPLEX ;
++PROCEDURE __BUILTIN__ ccosl (z: LONGCOMPLEX) : LONGCOMPLEX ;
+ 
+-(* <DEF_BUILTIN_PROCEDURE(ctans,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_ctanf,cbuiltin.ctanf)> *)
+-(* <DEF_BUILTIN_PROCEDURE(ctan,COMPLEX,COMPLEX,__builtin_ctan,cbuiltin.ctan)> *)
+-(* <DEF_BUILTIN_PROCEDURE(ctanl,LONGCOMPLEX,LONGCOMPLEX,__builtin_ctanl,cbuiltin.ctanl)> *)
++PROCEDURE __BUILTIN__ ctanf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
++PROCEDURE __BUILTIN__ ctan (z: COMPLEX) : COMPLEX ;
++PROCEDURE __BUILTIN__ ctanl (z: LONGCOMPLEX) : LONGCOMPLEX ;
+ 
+ PROCEDURE __BUILTIN__ carcsinf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
+ PROCEDURE __BUILTIN__ carcsin (z: COMPLEX) : COMPLEX ;
+diff --git a/gcc/m2/gm2-libs-pim-common/Builtins.mod b/gcc/m2/gm2-libs/Builtins.mod
+similarity index 94%
+rename from gcc/m2/gm2-libs-pim-common/Builtins.mod
+rename to gcc/m2/gm2-libs/Builtins.mod
+index 8e6fe677808d..65009b1561ed 100644
+--- a/gcc/m2/gm2-libs-pim-common/Builtins.mod
++++ b/gcc/m2/gm2-libs/Builtins.mod
+@@ -433,17 +433,50 @@ BEGIN
+    RETURN cbuiltin.clogl(z)
+ END clnl ;
+ 
+-(* <MOD_BUILTIN_PROCEDURE(csins,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_csinf,cbuiltin.csinf)> *)
+-(* <MOD_BUILTIN_PROCEDURE(csin,COMPLEX,COMPLEX,__builtin_csin,cbuiltin.csin)> *)
+-(* <MOD_BUILTIN_PROCEDURE(csinl,LONGCOMPLEX,LONGCOMPLEX,__builtin_csinl,cbuiltin.csinl)> *)
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_csinf)) csinf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
++BEGIN
++   RETURN cbuiltin.csinf(z)
++END csinf ;
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_csin)) csin (z: COMPLEX) : COMPLEX ;
++BEGIN
++   RETURN cbuiltin.csin(z)
++END csin ;
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_csinl)) csinl (z: LONGCOMPLEX) : LONGCOMPLEX ;
++BEGIN
++   RETURN cbuiltin.csinl(z)
++END csinl ;
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_ccosf)) ccosf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
++BEGIN
++   RETURN cbuiltin.ccosf(z)
++END ccosf ;
+ 
+-(* <MOD_BUILTIN_PROCEDURE(ccoss,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_ccosf,cbuiltin.ccosf)> *)
+-(* <MOD_BUILTIN_PROCEDURE(ccos,COMPLEX,COMPLEX,__builtin_ccos,cbuiltin.ccos)> *)
+-(* <MOD_BUILTIN_PROCEDURE(ccosl,LONGCOMPLEX,LONGCOMPLEX,__builtin_ccosl,cbuiltin.ccosl)> *)
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_ccos)) ccos (z: COMPLEX) : COMPLEX ;
++BEGIN
++   RETURN cbuiltin.ccos(z)
++END ccos ;
+ 
+-(* <MOD_BUILTIN_PROCEDURE(ctans,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_ctanf,cbuiltin.ctanf)> *)
+-(* <MOD_BUILTIN_PROCEDURE(ctan,COMPLEX,COMPLEX,__builtin_ctan,cbuiltin.ctan)> *)
+-(* <MOD_BUILTIN_PROCEDURE(ctanl,LONGCOMPLEX,LONGCOMPLEX,__builtin_ctanl,cbuiltin.ctanl)> *)
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_ccosl)) ccosl (z: LONGCOMPLEX) : LONGCOMPLEX ;
++BEGIN
++   RETURN cbuiltin.ccosl(z)
++END ccosl ;
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_ctanf)) ctanf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
++BEGIN
++   RETURN cbuiltin.ctanf(z)
++END ctanf ;
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_ctan)) ctan (z: COMPLEX) : COMPLEX ;
++BEGIN
++   RETURN cbuiltin.ctan(z)
++END ctan ;
++
++PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_ctanl)) ctanl (z: LONGCOMPLEX) : LONGCOMPLEX ;
++BEGIN
++   RETURN cbuiltin.ctanl(z)
++END ctanl ;
+ 
+ PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((__builtin_casinf)) carcsinf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
+ BEGIN
+diff --git a/gcc/m2/gm2-libs-pim-common/SYSTEM.def b/gcc/m2/gm2-libs/SYSTEM.def
+similarity index 94%
+rename from gcc/m2/gm2-libs-pim-common/SYSTEM.def
+rename to gcc/m2/gm2-libs/SYSTEM.def
+index e6226541e89f..6bf9d52d12c1 100644
+--- a/gcc/m2/gm2-libs-pim-common/SYSTEM.def
++++ b/gcc/m2/gm2-libs/SYSTEM.def
+@@ -27,10 +27,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+ DEFINITION MODULE SYSTEM ;
+ 
+ EXPORT QUALIFIED BITSPERBYTE, BYTESPERWORD,
+-                 (* <SYSTEM_DATATYPES> *)
+-                 ADDRESS, WORD, BYTE, CSIZE_T, CSSIZE_T, COFF_T,
+-                 CARDINAL64,
+-                 (* </SYSTEM_DATATYPES> *)
++                 ADDRESS, WORD, BYTE, CSIZE_T, CSSIZE_T, COFF_T, CARDINAL64, (* @SYSTEM_DATATYPES@  *)
+                  ADR, TSIZE, ROTATE, SHIFT, THROW, TBITSIZE ;
+                  (* SIZE is also exported if -fpim2 is used.  *)
+ 
+@@ -50,16 +47,17 @@ CONST
+    COMPLEX64, COMPLEX128, CSIZE_T, CSSIZE_T.
+ 
+    Also note that the non-standard data types will
+-   move into another module in the future.
++   move into another module in the future.  *)
+ 
++
++(* The following types are supported on this target:
+ TYPE
+-   <SYSTEM_TYPES>
+-   </SYSTEM_TYPES>
++   @SYSTEM_TYPES@
+ *)
+ 
+ 
+ (*
+-   All the functions below are declared internally to gm2
++   all the functions below are declared internally to gm2
+    ======================================================
+ 
+ PROCEDURE ADR (VAR v: <anytype>): ADDRESS;
+diff --git a/gcc/m2/gm2-libs-pim-common/SYSTEM.mod b/gcc/m2/gm2-libs/SYSTEM.mod
+similarity index 100%
+rename from gcc/m2/gm2-libs-pim-common/SYSTEM.mod
+rename to gcc/m2/gm2-libs/SYSTEM.mod
+diff --git a/gcc/m2/gm2-libs-pim-common/cbuiltin.def b/gcc/m2/gm2-libs/cbuiltin.def
+similarity index 88%
+rename from gcc/m2/gm2-libs-pim-common/cbuiltin.def
+rename to gcc/m2/gm2-libs/cbuiltin.def
+index 45f17b3bf86a..bccaa3b4462b 100644
+--- a/gcc/m2/gm2-libs-pim-common/cbuiltin.def
++++ b/gcc/m2/gm2-libs/cbuiltin.def
+@@ -55,17 +55,17 @@ EXPORT UNQUALIFIED alloca, memcpy,
+                    csqrtf, csqrt, csqrtl,
+                    cexpf, cexp, cexpl,
+                    clogf, clog, clogl,
+-                   (* <CBUILTIN_EXPORT_LIST> *)
++                   csinf, csin, csinl,
++                   ccosf, ccos, ccosl,
++                   ctanf, ctan, ctanl,
+                    casinf, casin, casinl,
+                    cacosf, cacos, cacosl,
+                    catanf, catan, catanl,
+ 
+                    index, rindex,
+                    memcmp, memset, memmove,
+-                   strcat, strncat, strcpy,
+-                   strncpy, strcmp, strncmp,
+-                   strlen, strstr, strpbrk,
+-                   strspn, strcspn, strchr, strrchr,
++                   strcat, strncat, strcpy, strncpy, strcmp, strncmp,
++                   strlen, strstr, strpbrk, strspn, strcspn, strchr, strrchr,
+ 
+                    clz, clzll,
+                    ctz, ctzll ;
+@@ -165,17 +165,17 @@ PROCEDURE clogf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
+ PROCEDURE clog (z: COMPLEX) : COMPLEX ;
+ PROCEDURE clogl (z: LONGCOMPLEX) : LONGCOMPLEX ;
+ 
+-(* <DEF_CBUILTIN_PROCEDURE(csins,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_csinf,cbuiltin.csinf)> *)
+-(* <DEF_CBUILTIN_PROCEDURE(csin,COMPLEX,COMPLEX,__builtin_csin,cbuiltin.csin)> *)
+-(* <DEF_CBUILTIN_PROCEDURE(csinl,LONGCOMPLEX,LONGCOMPLEX,__builtin_csinl,cbuiltin.csinl)> *)
++PROCEDURE csinf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
++PROCEDURE csin (z: COMPLEX) : COMPLEX ;
++PROCEDURE csinl (z: LONGCOMPLEX) : LONGCOMPLEX ;
+ 
+-(* <DEF_CBUILTIN_PROCEDURE(ccoss,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_ccosf,cbuiltin.ccosf)> *)
+-(* <DEF_CBUILTIN_PROCEDURE(ccos,COMPLEX,COMPLEX,__builtin_ccos,cbuiltin.ccos)> *)
+-(* <DEF_CBUILTIN_PROCEDURE(ccosl,LONGCOMPLEX,LONGCOMPLEX,__builtin_ccosl,cbuiltin.ccosl)> *)
++PROCEDURE ccosf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
++PROCEDURE ccos (z: COMPLEX) : COMPLEX ;
++PROCEDURE ccosl (z: LONGCOMPLEX) : LONGCOMPLEX ;
+ 
+-(* <DEF_CBUILTIN_PROCEDURE(ctans,SHORTCOMPLEX,SHORTCOMPLEX,__builtin_ctanf,cbuiltin.ctanf)> *)
+-(* <DEF_CBUILTIN_PROCEDURE(ctan,COMPLEX,COMPLEX,__builtin_ctan,cbuiltin.ctan)> *)
+-(* <DEF_CBUILTIN_PROCEDURE(ctanl,LONGCOMPLEX,LONGCOMPLEX,__builtin_ctanl,cbuiltin.ctanl)> *)
++PROCEDURE ctanf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
++PROCEDURE ctan (z: COMPLEX) : COMPLEX ;
++PROCEDURE ctanl (z: LONGCOMPLEX) : LONGCOMPLEX ;
+ 
+ PROCEDURE casinf (z: SHORTCOMPLEX) : SHORTCOMPLEX ;
+ PROCEDURE casin (z: COMPLEX) : COMPLEX ;
+diff --git a/gcc/m2/lang.opt b/gcc/m2/lang.opt
+index 12b0676dd5f9..30e211e292f7 100644
+--- a/gcc/m2/lang.opt
++++ b/gcc/m2/lang.opt
+@@ -98,10 +98,6 @@ fdef=
+ Modula-2 Joined
+ Recognize the specified suffix as a definition module filename.
+ 
+-fdump-builtins
+-Modula-2
+-Display all builtin procedure functions.
+-
+ fdump-system-exports
+ Modula-2
+ Display all inbuilt system items.
+diff --git a/gcc/m2/tools-src/def2doc.py b/gcc/m2/tools-src/def2doc.py
+index a953d9596997..ccc090af1502 100644
+--- a/gcc/m2/tools-src/def2doc.py
++++ b/gcc/m2/tools-src/def2doc.py
+@@ -254,10 +254,6 @@ def check_index(line):
+                     var = word.split('=')
+                     if len(var) > 0:
+                         emit_index(var[0], '(const)')
+-    emit_procedure_index(procedure)
+-
+-
+-def emit_procedure_index(procedure):
+     if procedure != '':
+         name = procedure.split('(')
+         if name[0] != '':
+@@ -267,134 +263,18 @@ def emit_procedure_index(procedure):
+             if proc != '':
+                 emit_index(proc, '')
+ 
+-
+-def contains(line, sub):
+-    # Return True if line contains sub.
+-    return line.find(sub) >= 0
+-
+-
+-def contains_builtin_tag(line):
+-    # Return True if line contains a builtin tag.
+-    for key in builtin_func:
+-        if contains(line, key):
+-            return True
+-    return False
+-
+-
+-def startWith(line, sub):
+-    # Return True if line starts with sub.
+-    return (len(line)>len(sub)) and (line[:len(sub)]==sub)
+-
+-
+-def process_def_cbuiltin(line, key):
+-    line = line.strip()
+-    if startWith(line, "(*") and (len(line)>len("(*")):
+-        line = line[2:]
+-        funcname = line.split('(')[1].split(',')[0]
+-        emit_procedure_index(funcname + "(")
+-        output.write('(* ' + funcname + ' availability is determined by the target.  *)\n')
+-
+-
+-def process_cbuiltin(line, key):
+-    funcname = key.split("_")[2]
+-    funcname = funcname.lower()[:-1]
+-    emit_procedure_index(funcname + "(")
+-    output.write('(* ' + funcname + ' availability is determined by the target.  *)\n')
+-    keyname = "__builtin_" + funcname
+-
+-
+-def process_mod_builtin(line, key):
+-    pass
+-
+-
+-def process_def_builtin(line, key):
+-    # Issue a comment stating the procedure availability is target dependent.
+-    line = line.strip()
+-    if startWith(line, "(*") and (len(line)>len("(*")):
+-        line = line[2:]
+-        funcname = line.split('(')[1].split(',')[0]
+-        keyname = line.split('(')[1].split(',')[3]
+-        emit_procedure_index(funcname + "(")
+-        output.write('(* ' + funcname + ' availability is determined by the target.  *)\n')
+-
+-
+-def process_def_target_procedure(line, key):
+-    line = line.strip()
+-    if startWith(line, "(*") and (len(line)>len("(*")):
+-        line = line[2:]
+-        funcname = line.split('(')[1].split(',')[0]
+-        argtype = line.split('(')[1].split(',')[1]
+-        returntype = line.split('(')[1].split(',')[2]
+-        keyname = line.split('(')[1].split(',')[3]
+-        emit_procedure_index(funcname + "(")
+-        output.write('(* ' + funcname + ' availability is determined by the target.  *)\n')
+-        output.write('(* PROCEDURE ' + funcname + ' (z: ' + argtype + ') : ' + returntype + ' ;  *)\n\n')
+-
+-def process_cbuiltin_export(line, key):
+-    pass
+-
+-
+-def process_mod_target_procedure(line, key):
+-    pass
+-
+-
+-builtin_func = { "<DEF_CBUILTIN_PROCEDURE":process_def_cbuiltin,
+-                 "<DEF_BUILTIN_PROCEDURE":process_def_builtin,
+-                 "<MOD_BUILTIN_PROCEDURE":process_mod_builtin,
+-                 "<CBUILTIN_EXPORT_LIST>":process_cbuiltin_export,
+-                 "<DEF_TARGET_PROCEDURE":process_def_target_procedure,
+-                 "<MOD_TARGET_PROCEDURE":process_mod_target_procedure}
+-
+-
+-def process_tag(line):
+-    for key in builtin_func:
+-        if contains(line, key):
+-            builtin_func[key](line, key)
+-
+-
+-def process_line(line):
+-    global seen_SYSTEM_DATATYPES
+-    global seen_SYSTEM_TYPES
+-    # process_line interpet and process any tags.
+-    if contains (line, "<SYSTEM_DATATYPES>"):
+-        seen_SYSTEM_DATATYPES = True
+-    elif contains (line, "</SYSTEM_DATATYPES>"):
+-        output_SYSTEM_DATATYPES(line)
+-        seen_SYSTEM_DATATYPES = False
+-    elif contains (line, "<SYSTEM_TYPES>"):
+-        seen_SYSTEM_TYPES = True
+-    elif contains (line, "</SYSTEM_TYPES>"):
+-        output_SYSTEM_DATATYPES(line)
+-        seen_SYSTEM_TYPES = False
+-    elif seen_SYSTEM_DATATYPES:
+-        pass
+-    elif contains_builtin_tag(line):
+-        process_tag(line)
+-    else:
+-        output.write(line + '\n')
+-
+-
+-def output_SYSTEM_DATATYPES(line):
+-    # Write a list of system datatypes into the output file.
+-    indent = leadingSpaces(line)
+-    output.write(" " * indent)
+-    output.write("All target supported system data types.\n")
+-
+-
+-def leadingSpaces(line):
+-    # Return the leading number of spaces in line.
+-    s = line.lstrip()
+-    return len(line)-len(s)
++def demangle_system_datatype(line, indent):
++    # The spaces in front align in the export qualified list.
++    indent += len ('EXPORT QUALIFIED ')
++    line = line.replace('@SYSTEM_DATATYPES@',
++                        '\n' + indent * ' ' + 'Target specific data types.')
++    line = line.replace('@SYSTEM_TYPES@',
++                        '(* Target specific data types.  *)')
++    return line
+ 
+ 
+ def emit_texinfo_content(f, line):
+     global state_obj
+-    global seen_SYSTEM_DATATYPES
+-    global seen_SYSTEM_TYPES
+-    global output
+-
+-    seen_SYSTEM_DATATYPES = False
+-    seen_SYSTEM_TYPES = False
+     output.write(line.rstrip() + '\n')
+     line = f.readline()
+     if len(line.rstrip()) == 0:
+@@ -411,7 +291,8 @@ def emit_texinfo_content(f, line):
+         line = line.rstrip()
+         check_index(line)
+         line = line.replace('{', '@{').replace('}', '@}')
+-        process_line(line)
++        line = demangle_system_datatype(line, 0)
++        output.write(line + '\n')
+         line = f.readline()
+     return f
+ 
+diff --git a/gcc/m2/tools-src/makeSystem b/gcc/m2/tools-src/makeSystem
+index 8adebd700ed6..3830809f671c 100644
+--- a/gcc/m2/tools-src/makeSystem
++++ b/gcc/m2/tools-src/makeSystem
+@@ -90,18 +90,18 @@ displayBuiltinTypes () {
+ }
+ 
+ displayStart () {
+-   sed -e "1,/<SYSTEM_DATATYPES>/!d" < ${SYSTEMDEF} | \
+-   sed -e "/<SYSTEM_DATATYPES>/d" >> ${OUTPUTFILE}
++   sed -e "1,/@SYSTEM_DATATYPES@/!d" < ${SYSTEMDEF} | \
++   sed -e "/@SYSTEM_DATATYPES@/d" >> ${OUTPUTFILE}
+ }
+ 
+ displayMiddle () {
+-   sed -e "1,/<\/SYSTEM_DATATYPES>/d" < ${SYSTEMDEF} | \
+-   sed -e "1,/<SYSTEM_TYPES>/!d" | \
+-   sed -e "/<SYSTEM_TYPES>/d" >> ${OUTPUTFILE}
++   sed -e "1,/@SYSTEM_DATATYPES@/d" < ${SYSTEMDEF} | \
++   sed -e "1,/@SYSTEM_TYPES@/!d" | \
++   sed -e "/@SYSTEM_TYPES@/d" >> ${OUTPUTFILE}
+ }
+ 
+ displayEnd () {
+-   sed -e "1,/<\/SYSTEM_TYPES>/d" < ${SYSTEMDEF} >> ${OUTPUTFILE}
++   sed -e "1,/@SYSTEM_TYPES@/d" < ${SYSTEMDEF} >> ${OUTPUTFILE}
+ }
+ 
+ MINIMAL="-fno-scaffold-main -fno-scaffold-dynamic -fno-scaffold-static -fno-m2-plugin"
+diff --git a/gcc/m2/tools-src/mktargetsrc.py b/gcc/m2/tools-src/mktargetsrc.py
+deleted file mode 100644
+index cd61ecec87cf..000000000000
+--- a/gcc/m2/tools-src/mktargetsrc.py
++++ /dev/null
+@@ -1,417 +0,0 @@
+-#!/usr/bin/env python3
+-
+-# maketargetsrc creates target library target modules.
+-
+-# Copyright (C) 2026 Free Software Foundation, Inc.
+-#
+-# This file is part of GNU Modula-2.
+-#
+-# GNU Modula-2 is free software; you can redistribute it and/or modify
+-# it under the terms of the GNU General Public License as published by
+-# the Free Software Foundation; either version 3, or (at your option)
+-# any later version.
+-#
+-# GNU Modula-2 is distributed in the hope that it will be useful,
+-# but WITHOUT ANY WARRANTY; without even the implied warranty of
+-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-# GNU General Public License for more details.
+-#
+-# You should have received a copy of the GNU General Public License
+-# along with GCC; see the file COPYING3.  If not see
+-# <http://www.gnu.org/licenses/>.
+-
+-import argparse
+-import uuid
+-import os
+-import pathlib
+-import sys
+-
+-
+-exit_code = 0
+-minimalCommandLine = "-fno-scaffold-main -fno-scaffold-dynamic"
+-minimalCommandLine += " -fno-scaffold-static -fno-m2-plugin"
+-sourceLineLength = 60
+-
+-
+-def printf (format, *args):
+-    # printf a very basic printf.
+-    print(str(format) % args, end=' ')
+-
+-
+-def quietSystem(args, commandLine):
+-    # Execute commandline and exit if unsuccessful.  It will run
+-    # gdb on the command line if --gdb is set in args.
+-    if args.gdb:
+-        result = os.system(commandLine + " -wrapper gdb,--args")
+-    else:
+-        result = os.system(commandLine + " 2>&1 /dev/null")
+-    if result != 0:
+-        printf("failed to execute: %s with an exit code: %d\n",
+-               commandLine, result)
+-        sys.exit(result)
+-
+-
+-def extractJoined():
+-    # Return the commandLine and includePath.
+-    commandLine = []
+-    includePath = ""
+-    defInput = ""
+-    modInput = ""
+-    compiler = ""
+-    i = 1
+-    while i<len(sys.argv):
+-        if (len(sys.argv[i])>2) and (sys.argv[i][:3] == '-I='):
+-            if includePath != "":
+-                includePath += " "
+-            includePath += "-I"
+-            includePath += sys.argv[i][3:]
+-        elif (len(sys.argv[i])>2) and (sys.argv[i][:3] == '-C='):
+-            compiler = sys.argv[i][3:]
+-        elif (len(sys.argv[i])>2) and (sys.argv[i][:3] == '-D='):
+-            defInput = sys.argv[i][3:]
+-        elif (len(sys.argv[i])>2) and (sys.argv[i][:3] == '-M='):
+-            modInput = sys.argv[i][3:]
+-        else:
+-            commandLine += [sys.argv[i]]
+-        i += 1
+-    return commandLine, includePath, defInput, modInput, compiler
+-
+-
+-def initOptions():
+-    # initOptions build and return the args object.
+-    commandLine, includePath, defInput, modInput, compiler = extractJoined()
+-    parser = argparse.ArgumentParser(prog='mktargetsrc')
+-    parser.add_argument('-s', '--fiso', help='use the ISO dialect',
+-                        default=False, action='store_true')
+-    parser.add_argument('-p', '--fpim', help='use the PIM dialect',
+-                        default=False, action='store_true')
+-    parser.add_argument('-g', '--gdb', help='run gm2 under gdb',
+-                        default=False, action='store_true')
+-    parser.add_argument('-o', '--outputfile', help='set the output file',
+-                        default=None, action='store')
+-    parser.add_argument('-v', '--verbose', help='generate progress messages',
+-                        action='store_true')
+-    parser.add_argument('-C=', '--compiler', help='the compiler driver',
+-                        default=compiler, action='store')
+-    parser.add_argument('-D=', '--definputfile', help='set the def input file',
+-                        default=defInput, action='store')
+-    parser.add_argument('-M=', '--modinputfile', help='set the mod input file',
+-                        default=modInput, action='store')
+-    parser.add_argument('-I=', '--include', help='append to the search path',
+-                        default=includePath, action='store')
+-    args = parser.parse_args(commandLine)
+-    return args, includePath
+-
+-
+-def startWith(line, sub):
+-    # Return True if line starts with sub.
+-    return (len(line)>len(sub)) and (line[:len(sub)]==sub)
+-
+-
+-def makeDictionary(temporaryFile):
+-    # Populate dictDefs with the contents of temporaryFile.
+-    dictDefs = { "SYSTEM":{}, "builtin":{} }
+-    for line in open(temporaryFile).readlines():
+-        if startWith (line, "SYSTEM module creates type:"):
+-            definedType = line[len("SYSTEM module creates type:"):]
+-            definedType = definedType.strip()
+-            dictDefs["SYSTEM"][definedType] = True
+-        elif startWith (line, "builtin procedure function:"):
+-            definedFunc = line[len("builtin procedure function:"):]
+-            definedFunc = definedFunc.strip()
+-            dictDefs["builtin"][definedFunc] = True
+-    return dictDefs
+-
+-
+-def leadingSpaces(line):
+-    # Return the leading number of spaces in line.
+-    s = line.lstrip()
+-    return len(line)-len(s)
+-
+-
+-def output_export_list(args, line, export_list):
+-    # Append the export_list to the args.outputfile.  It preserves
+-    # indentation and wraps at sourceLineLength.
+-    outf = open(args.outputfile, "a")
+-    indent = leadingSpaces(line)
+-    pos = 0
+-    for el in export_list:
+-        if pos == 0:
+-            outf.write(" " * indent)
+-            pos = indent
+-        outf.write(el)
+-        outf.write(", ")
+-        pos += len(el)
+-        pos += 2
+-        if pos > sourceLineLength:
+-            outf.write("\n")
+-            pos = 0
+-    if pos > 0:
+-        outf.write("\n")
+-    outf.close()
+-
+-
+-def output_SYSTEM_DATATYPES(args, line, dictDefs):
+-    # Write a list of system datatypes into the output file.
+-    output_export_list (args, line, [key for key in dictDefs["SYSTEM"]])
+-
+-
+-def output_SYSTEM_TYPES(args, line, dictDefs):
+-    # Write a list of system types into the output file.
+-    outf = open(args.outputfile, "a")
+-    indent = leadingSpaces(line)
+-    for key in dictDefs["SYSTEM"]:
+-        outf.write(" " * indent)
+-        outf.write(key)
+-        outf.write(" ;\n")
+-    outf.close()
+-
+-
+-def output(args, line):
+-    # Append line to the output file.
+-    outf = open(args.outputfile, "a")
+-    outf.write(line)
+-    outf.close()
+-
+-
+-def contains(line, sub):
+-    # Return True if line contains sub.
+-    return line.find(sub) >= 0
+-
+-
+-def contains_builtin_tag(line):
+-    # Return True if line contains a builtin tag.
+-    for key in builtin_func:
+-        if contains(line, key):
+-            return True
+-    return False
+-
+-
+-class builtin_prototype:
+-    def __init__(self, name, returnType, argNameList, argTypeList):
+-        self.name = name
+-        self.builtinName = "__builtin_" + name
+-        self.returnType = returnType
+-        self.argNameList = argNameList
+-        self.argTypeList = argTypeList
+-
+-# The list of gcc_builtins which might not be available on a target.
+-
+-list_of_builtins = [builtin_prototype("csinl", "LONGCOMPLEX", ["z"], ["LONGCOMPLEX"]),
+-                    builtin_prototype("csin", "COMPLEX", ["z"], ["COMPLEX"]),
+-                    builtin_prototype("csinf", "SHORTCOMPLEX", ["z"], ["SHORTCOMPLEX"]),
+-                    builtin_prototype("ccosl", "LONGCOMPLEX", ["z"], ["LONGCOMPLEX"]),
+-                    builtin_prototype("ccos", "COMPLEX", ["z"], ["COMPLEX"]),
+-                    builtin_prototype("ccosf", "SHORTCOMPLEX", ["z"], ["SHORTCOMPLEX"]),
+-                    builtin_prototype("ctanl", "LONGCOMPLEX", ["z"], ["LONGCOMPLEX"]),
+-                    builtin_prototype("ctan", "COMPLEX", ["z"], ["COMPLEX"]),
+-                    builtin_prototype("ctanf", "SHORTCOMPLEX", ["z"], ["SHORTCOMPLEX"])]
+-
+-gcc_builtins = {element.builtinName: element for element in list_of_builtins}
+-
+-
+-def output_def_cbuiltin(args, keyname):
+-    # Generate the definition module procedure declaration for a cbuiltin keyname.
+-    output(args, "(* " + gcc_builtins[keyname].name + " is available on the target.  *)\n")
+-    output(args, "PROCEDURE %s (%s: %s) : %s ;\n" % (gcc_builtins[keyname].name,
+-                                                     gcc_builtins[keyname].argNameList[0],
+-                                                     gcc_builtins[keyname].argTypeList[0],
+-                                                     gcc_builtins[keyname].returnType))
+-
+-
+-def output_def_builtin(args, keyname):
+-    # Generate the definition module procedure declaration for a builtin keyname.
+-    output(args, "(* " + gcc_builtins[keyname].name + " is available on the target.  *)\n")
+-    output(args, "PROCEDURE __BUILTIN__ %s (%s: %s) : %s ;\n" % (gcc_builtins[keyname].name,
+-                                                                 gcc_builtins[keyname].argNameList[0],
+-                                                                 gcc_builtins[keyname].argTypeList[0],
+-                                                                 gcc_builtins[keyname].returnType))
+-
+-
+-def process_def_builtin(args, line, key, dictDefs):
+-    # Check target availability for the builtin and generate a procedure declaration
+-    # or an unavailablity comment.
+-    line = line.strip()
+-    if startWith(line, "(*") and (len(line)>len("(*")):
+-        line = line[2:]
+-        funcname = line.split('(')[1].split(',')[0]
+-        keyname = line.split('(')[1].split(',')[3]
+-        if keyname in dictDefs["builtin"]:
+-            output_def_builtin(args, keyname)
+-        else:
+-            unavailable(args, funcname)
+-
+-
+-def output_mod_builtin(args, keyname, line):
+-    output(args, "(* " + gcc_builtins[keyname].name + " is available on the target.  *)\n")
+-    output(args, "PROCEDURE __ATTRIBUTE__ __BUILTIN__ ")
+-    output(args, "((%s)) %s (%s: %s) : %s ;" % (gcc_builtins[keyname].builtinName,
+-                                                gcc_builtins[keyname].name,
+-                                                gcc_builtins[keyname].argNameList[0],
+-                                                gcc_builtins[keyname].argTypeList[0],
+-                                                gcc_builtins[keyname].returnType))
+-    builtin = line.split('(')[1].split(',')[4].split(')')[0]
+-    output(args, """
+-BEGIN
+-   RETURN %s(z)
+-END %s ;
+-
+-""" % (builtin, gcc_builtins[keyname].name))
+-
+-
+-def process_mod_builtin(args, line, key, dictDefs):
+-    line = line.strip()
+-    if startWith(line, "(*") and (len(line)>len("(*")):
+-        line = line[2:]
+-        funcname = line.split('(')[1].split(',')[0]
+-        keyname = line.split('(')[1].split(',')[3]
+-        if keyname in dictDefs["builtin"]:
+-            output_mod_builtin(args, keyname, line)
+-        else:
+-            unavailable(args, funcname)
+-
+-
+-def unavailable(args, funcname):
+-    output(args, "(* Procedure function %s is unavailable on the target.  *)\n" % funcname)
+-
+-
+-def process_def_cbuiltin(args, line, key, dictDefs):
+-    line = line.strip()
+-    if startWith(line, "(*") and (len(line)>len("(*")):
+-        line = line[2:]
+-        funcname = line.split('(')[1].split(',')[0]
+-        keyname = line.split('(')[1].split(',')[3]
+-        output(args, "(* " + funcname + " is available on the target.  *)\n")
+-        if keyname in dictDefs["builtin"]:
+-            output_def_cbuiltin(args, keyname)
+-        else:
+-            unavailable(args, funcname)
+-
+-
+-def target_builtins(args, key, dictDefs):
+-    builtin_list = [gcc_builtins[key] for key in gcc_builtins]
+-    target_list = []
+-    for el in builtin_list:
+-        if el.builtinName in dictDefs["builtin"]:
+-            target_list += [el.name]
+-    return target_list
+-
+-
+-def process_cbuiltin_export(args, line, key, dictDefs):
+-    output_export_list (args, line, target_builtins (args, key, dictDefs))
+-
+-
+-def process_mod_target_procedure(args, line, key, dictDefs):
+-    line = line.strip()
+-    if startWith(line, "(*") and (len(line)>len("(*")):
+-        line = line[2:]
+-        funcname = line.split('(')[1].split(',')[0]
+-        argtype = line.split('(')[1].split(',')[1]
+-        returntype = line.split('(')[1].split(',')[2]
+-        keyname = line.split('(')[1].split(',')[3]
+-        cbuiltin = line.split('(')[1].split(',')[4].split('>')[0].split(')')[0]
+-        if keyname in dictDefs["builtin"]:
+-            output(args, """
+-PROCEDURE __ATTRIBUTE__ __BUILTIN__ ((%s)) %s (z: %s): %s ;
+-BEGIN
+-   RETURN %s (z)
+-END %s ;
+-
+-""" % (keyname, funcname, argtype, returntype, cbuiltin, funcname))
+-
+-
+-def process_def_target_procedure(args, line, key, dictDefs):
+-    line = line.strip()
+-    if startWith(line, "(*") and (len(line)>len("(*")):
+-        line = line[2:]
+-        funcname = line.split('(')[1].split(',')[0]
+-        argtype = line.split('(')[1].split(',')[1]
+-        returntype = line.split('(')[1].split(',')[2]
+-        keyname = line.split('(')[1].split(',')[3]
+-        if keyname in dictDefs["builtin"]:
+-            output(args, "PROCEDURE %s (z: %s) : %s ;\n" % (funcname, argtype, returntype))
+-
+-
+-builtin_func = { "<DEF_CBUILTIN_PROCEDURE":process_def_cbuiltin,
+-                 "<DEF_BUILTIN_PROCEDURE":process_def_builtin,
+-                 "<MOD_BUILTIN_PROCEDURE":process_mod_builtin,
+-                 "<CBUILTIN_EXPORT_LIST>":process_cbuiltin_export,
+-                 "<DEF_TARGET_PROCEDURE":process_def_target_procedure,
+-                 "<MOD_TARGET_PROCEDURE":process_mod_target_procedure}
+-
+-
+-def process_tag(args, line, dictDefs):
+-    for key in builtin_func:
+-        if contains(line, key):
+-            builtin_func[key](args, line, key, dictDefs)
+-
+-
+-def generateSource(args, temporaryFile):
+-    # generateSource interpet and process any tags.
+-    dictDefs = makeDictionary(temporaryFile)
+-    seen_SYSTEM_DATATYPES = False
+-    seen_SYSTEM_TYPES = False
+-    filename = args.modinputfile
+-    if args.definputfile != "":
+-        filename = args.definputfile
+-    if os.path.isfile(filename):
+-        for line in open(filename):
+-            if contains (line, "<SYSTEM_DATATYPES>"):
+-                seen_SYSTEM_DATATYPES = True
+-            elif contains (line, "</SYSTEM_DATATYPES>"):
+-                output_SYSTEM_DATATYPES(args, line, dictDefs)
+-                seen_SYSTEM_DATATYPES = False
+-            elif contains (line, "<SYSTEM_TYPES>"):
+-                seen_SYSTEM_TYPES = True
+-            elif contains (line, "</SYSTEM_TYPES>"):
+-                output_SYSTEM_TYPES(args, line, dictDefs)
+-                seen_SYSTEM_TYPES = False
+-            elif seen_SYSTEM_DATATYPES:
+-                pass
+-            elif contains_builtin_tag(line):
+-                process_tag(args, line, dictDefs)
+-            else:
+-                output(args, line)
+-    else:
+-        printf("mktargetsrc cannot open: %s\n", filename)
+-        sys.exit(1)
+-
+-
+-def makeTemporaryFile():
+-    # makeTemporaryFile returns the name of a temporary file.
+-    return str(uuid.uuid4())+'.txt'
+-
+-
+-def stripBackslash(compiler):
+-    compiler = compiler.replace("\\ ", " ")
+-    return compiler
+-
+-
+-def determineBuiltins(args, includePath):
+-    # determineBuiltins build the builtin_dict with the gm2 builtins.
+-    print(args.modinputfile)
+-    if args.outputfile != None:
+-        open(args.outputfile, "w").close()
+-    temporaryFile = makeTemporaryFile()
+-    dialect = '-fpim'
+-    if args.fiso or (not args.fpim):
+-        dialect = '-fiso'
+-    compiler = stripBackslash(args.compiler)
+-    commandLine = "%s %s %s %s -c -fdump-system-exports -o /dev/null %s > %s" % (
+-        compiler, dialect, includePath, minimalCommandLine,
+-        args.modinputfile, temporaryFile)
+-    quietSystem(args, commandLine)
+-    commandLine = "%s %s %s %s -c -fdump-builtins %s >> %s" % (
+-        compiler, dialect, includePath, minimalCommandLine,
+-        args.modinputfile, temporaryFile)
+-    quietSystem(args, commandLine)
+-    generateSource(args, temporaryFile)
+-    os.remove(temporaryFile)
+-
+-
+-def main():
+-    args, includePath = initOptions()
+-    determineBuiltins(args, includePath)
+-
+-
+-main()
+diff --git a/gcc/testsuite/gm2/exceptions/run/pass/exceptions-run-pass.exp b/gcc/testsuite/gm2/exceptions/run/pass/exceptions-run-pass.exp
+index ea3db640baf1..4c6511931d2c 100644
+--- a/gcc/testsuite/gm2/exceptions/run/pass/exceptions-run-pass.exp
++++ b/gcc/testsuite/gm2/exceptions/run/pass/exceptions-run-pass.exp
+@@ -28,8 +28,8 @@ load_lib prune.exp
+ load_lib gm2-torture.exp
+ 
+ 
+-set output [gm2_target_compile $srcdir/$subdir/cpp.cpp cpp.o object "-g"]
+-set output [gm2_target_compile $srcdir/$subdir/mycpp.cpp mycpp.o object "-g"]
++set output [target_compile $srcdir/$subdir/cpp.cpp cpp.o object "-g"]
++set output [target_compile $srcdir/$subdir/mycpp.cpp mycpp.o object "-g"]
+ 
+ #
+ #  notice this uses PIM libraries with exceptions - this is a useful test.
+diff --git a/gcc/testsuite/lib/gm2.exp b/gcc/testsuite/lib/gm2.exp
+index 7590fe05845d..b1093e1bd97c 100644
+--- a/gcc/testsuite/lib/gm2.exp
++++ b/gcc/testsuite/lib/gm2.exp
+@@ -190,13 +190,9 @@ proc gm2_target_compile_default { source dest type options } {
+     if [istarget "powerpc-*-*"] {
+        lappend options "-mabi=ieeelongdouble"
+     }
+-    if [check_effective_target_pie] {
+-       lappend options "additional_flags=-fPIE"
+-    }
+ 
++    lappend options "timeout=[timeout_value]"
+     lappend options "compiler=$GCC_UNDER_TEST"
+-    lappend options "timeout=[timeout_value]"    
+-
+     # puts stderr "options = $options\n"
+     # puts stderr "***** target_compile: $source $dest $type $options\n"
+     return [target_compile $source $dest $type $options]
+diff --git a/libgm2/Makefile.am b/libgm2/Makefile.am
+index bacc51bd2e32..ef29732dbed1 100644
+--- a/libgm2/Makefile.am
++++ b/libgm2/Makefile.am
+@@ -25,7 +25,7 @@ AUTOMAKE_OPTIONS = 1.8 foreign
+ 
+ SUFFIXES = .c .mod .def .o .obj .lo .a
+ 
+-ACLOCAL_AMFLAGS = -I .. -I ../config -I .
++ACLOCAL_AMFLAGS = -I .. -I ../config
+ 
+ # Multilib support.
+ MAKEOVERRIDES=
+@@ -41,9 +41,6 @@ GM2_SRC = $(GCC_DIR)/m2
+ toolexeclibdir=@toolexeclibdir@
+ toolexecdir=@toolexecdir@
+ GM2_FOR_TARGET=@GM2_FOR_TARGET@
+-GM2_FOR_TARGET_ESC=$(shell echo $(GM2_FOR_TARGET) | sed 's/ /\\ /g')
+-$(info GM2_FOR_TARGET is $(GM2_FOR_TARGET))
+-$(info GM2_FOR_TARGET_ESC is $(GM2_FOR_TARGET_ESC))
+ 
+ SUBDIRS = libm2min libm2log libm2cor libm2iso libm2pim
+ GM2_BUILDDIR := $(shell pwd)
+@@ -65,7 +62,6 @@ AM_MAKEFLAGS = \
+ 	"CC_FOR_BUILD=$(CC_FOR_BUILD)" \
+ 	"CC_FOR_TARGET=$(CC_FOR_TARGET)" \
+ 	"GM2_FOR_TARGET=$(GM2_FOR_TARGET)" \
+-        "GM2_FOR_TARGET_ESC=$(GM2_FOR_TARGET_ESC)" \
+ 	"CFLAGS=$(CFLAGS)" \
+ 	"CXXFLAGS=$(CXXFLAGS)" \
+ 	"CFLAGS_FOR_BUILD=$(CFLAGS_FOR_BUILD)" \
+@@ -104,8 +100,7 @@ AM_MAKEFLAGS = \
+         "TARGET_LIB_PATH=$(TARGET_LIB_PATH)" \
+         "TARGET_LIB_PATH_libgm2=$(TARGET_LIB_PATH_libgm2)" \
+ 	"LIBTOOL=$(GM2_BUILDDIR)/libtool" \
+-	"DARWIN_AT_RPATH=$(DARWIN_AT_RPATH)" \
+-        "HAVE_PYTHON_INTERPRETER=$(HAVE_PYTHON_INTERPRETER)"
++	"DARWIN_AT_RPATH=$(DARWIN_AT_RPATH)"
+ 
+ # Subdir rules rely on $(FLAGS_TO_PASS)
+ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+diff --git a/libgm2/Makefile.in b/libgm2/Makefile.in
+index b2ad58d08e8d..af46b30ad608 100644
+--- a/libgm2/Makefile.in
++++ b/libgm2/Makefile.in
+@@ -90,8 +90,7 @@ host_triplet = @host@
+ target_triplet = @target@
+ subdir = .
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+-am__aclocal_m4_deps = $(top_srcdir)/ax_python_devel.m4 \
+-	$(top_srcdir)/../config/acx.m4 \
++am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+ 	$(top_srcdir)/../config/clang-plugin.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/gcc-plugin.m4 \
+@@ -99,10 +98,10 @@ am__aclocal_m4_deps = $(top_srcdir)/ax_python_devel.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/no-executables.m4 \
+ 	$(top_srcdir)/../config/override.m4 \
+-	$(top_srcdir)/../config/picflag.m4 $(top_srcdir)/../libtool.m4 \
+-	$(top_srcdir)/../ltoptions.m4 $(top_srcdir)/../ltsugar.m4 \
+-	$(top_srcdir)/../ltversion.m4 $(top_srcdir)/../lt~obsolete.m4 \
+-	$(top_srcdir)/acinclude.m4 $(top_srcdir)/../config/gc++filt.m4 \
++	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
++	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
++	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/acinclude.m4 \
++	$(top_srcdir)/../config/gc++filt.m4 \
+ 	$(top_srcdir)/../config/tls.m4 $(top_srcdir)/../config/gthr.m4 \
+ 	$(top_srcdir)/../config/cet.m4 $(top_srcdir)/configure.ac
+ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
+@@ -238,15 +237,6 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
+ PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+-PICFLAG = @PICFLAG@
+-PYTHON = @PYTHON@
+-PYTHON_CPPFLAGS = @PYTHON_CPPFLAGS@
+-PYTHON_EXTRA_LDFLAGS = @PYTHON_EXTRA_LDFLAGS@
+-PYTHON_EXTRA_LIBS = @PYTHON_EXTRA_LIBS@
+-PYTHON_LIBS = @PYTHON_LIBS@
+-PYTHON_PLATFORM_SITE_PKG = @PYTHON_PLATFORM_SITE_PKG@
+-PYTHON_SITE_PKG = @PYTHON_SITE_PKG@
+-PYTHON_VERSION = @PYTHON_VERSION@
+ RANLIB = @RANLIB@
+ SED = @SED@
+ SET_MAKE = @SET_MAKE@
+@@ -265,7 +255,6 @@ am__leading_dot = @am__leading_dot@
+ am__quote = @am__quote@
+ am__tar = @am__tar@
+ am__untar = @am__untar@
+-ax_python_interpreter = @ax_python_interpreter@
+ bindir = @bindir@
+ build = @build@
+ build_alias = @build_alias@
+@@ -354,7 +343,7 @@ toplevel_srcdir = @toplevel_srcdir@
+ # Modula-2 support.
+ AUTOMAKE_OPTIONS = 1.8 foreign
+ SUFFIXES = .c .mod .def .o .obj .lo .a
+-ACLOCAL_AMFLAGS = -I .. -I ../config -I .
++ACLOCAL_AMFLAGS = -I .. -I ../config
+ 
+ # Multilib support.
+ MAKEOVERRIDES = 
+@@ -363,7 +352,6 @@ gcc_version := $(shell @get_gcc_base_ver@ $(top_srcdir)/../gcc/BASE-VER)
+ TOP_GCCDIR := $(shell cd $(top_srcdir) && cd .. && pwd)
+ GCC_DIR = $(TOP_GCCDIR)/gcc
+ GM2_SRC = $(GCC_DIR)/m2
+-GM2_FOR_TARGET_ESC = $(shell echo $(GM2_FOR_TARGET) | sed 's/ /\\ /g')
+ SUBDIRS = libm2min libm2log libm2cor libm2iso libm2pim
+ GM2_BUILDDIR := $(shell pwd)
+ gm2_cdir = $(libdir)/gcc/$(target_alias)/$(gcc_version)/include
+@@ -380,7 +368,6 @@ AM_MAKEFLAGS = \
+ 	"CC_FOR_BUILD=$(CC_FOR_BUILD)" \
+ 	"CC_FOR_TARGET=$(CC_FOR_TARGET)" \
+ 	"GM2_FOR_TARGET=$(GM2_FOR_TARGET)" \
+-        "GM2_FOR_TARGET_ESC=$(GM2_FOR_TARGET_ESC)" \
+ 	"CFLAGS=$(CFLAGS)" \
+ 	"CXXFLAGS=$(CXXFLAGS)" \
+ 	"CFLAGS_FOR_BUILD=$(CFLAGS_FOR_BUILD)" \
+@@ -419,8 +406,7 @@ AM_MAKEFLAGS = \
+         "TARGET_LIB_PATH=$(TARGET_LIB_PATH)" \
+         "TARGET_LIB_PATH_libgm2=$(TARGET_LIB_PATH_libgm2)" \
+ 	"LIBTOOL=$(GM2_BUILDDIR)/libtool" \
+-	"DARWIN_AT_RPATH=$(DARWIN_AT_RPATH)" \
+-        "HAVE_PYTHON_INTERPRETER=$(HAVE_PYTHON_INTERPRETER)"
++	"DARWIN_AT_RPATH=$(DARWIN_AT_RPATH)"
+ 
+ 
+ # Subdir rules rely on $(FLAGS_TO_PASS)
+@@ -726,8 +712,6 @@ uninstall-am:
+ 
+ .PRECIOUS: Makefile
+ 
+-$(info GM2_FOR_TARGET is $(GM2_FOR_TARGET))
+-$(info GM2_FOR_TARGET_ESC is $(GM2_FOR_TARGET_ESC))
+ 
+ # GNU Make needs to see an explicit $(MAKE) variable in the command it
+ # runs to enable its job server during parallel builds.  Hence the
+diff --git a/libgm2/aclocal.m4 b/libgm2/aclocal.m4
+index c9eee317b7bc..80a7ff961962 100644
+--- a/libgm2/aclocal.m4
++++ b/libgm2/aclocal.m4
+@@ -1187,7 +1187,6 @@ AC_SUBST([am__tar])
+ AC_SUBST([am__untar])
+ ]) # _AM_PROG_TAR
+ 
+-m4_include([ax_python_devel.m4])
+ m4_include([../config/acx.m4])
+ m4_include([../config/clang-plugin.m4])
+ m4_include([../config/depstand.m4])
+@@ -1196,7 +1195,6 @@ m4_include([../config/lead-dot.m4])
+ m4_include([../config/multi.m4])
+ m4_include([../config/no-executables.m4])
+ m4_include([../config/override.m4])
+-m4_include([../config/picflag.m4])
+ m4_include([../libtool.m4])
+ m4_include([../ltoptions.m4])
+ m4_include([../ltsugar.m4])
+diff --git a/libgm2/ax_python_devel.m4 b/libgm2/ax_python_devel.m4
+deleted file mode 100644
+index b018748cc19e..000000000000
+--- a/libgm2/ax_python_devel.m4
++++ /dev/null
+@@ -1,522 +0,0 @@
+-# ===========================================================================
+-#     https://www.gnu.org/software/autoconf-archive/ax_python_devel.html
+-# ===========================================================================
+-#
+-# SYNOPSIS
+-#
+-#   AX_PYTHON_DEVEL([version[,optional[,checkdev]]])
+-#
+-# DESCRIPTION
+-#
+-#   Note: Defines as a precious variable "PYTHON_VERSION". Don't override it
+-#   in your configure.ac.
+-#
+-#   This macro checks for Python and tries to get the include path to
+-#   'Python.h'. It provides the $(PYTHON_CPPFLAGS) and $(PYTHON_LIBS)
+-#   output variables.  It also exports $(PYTHON_EXTRA_LIBS) and
+-#   $(PYTHON_EXTRA_LDFLAGS) for embedding Python in your code.
+-#
+-#   You can search for some particular version of Python by passing a
+-#   parameter to this macro, for example ">= '2.3.1'", or "== '2.4'". Please
+-#   note that you *have* to pass also an operator along with the version to
+-#   match, and pay special attention to the single quotes surrounding the
+-#   version number. Don't use "PYTHON_VERSION" for this: that environment
+-#   variable is declared as precious and thus reserved for the end-user.
+-#
+-#   By default this will fail if it does not detect a development version of
+-#   python.  If you want it to continue, set optional to something, like
+-#   AX_PYTHON_DEVEL([], [no]).  The ax_python_devel_found variable will be
+-#   "no" if it fails.  The ax_python_interpreter variable will be "no"
+-#   if the incorrect version of Python is found.  It will be "yes" if found.
+-#
+-#   If you want to disable the search for Python development files you can
+-#   add a non empty third parameter.  For example:
+-#
+-#   AX_PYTHON_DEVEL([>= '3.0'], [no], [no]) searches for a Python3
+-#   interpreter (no development files) and will not fail if not found.
+-#
+-#   AX_PYTHON_DEVEL([>= '3.0'], [], [no]) searches for a Python3
+-#   interpreter (no development files) and will fail if not found.
+-#
+-#   AX_PYTHON_DEVEL([>= '3.0'], [], []) searches for a Python3
+-#   interpreter (with development files) and will fail if not found.
+-#
+-#   This macro should work for all versions of Python >= 2.1.0. As an end
+-#   user, you can disable the check for the python version by setting the
+-#   PYTHON_NOVERSIONCHECK environment variable to something else than the
+-#   empty string.
+-#
+-#   If you need to use this macro for an older Python version, please
+-#   contact the authors. We're always open for feedback.
+-#
+-# LICENSE
+-#
+-#   Copyright (c) 2009 Sebastian Huber <sebastian-huber@web.de>
+-#   Copyright (c) 2009 Alan W. Irwin
+-#   Copyright (c) 2009 Rafael Laboissiere <rafael@laboissiere.net>
+-#   Copyright (c) 2009 Andrew Collier
+-#   Copyright (c) 2009 Matteo Settenvini <matteo@member.fsf.org>
+-#   Copyright (c) 2009 Horst Knorr <hk_classes@knoda.org>
+-#   Copyright (c) 2013 Daniel Mullner <muellner@math.stanford.edu>
+-#   Copyright (c) 2026 Gaius Mulley  <gaiusmod2@gmail.com>
+-#
+-#   This program is free software: you can redistribute it and/or modify it
+-#   under the terms of the GNU General Public License as published by the
+-#   Free Software Foundation, either version 3 of the License, or (at your
+-#   option) any later version.
+-#
+-#   This program is distributed in the hope that it will be useful, but
+-#   WITHOUT ANY WARRANTY; without even the implied warranty of
+-#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+-#   Public License for more details.
+-#
+-#   You should have received a copy of the GNU General Public License along
+-#   with this program. If not, see <https://www.gnu.org/licenses/>.
+-#
+-#   As a special exception, the respective Autoconf Macro's copyright owner
+-#   gives unlimited permission to copy, distribute and modify the configure
+-#   scripts that are the output of Autoconf when processing the Macro. You
+-#   need not follow the terms of the GNU General Public License when using
+-#   or distributing such scripts, even though portions of the text of the
+-#   Macro appear in them. The GNU General Public License (GPL) does govern
+-#   all other use of the material that constitutes the Autoconf Macro.
+-#
+-#   This special exception to the GPL applies to versions of the Autoconf
+-#   Macro released by the Autoconf Archive. When you make and distribute a
+-#   modified version of the Autoconf Macro, you may extend this special
+-#   exception to the GPL to apply to your modified version as well.
+-#
+-#   example of usage:
+-#
+-#   AC_PYTHON_DEVEL([>= '3.0'],[no],[no])
+-#
+-#   check for version >= 3.0.
+-#   do not bail out if no Python interpreter is found.
+-#   do not check for Python development files.
+-#
+-
+-#serial 37
+-
+-AU_ALIAS([AC_PYTHON_DEVEL], [AX_PYTHON_DEVEL])
+-AC_DEFUN([AX_PYTHON_DEVEL],[
+-	AC_MSG_CHECKING([starting ax_python_devel])
+-	# Get whether it's optional
+-	if test -z "$2"; then
+-           AC_MSG_CHECKING([having a Python interpreter is not optional])
+-	   ax_python_devel_optional=false
+-	else
+-           AC_MSG_CHECKING([having a Python interpreter is optional])
+-	   ax_python_devel_optional=$2
+-	fi
+-	# Should we test for python development?
+-	if test -z "$3"; then
+-	   ax_python_devel_check=yes
+-	else
+-           AC_MSG_CHECKING([not checking for Python development])
+-	   ax_python_devel_check=$3
+-	fi
+-	ax_python_devel_found=yes
+-        ax_python_interpreter=yes
+-        AC_MSG_CHECKING([do we have a Python interpreter])
+-	#
+-	# Allow the use of a (user set) custom python version
+-	#
+-	AC_ARG_VAR([PYTHON_VERSION],[The installed Python
+-		version to use, for example '2.3'. This string
+-		will be appended to the Python interpreter
+-		canonical name.])
+-
+-        AC_MSG_CHECKING([for python version])
+-	for version in $PYTHON_VERSION "" 3 2; do
+-           AC_PATH_PROG([PYTHON],[python[$version]])
+-           AC_MSG_CHECKING([$version])
+-           if test -z "$PYTHON"; then
+-              AC_MSG_CHECKING([no])
+-              ax_python_devel_found=no
+-              ax_python_interpreter=no
+-           else
+-              AC_MSG_CHECKING([yes])
+-              ax_python_devel_found=yes
+-              ax_python_interpreter=yes
+-	      PYTHON_VERSION=$version
+-	      break
+-	   fi
+-	done
+-
+-	if test "$ax_python_devel_found" = "yes"; then
+-	   #
+-	   # Check for a version of Python >= 2.1.0
+-	   #
+-	   AC_MSG_CHECKING([for a version of Python >= '2.1.0'])
+-	   ac_supports_python_ver=`$PYTHON -c "import sys; \
+-		ver = sys.version.split ()[[0]]; \
+-		print (ver >= '2.1.0')"`
+-	   if test "$ac_supports_python_ver" != "True"; then
+-		if test -z "$PYTHON_NOVERSIONCHECK"; then
+-			AC_MSG_RESULT([no])
+-			AC_MSG_WARN([
+-This version of the AC@&t@_PYTHON_DEVEL macro
+-doesn't work properly with versions of Python before
+-2.1.0. You may need to re-run configure, setting the
+-variables PYTHON_CPPFLAGS, PYTHON_LIBS, PYTHON_SITE_PKG,
+-PYTHON_EXTRA_LIBS and PYTHON_EXTRA_LDFLAGS by hand.
+-Moreover, to disable this check, set PYTHON_NOVERSIONCHECK
+-to something else than an empty string.
+-])
+-			if ! $ax_python_devel_optional; then
+-			   AC_MSG_FAILURE([Giving up])
+-			fi
+-			ax_python_devel_found=no
+-                        AC_MSG_CHECKING([no interpreter found, incorrect version])
+-			PYTHON_VERSION=""
+-                        ax_python_interpreter=no
+-                        AC_MSG_CHECKING([no interpreter found])
+-		else
+-			AC_MSG_RESULT([skip at user request])
+-		fi
+-	   else
+-		AC_MSG_RESULT([yes])
+-	   fi
+-	fi
+-
+-	if test "$ax_python_devel_found" = "yes"; then
+-	   #
+-	   # If the macro parameter ``version'' is set, honour it.
+-	   # A Python shim class, VPy, is used to implement correct version comparisons via
+-	   # string expressions, since e.g. a naive textual ">= 2.7.3" won't work for
+-	   # Python 2.7.10 (the ".1" being evaluated as less than ".3").
+-	   #
+-	   if test -n $1; then
+-		AC_MSG_CHECKING([for a version of Python $1])
+-                cat << EOF > ax_python_devel_vpy.py
+-class VPy:
+-    def vtup(self, s):
+-        return tuple(map(int, s.strip().replace("rc", ".").split(".")))
+-    def __init__(self):
+-        import sys
+-        self.vpy = tuple(sys.version_info)[[:3]]
+-    def __eq__(self, s):
+-        return self.vpy == self.vtup(s)
+-    def __ne__(self, s):
+-        return self.vpy != self.vtup(s)
+-    def __lt__(self, s):
+-        return self.vpy < self.vtup(s)
+-    def __gt__(self, s):
+-        return self.vpy > self.vtup(s)
+-    def __le__(self, s):
+-        return self.vpy <= self.vtup(s)
+-    def __ge__(self, s):
+-        return self.vpy >= self.vtup(s)
+-EOF
+-		ac_supports_python_ver=`$PYTHON -c """import ax_python_devel_vpy; \
+-  ver = ax_python_devel_vpy.VPy(); \
+-  print (ver $1) """`
+-                rm -rf ax_python_devel_vpy*.py* __pycache__/ax_python_devel_vpy*.py*
+-		if test "$ac_supports_python_ver" = "True"; then
+-			AC_MSG_RESULT([yes])
+-		else
+-			AC_MSG_RESULT([no])
+-			AC_MSG_WARN([this package requires Python $1.
+-If you have it installed, but it isn't the default Python
+-interpreter in your system path, please pass the PYTHON_VERSION
+-variable to configure. See ``configure --help'' for reference.
+-])
+-			if ! $ax_python_devel_optional; then
+-			   AC_MSG_ERROR([Giving up])
+-			fi
+-                        AC_MSG_CHECKING([no interpreter found, wrong version $1])
+-			ax_python_devel_found=no
+-			PYTHON_VERSION=""
+-			# Wrong version of the interpreter.
+-                        ax_python_interpreter=no
+-		fi
+-	   fi
+-	fi
+-	if test "$ax_python_devel_found" = "yes"; then
+-	   #
+-	   # Check if you have distutils, else fail
+-	   #
+-	   AC_MSG_CHECKING([for the sysconfig Python package])
+-	   ac_sysconfig_result=`$PYTHON -c "import sysconfig" 2>&1`
+-	   if test $? -eq 0; then
+-		AC_MSG_RESULT([yes])
+-		IMPORT_SYSCONFIG="import sysconfig"
+-	   else
+-		AC_MSG_RESULT([no])
+-
+-		AC_MSG_CHECKING([for the distutils Python package])
+-		ac_sysconfig_result=`$PYTHON -c "from distutils import sysconfig" 2>&1`
+-		if test $? -eq 0; then
+-			AC_MSG_RESULT([yes])
+-			IMPORT_SYSCONFIG="from distutils import sysconfig"
+-		else
+-			AC_MSG_WARN([cannot import Python module "distutils".
+-Please check your Python installation. The error was:
+-$ac_sysconfig_result])
+-			if ! $ax_python_devel_optional; then
+-			   AC_MSG_ERROR([Giving up])
+-			fi
+-			ax_python_devel_found=no
+-			PYTHON_VERSION=""
+-		fi
+-	   fi
+-	fi
+-
+-	if test "$ax_python_devel_found" = "yes"; then
+-	   #
+-	   # Check for Python include path
+-	   #
+-	   AC_MSG_CHECKING([for Python include path])
+-	   if test -z "$PYTHON_CPPFLAGS"; then
+-		if test "$IMPORT_SYSCONFIG" = "import sysconfig"; then
+-			# sysconfig module has different functions
+-			python_path=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-				print (sysconfig.get_path ('include'));"`
+-			plat_python_path=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-				print (sysconfig.get_path ('platinclude'));"`
+-		else
+-			# old distutils way
+-			python_path=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-				print (sysconfig.get_python_inc ());"`
+-			plat_python_path=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-				print (sysconfig.get_python_inc (plat_specific=1));"`
+-		fi
+-		if test -n "${python_path}"; then
+-			if test "${plat_python_path}" != "${python_path}"; then
+-				python_path="-I$python_path -I$plat_python_path"
+-			else
+-				python_path="-I$python_path"
+-			fi
+-		fi
+-		PYTHON_CPPFLAGS=$python_path
+-	   fi
+-	   AC_MSG_RESULT([$PYTHON_CPPFLAGS])
+-	   AC_SUBST([PYTHON_CPPFLAGS])
+-
+-	   #
+-	   # Check for Python library path
+-	   #
+-	   AC_MSG_CHECKING([for Python library path])
+-	   if test -z "$PYTHON_LIBS"; then
+-		# (makes two attempts to ensure we've got a version number
+-		# from the interpreter)
+-		ac_python_version=`cat<<EOD | $PYTHON -
+-
+-# join all versioning strings, on some systems
+-# major/minor numbers could be in different list elements
+-from sysconfig import *
+-e = get_config_var('VERSION')
+-if e is not None:
+-	print(e)
+-EOD`
+-
+-		if test -z "$ac_python_version"; then
+-			if test -n "$PYTHON_VERSION"; then
+-				ac_python_version=$PYTHON_VERSION
+-			else
+-				ac_python_version=`$PYTHON -c "import sys; \
+-					print ("%d.%d" % sys.version_info[[:2]])"`
+-			fi
+-		fi
+-
+-		# Make the versioning information available to the compiler
+-		AC_DEFINE_UNQUOTED([HAVE_PYTHON], ["$ac_python_version"],
+-                                   [If available, contains the Python version number currently in use.])
+-
+-		# First, the library directory:
+-		ac_python_libdir=`cat<<EOD | $PYTHON -
+-
+-# There should be only one
+-$IMPORT_SYSCONFIG
+-e = sysconfig.get_config_var('LIBDIR')
+-if e is not None:
+-	print (e)
+-EOD`
+-
+-		# Now, for the library:
+-		ac_python_library=`cat<<EOD | $PYTHON -
+-
+-$IMPORT_SYSCONFIG
+-c = sysconfig.get_config_vars()
+-if 'LDVERSION' in c:
+-	print ('python'+c[['LDVERSION']])
+-else:
+-	print ('python'+c[['VERSION']])
+-EOD`
+-
+-		# This small piece shamelessly adapted from PostgreSQL python macro;
+-		# credits goes to momjian, I think. I'd like to put the right name
+-		# in the credits, if someone can point me in the right direction... ?
+-		#
+-		if test -n "$ac_python_libdir" -a -n "$ac_python_library"
+-		then
+-			# use the official shared library
+-			ac_python_library=`echo "$ac_python_library" | sed "s/^lib//"`
+-			PYTHON_LIBS="-L$ac_python_libdir -l$ac_python_library"
+-		else
+-			# old way: use libpython from python_configdir
+-			ac_python_libdir=`$PYTHON -c \
+-			  "from sysconfig import get_python_lib as f; \
+-			  import os; \
+-			  print (os.path.join(f(plat_specific=1, standard_lib=1), 'config'));"`
+-			PYTHON_LIBS="-L$ac_python_libdir -lpython$ac_python_version"
+-		fi
+-
+-		if test -z "$PYTHON_LIBS"; then
+-			AC_MSG_WARN([
+-  Cannot determine location of your Python DSO. Please check it was installed with
+-  dynamic libraries enabled, or try setting PYTHON_LIBS by hand.
+-			])
+-			if ! $ax_python_devel_optional; then
+-			   AC_MSG_ERROR([Giving up])
+-			fi
+-			ax_python_devel_found=no
+-			PYTHON_VERSION=""
+-		fi
+-	   fi
+-	fi
+-
+-	if test "$ax_python_devel_found" = "yes"; then
+-	   AC_MSG_RESULT([$PYTHON_LIBS])
+-	   AC_SUBST([PYTHON_LIBS])
+-
+-	   #
+-	   # Check for site packages
+-	   #
+-	   AC_MSG_CHECKING([for Python site-packages path])
+-	   if test -z "$PYTHON_SITE_PKG"; then
+-		if test "$IMPORT_SYSCONFIG" = "import sysconfig"; then
+-			PYTHON_SITE_PKG=`$PYTHON -c "
+-$IMPORT_SYSCONFIG;
+-if hasattr(sysconfig, 'get_default_scheme'):
+-    scheme = sysconfig.get_default_scheme()
+-else:
+-    scheme = sysconfig._get_default_scheme()
+-if scheme == 'posix_local':
+-    # Debian's default scheme installs to /usr/local/ but we want to find headers in /usr/
+-    scheme = 'posix_prefix'
+-prefix = '$prefix'
+-if prefix == 'NONE':
+-    prefix = '$ac_default_prefix'
+-sitedir = sysconfig.get_path('purelib', scheme, vars={'base': prefix})
+-print(sitedir)"`
+-		else
+-			# distutils.sysconfig way
+-			PYTHON_SITE_PKG=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-				print (sysconfig.get_python_lib(0,0));"`
+-		fi
+-	   fi
+-	   AC_MSG_RESULT([$PYTHON_SITE_PKG])
+-	   AC_SUBST([PYTHON_SITE_PKG])
+-
+-	   #
+-	   # Check for platform-specific site packages
+-	   #
+-	   AC_MSG_CHECKING([for Python platform specific site-packages path])
+-	   if test -z "$PYTHON_PLATFORM_SITE_PKG"; then
+-		if test "$IMPORT_SYSCONFIG" = "import sysconfig"; then
+-			PYTHON_PLATFORM_SITE_PKG=`$PYTHON -c "
+-$IMPORT_SYSCONFIG;
+-if hasattr(sysconfig, 'get_default_scheme'):
+-    scheme = sysconfig.get_default_scheme()
+-else:
+-    scheme = sysconfig._get_default_scheme()
+-if scheme == 'posix_local':
+-    # Debian's default scheme installs to /usr/local/ but we want to find headers in /usr/
+-    scheme = 'posix_prefix'
+-prefix = '$prefix'
+-if prefix == 'NONE':
+-    prefix = '$ac_default_prefix'
+-sitedir = sysconfig.get_path('platlib', scheme, vars={'platbase': prefix})
+-print(sitedir)"`
+-		else
+-			# distutils.sysconfig way
+-			PYTHON_PLATFORM_SITE_PKG=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-				print (sysconfig.get_python_lib(1,0));"`
+-		fi
+-	   fi
+-	   AC_MSG_RESULT([$PYTHON_PLATFORM_SITE_PKG])
+-	   AC_SUBST([PYTHON_PLATFORM_SITE_PKG])
+-
+-	   #
+-	   # libraries which must be linked in when embedding
+-	   #
+-	   AC_MSG_CHECKING(python extra libraries)
+-	   if test -z "$PYTHON_EXTRA_LIBS"; then
+-	      PYTHON_EXTRA_LIBS=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-                conf = sysconfig.get_config_var; \
+-                print (conf('LIBS') + ' ' + conf('SYSLIBS'))"`
+-	   fi
+-	   AC_MSG_RESULT([$PYTHON_EXTRA_LIBS])
+-	   AC_SUBST(PYTHON_EXTRA_LIBS)
+-
+-	   #
+-	   # linking flags needed when embedding
+-	   #
+-	   AC_MSG_CHECKING(python extra linking flags)
+-	   if test -z "$PYTHON_EXTRA_LDFLAGS"; then
+-		PYTHON_EXTRA_LDFLAGS=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-			conf = sysconfig.get_config_var; \
+-			print (conf('LINKFORSHARED'))"`
+-		# Hack for macos, it sticks this in here.
+-		PYTHON_EXTRA_LDFLAGS=`echo $PYTHON_EXTRA_LDFLAGS | sed 's/CoreFoundation.*$/CoreFoundation/'`
+-	   fi
+-	   AC_MSG_RESULT([$PYTHON_EXTRA_LDFLAGS])
+-	   AC_SUBST(PYTHON_EXTRA_LDFLAGS)
+-
+-           if test "$ax_python_devel_check" = "yes"; then
+-               #
+-	       # final check to see if everything compiles alright
+-	       #
+-	       AC_MSG_CHECKING([consistency of all components of python development environment])
+-	       # save current global flags
+-	       ac_save_LIBS="$LIBS"
+-	       ac_save_LDFLAGS="$LDFLAGS"
+-	       ac_save_CPPFLAGS="$CPPFLAGS"
+-	       LIBS="$ac_save_LIBS $PYTHON_LIBS $PYTHON_EXTRA_LIBS"
+-	       LDFLAGS="$ac_save_LDFLAGS $PYTHON_EXTRA_LDFLAGS"
+-	       CPPFLAGS="$ac_save_CPPFLAGS $PYTHON_CPPFLAGS"
+-	       AC_LANG_PUSH([C])
+-	       AC_LINK_IFELSE([
+-	           AC_LANG_PROGRAM([[#include <Python.h>]],
+-                                   [[Py_Initialize();]])
+-                              ],[pythonexists=yes],[pythonexists=no])
+-	       AC_LANG_POP([C])
+-	       # turn back to default flags
+-	       CPPFLAGS="$ac_save_CPPFLAGS"
+-	       LIBS="$ac_save_LIBS"
+-	       LDFLAGS="$ac_save_LDFLAGS"
+-	       AC_MSG_RESULT([$pythonexists])
+-
+-	       if test ! "x$pythonexists" = "xyes"; then
+-	           AC_MSG_WARN([
+-  Could not link test program to Python. Maybe the main Python library has been
+-  installed in some non-standard library path. If so, pass it to configure,
+-  via the LIBS environment variable.
+-  Example: ./configure LIBS="-L/usr/non-standard-path/python/lib"
+-  ============================================================================
+-   ERROR!
+-   You probably have to install the development version of the Python package
+-   for your distribution.  The exact name of this package varies among them.
+-  ============================================================================
+-	      ])
+-	          if ! $ax_python_devel_optional; then
+-		     AC_MSG_ERROR([Giving up])
+-	          fi
+-	          ax_python_devel_found=no
+-	          PYTHON_VERSION=""
+-	      fi
+-	   fi
+-	fi
+-        AC_SUBST([ax_python_interpreter])
+-        AC_MSG_CHECKING([result of having a Python interpreter])
+-	if test "$ax_python_interpreter" = "yes"; then
+-	   AC_MSG_RESULT([yes])
+-        else
+-	   AC_MSG_RESULT([no])
+-	fi
+-
+-	#
+-	# all done!
+-	#
+-])
+diff --git a/libgm2/config.h.in b/libgm2/config.h.in
+index bd0c3237f4b3..f9710ffde8a5 100644
+--- a/libgm2/config.h.in
++++ b/libgm2/config.h.in
+@@ -152,9 +152,6 @@
+ /* Define to 1 if you have the <pwd.h> header file. */
+ #undef HAVE_PWD_H
+ 
+-/* If available, contains the Python version number currently in use. */
+-#undef HAVE_PYTHON
+-
+ /* function rand exists */
+ #undef HAVE_RAND
+ 
+diff --git a/libgm2/configure b/libgm2/configure
+index e522e73d4dba..a907d8813dc5 100755
+--- a/libgm2/configure
++++ b/libgm2/configure
+@@ -647,20 +647,8 @@ BUILD_PIMLIB_FALSE
+ BUILD_PIMLIB_TRUE
+ GM2_FOR_TARGET
+ CC_FOR_BUILD
+-PICFLAG
+ enable_static
+ enable_shared
+-HAVE_PYTHON_INTERPRETER_FALSE
+-HAVE_PYTHON_INTERPRETER_TRUE
+-ax_python_interpreter
+-PYTHON_EXTRA_LDFLAGS
+-PYTHON_EXTRA_LIBS
+-PYTHON_PLATFORM_SITE_PKG
+-PYTHON_SITE_PKG
+-PYTHON_LIBS
+-PYTHON_CPPFLAGS
+-PYTHON
+-PYTHON_VERSION
+ ENABLE_DARWIN_AT_RPATH_FALSE
+ ENABLE_DARWIN_AT_RPATH_TRUE
+ OTOOL64
+@@ -844,8 +832,7 @@ CPP
+ CXX
+ CXXFLAGS
+ CCC
+-CXXCPP
+-PYTHON_VERSION'
++CXXCPP'
+ 
+ 
+ # Initialize some variables set by options.
+@@ -1520,10 +1507,6 @@ Some influential environment variables:
+   CXXCPP      C++ preprocessor
+   CCAS        assembler compiler command (defaults to CC)
+   CCASFLAGS   assembler compiler flags (defaults to CFLAGS)
+-  PYTHON_VERSION
+-              The installed Python version to use, for example '2.3'. This
+-              string will be appended to the Python interpreter canonical
+-              name.
+ 
+ Use these variables to override the choices made by `configure' or to help
+ it to find libraries and programs with nonstandard names/locations.
+@@ -15258,7 +15241,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 15261 "configure"
++#line 15244 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -15364,7 +15347,7 @@ else
+   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
+   lt_status=$lt_dlunknown
+   cat > conftest.$ac_ext <<_LT_EOF
+-#line 15367 "configure"
++#line 15350 "configure"
+ #include "confdefs.h"
+ 
+ #if HAVE_DLFCN_H
+@@ -18706,579 +18689,6 @@ else
+ fi
+ 
+ 
+-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking starting ax_python_devel" >&5
+-$as_echo_n "checking starting ax_python_devel... " >&6; }
+-	# Get whether it's optional
+-	if test -z "no"; then
+-           { $as_echo "$as_me:${as_lineno-$LINENO}: checking having a Python interpreter is not optional" >&5
+-$as_echo_n "checking having a Python interpreter is not optional... " >&6; }
+-	   ax_python_devel_optional=false
+-	else
+-           { $as_echo "$as_me:${as_lineno-$LINENO}: checking having a Python interpreter is optional" >&5
+-$as_echo_n "checking having a Python interpreter is optional... " >&6; }
+-	   ax_python_devel_optional=no
+-	fi
+-	# Should we test for python development?
+-	if test -z "no"; then
+-	   ax_python_devel_check=yes
+-	else
+-           { $as_echo "$as_me:${as_lineno-$LINENO}: checking not checking for Python development" >&5
+-$as_echo_n "checking not checking for Python development... " >&6; }
+-	   ax_python_devel_check=no
+-	fi
+-	ax_python_devel_found=yes
+-        ax_python_interpreter=yes
+-        { $as_echo "$as_me:${as_lineno-$LINENO}: checking do we have a Python interpreter" >&5
+-$as_echo_n "checking do we have a Python interpreter... " >&6; }
+-	#
+-	# Allow the use of a (user set) custom python version
+-	#
+-
+-
+-        { $as_echo "$as_me:${as_lineno-$LINENO}: checking for python version" >&5
+-$as_echo_n "checking for python version... " >&6; }
+-	for version in $PYTHON_VERSION "" 3 2; do
+-           # Extract the first word of "python[$version]", so it can be a program name with args.
+-set dummy python$version; ac_word=$2
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+-$as_echo_n "checking for $ac_word... " >&6; }
+-if ${ac_cv_path_PYTHON+:} false; then :
+-  $as_echo_n "(cached) " >&6
+-else
+-  case $PYTHON in
+-  [\\/]* | ?:[\\/]*)
+-  ac_cv_path_PYTHON="$PYTHON" # Let the user override the test with a path.
+-  ;;
+-  *)
+-  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+-for as_dir in $PATH
+-do
+-  IFS=$as_save_IFS
+-  test -z "$as_dir" && as_dir=.
+-    for ac_exec_ext in '' $ac_executable_extensions; do
+-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+-    ac_cv_path_PYTHON="$as_dir/$ac_word$ac_exec_ext"
+-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+-    break 2
+-  fi
+-done
+-  done
+-IFS=$as_save_IFS
+-
+-  ;;
+-esac
+-fi
+-PYTHON=$ac_cv_path_PYTHON
+-if test -n "$PYTHON"; then
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $PYTHON" >&5
+-$as_echo "$PYTHON" >&6; }
+-else
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+-$as_echo "no" >&6; }
+-fi
+-
+-
+-           { $as_echo "$as_me:${as_lineno-$LINENO}: checking $version" >&5
+-$as_echo_n "checking $version... " >&6; }
+-           if test -z "$PYTHON"; then
+-              { $as_echo "$as_me:${as_lineno-$LINENO}: checking no" >&5
+-$as_echo_n "checking no... " >&6; }
+-              ax_python_devel_found=no
+-              ax_python_interpreter=no
+-           else
+-              { $as_echo "$as_me:${as_lineno-$LINENO}: checking yes" >&5
+-$as_echo_n "checking yes... " >&6; }
+-              ax_python_devel_found=yes
+-              ax_python_interpreter=yes
+-	      PYTHON_VERSION=$version
+-	      break
+-	   fi
+-	done
+-
+-	if test "$ax_python_devel_found" = "yes"; then
+-	   #
+-	   # Check for a version of Python >= 2.1.0
+-	   #
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for a version of Python >= '2.1.0'" >&5
+-$as_echo_n "checking for a version of Python >= '2.1.0'... " >&6; }
+-	   ac_supports_python_ver=`$PYTHON -c "import sys; \
+-		ver = sys.version.split ()[0]; \
+-		print (ver >= '2.1.0')"`
+-	   if test "$ac_supports_python_ver" != "True"; then
+-		if test -z "$PYTHON_NOVERSIONCHECK"; then
+-			{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+-$as_echo "no" >&6; }
+-			{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING:
+-This version of the AC_PYTHON_DEVEL macro
+-doesn't work properly with versions of Python before
+-2.1.0. You may need to re-run configure, setting the
+-variables PYTHON_CPPFLAGS, PYTHON_LIBS, PYTHON_SITE_PKG,
+-PYTHON_EXTRA_LIBS and PYTHON_EXTRA_LDFLAGS by hand.
+-Moreover, to disable this check, set PYTHON_NOVERSIONCHECK
+-to something else than an empty string.
+-" >&5
+-$as_echo "$as_me: WARNING:
+-This version of the AC_PYTHON_DEVEL macro
+-doesn't work properly with versions of Python before
+-2.1.0. You may need to re-run configure, setting the
+-variables PYTHON_CPPFLAGS, PYTHON_LIBS, PYTHON_SITE_PKG,
+-PYTHON_EXTRA_LIBS and PYTHON_EXTRA_LDFLAGS by hand.
+-Moreover, to disable this check, set PYTHON_NOVERSIONCHECK
+-to something else than an empty string.
+-" >&2;}
+-			if ! $ax_python_devel_optional; then
+-			   { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
+-$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
+-as_fn_error $? "Giving up
+-See \`config.log' for more details" "$LINENO" 5; }
+-			fi
+-			ax_python_devel_found=no
+-                        { $as_echo "$as_me:${as_lineno-$LINENO}: checking no interpreter found, incorrect version" >&5
+-$as_echo_n "checking no interpreter found, incorrect version... " >&6; }
+-			PYTHON_VERSION=""
+-                        ax_python_interpreter=no
+-                        { $as_echo "$as_me:${as_lineno-$LINENO}: checking no interpreter found" >&5
+-$as_echo_n "checking no interpreter found... " >&6; }
+-		else
+-			{ $as_echo "$as_me:${as_lineno-$LINENO}: result: skip at user request" >&5
+-$as_echo "skip at user request" >&6; }
+-		fi
+-	   else
+-		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+-$as_echo "yes" >&6; }
+-	   fi
+-	fi
+-
+-	if test "$ax_python_devel_found" = "yes"; then
+-	   #
+-	   # If the macro parameter ``version'' is set, honour it.
+-	   # A Python shim class, VPy, is used to implement correct version comparisons via
+-	   # string expressions, since e.g. a naive textual ">= 2.7.3" won't work for
+-	   # Python 2.7.10 (the ".1" being evaluated as less than ".3").
+-	   #
+-	   if test -n >= '3.0'; then
+-		{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for a version of Python >= '3.0'" >&5
+-$as_echo_n "checking for a version of Python >= '3.0'... " >&6; }
+-                cat << EOF > ax_python_devel_vpy.py
+-class VPy:
+-    def vtup(self, s):
+-        return tuple(map(int, s.strip().replace("rc", ".").split(".")))
+-    def __init__(self):
+-        import sys
+-        self.vpy = tuple(sys.version_info)[:3]
+-    def __eq__(self, s):
+-        return self.vpy == self.vtup(s)
+-    def __ne__(self, s):
+-        return self.vpy != self.vtup(s)
+-    def __lt__(self, s):
+-        return self.vpy < self.vtup(s)
+-    def __gt__(self, s):
+-        return self.vpy > self.vtup(s)
+-    def __le__(self, s):
+-        return self.vpy <= self.vtup(s)
+-    def __ge__(self, s):
+-        return self.vpy >= self.vtup(s)
+-EOF
+-		ac_supports_python_ver=`$PYTHON -c """import ax_python_devel_vpy; \
+-  ver = ax_python_devel_vpy.VPy(); \
+-  print (ver >= '3.0') """`
+-                rm -rf ax_python_devel_vpy*.py* __pycache__/ax_python_devel_vpy*.py*
+-		if test "$ac_supports_python_ver" = "True"; then
+-			{ $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+-$as_echo "yes" >&6; }
+-		else
+-			{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+-$as_echo "no" >&6; }
+-			{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: this package requires Python >= '3.0'.
+-If you have it installed, but it isn't the default Python
+-interpreter in your system path, please pass the PYTHON_VERSION
+-variable to configure. See \`\`configure --help'' for reference.
+-" >&5
+-$as_echo "$as_me: WARNING: this package requires Python >= '3.0'.
+-If you have it installed, but it isn't the default Python
+-interpreter in your system path, please pass the PYTHON_VERSION
+-variable to configure. See \`\`configure --help'' for reference.
+-" >&2;}
+-			if ! $ax_python_devel_optional; then
+-			   as_fn_error $? "Giving up" "$LINENO" 5
+-			fi
+-                        { $as_echo "$as_me:${as_lineno-$LINENO}: checking no interpreter found, wrong version >= '3.0'" >&5
+-$as_echo_n "checking no interpreter found, wrong version >= '3.0'... " >&6; }
+-			ax_python_devel_found=no
+-			PYTHON_VERSION=""
+-			# Wrong version of the interpreter.
+-                        ax_python_interpreter=no
+-		fi
+-	   fi
+-	fi
+-	if test "$ax_python_devel_found" = "yes"; then
+-	   #
+-	   # Check if you have distutils, else fail
+-	   #
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for the sysconfig Python package" >&5
+-$as_echo_n "checking for the sysconfig Python package... " >&6; }
+-	   ac_sysconfig_result=`$PYTHON -c "import sysconfig" 2>&1`
+-	   if test $? -eq 0; then
+-		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+-$as_echo "yes" >&6; }
+-		IMPORT_SYSCONFIG="import sysconfig"
+-	   else
+-		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+-$as_echo "no" >&6; }
+-
+-		{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for the distutils Python package" >&5
+-$as_echo_n "checking for the distutils Python package... " >&6; }
+-		ac_sysconfig_result=`$PYTHON -c "from distutils import sysconfig" 2>&1`
+-		if test $? -eq 0; then
+-			{ $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+-$as_echo "yes" >&6; }
+-			IMPORT_SYSCONFIG="from distutils import sysconfig"
+-		else
+-			{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: cannot import Python module \"distutils\".
+-Please check your Python installation. The error was:
+-$ac_sysconfig_result" >&5
+-$as_echo "$as_me: WARNING: cannot import Python module \"distutils\".
+-Please check your Python installation. The error was:
+-$ac_sysconfig_result" >&2;}
+-			if ! $ax_python_devel_optional; then
+-			   as_fn_error $? "Giving up" "$LINENO" 5
+-			fi
+-			ax_python_devel_found=no
+-			PYTHON_VERSION=""
+-		fi
+-	   fi
+-	fi
+-
+-	if test "$ax_python_devel_found" = "yes"; then
+-	   #
+-	   # Check for Python include path
+-	   #
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for Python include path" >&5
+-$as_echo_n "checking for Python include path... " >&6; }
+-	   if test -z "$PYTHON_CPPFLAGS"; then
+-		if test "$IMPORT_SYSCONFIG" = "import sysconfig"; then
+-			# sysconfig module has different functions
+-			python_path=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-				print (sysconfig.get_path ('include'));"`
+-			plat_python_path=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-				print (sysconfig.get_path ('platinclude'));"`
+-		else
+-			# old distutils way
+-			python_path=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-				print (sysconfig.get_python_inc ());"`
+-			plat_python_path=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-				print (sysconfig.get_python_inc (plat_specific=1));"`
+-		fi
+-		if test -n "${python_path}"; then
+-			if test "${plat_python_path}" != "${python_path}"; then
+-				python_path="-I$python_path -I$plat_python_path"
+-			else
+-				python_path="-I$python_path"
+-			fi
+-		fi
+-		PYTHON_CPPFLAGS=$python_path
+-	   fi
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: result: $PYTHON_CPPFLAGS" >&5
+-$as_echo "$PYTHON_CPPFLAGS" >&6; }
+-
+-
+-	   #
+-	   # Check for Python library path
+-	   #
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for Python library path" >&5
+-$as_echo_n "checking for Python library path... " >&6; }
+-	   if test -z "$PYTHON_LIBS"; then
+-		# (makes two attempts to ensure we've got a version number
+-		# from the interpreter)
+-		ac_python_version=`cat<<EOD | $PYTHON -
+-
+-# join all versioning strings, on some systems
+-# major/minor numbers could be in different list elements
+-from sysconfig import *
+-e = get_config_var('VERSION')
+-if e is not None:
+-	print(e)
+-EOD`
+-
+-		if test -z "$ac_python_version"; then
+-			if test -n "$PYTHON_VERSION"; then
+-				ac_python_version=$PYTHON_VERSION
+-			else
+-				ac_python_version=`$PYTHON -c "import sys; \
+-					print ("%d.%d" % sys.version_info[:2])"`
+-			fi
+-		fi
+-
+-		# Make the versioning information available to the compiler
+-
+-cat >>confdefs.h <<_ACEOF
+-#define HAVE_PYTHON "$ac_python_version"
+-_ACEOF
+-
+-
+-		# First, the library directory:
+-		ac_python_libdir=`cat<<EOD | $PYTHON -
+-
+-# There should be only one
+-$IMPORT_SYSCONFIG
+-e = sysconfig.get_config_var('LIBDIR')
+-if e is not None:
+-	print (e)
+-EOD`
+-
+-		# Now, for the library:
+-		ac_python_library=`cat<<EOD | $PYTHON -
+-
+-$IMPORT_SYSCONFIG
+-c = sysconfig.get_config_vars()
+-if 'LDVERSION' in c:
+-	print ('python'+c['LDVERSION'])
+-else:
+-	print ('python'+c['VERSION'])
+-EOD`
+-
+-		# This small piece shamelessly adapted from PostgreSQL python macro;
+-		# credits goes to momjian, I think. I'd like to put the right name
+-		# in the credits, if someone can point me in the right direction... ?
+-		#
+-		if test -n "$ac_python_libdir" -a -n "$ac_python_library"
+-		then
+-			# use the official shared library
+-			ac_python_library=`echo "$ac_python_library" | sed "s/^lib//"`
+-			PYTHON_LIBS="-L$ac_python_libdir -l$ac_python_library"
+-		else
+-			# old way: use libpython from python_configdir
+-			ac_python_libdir=`$PYTHON -c \
+-			  "from sysconfig import get_python_lib as f; \
+-			  import os; \
+-			  print (os.path.join(f(plat_specific=1, standard_lib=1), 'config'));"`
+-			PYTHON_LIBS="-L$ac_python_libdir -lpython$ac_python_version"
+-		fi
+-
+-		if test -z "$PYTHON_LIBS"; then
+-			{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING:
+-  Cannot determine location of your Python DSO. Please check it was installed with
+-  dynamic libraries enabled, or try setting PYTHON_LIBS by hand.
+-			" >&5
+-$as_echo "$as_me: WARNING:
+-  Cannot determine location of your Python DSO. Please check it was installed with
+-  dynamic libraries enabled, or try setting PYTHON_LIBS by hand.
+-			" >&2;}
+-			if ! $ax_python_devel_optional; then
+-			   as_fn_error $? "Giving up" "$LINENO" 5
+-			fi
+-			ax_python_devel_found=no
+-			PYTHON_VERSION=""
+-		fi
+-	   fi
+-	fi
+-
+-	if test "$ax_python_devel_found" = "yes"; then
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: result: $PYTHON_LIBS" >&5
+-$as_echo "$PYTHON_LIBS" >&6; }
+-
+-
+-	   #
+-	   # Check for site packages
+-	   #
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for Python site-packages path" >&5
+-$as_echo_n "checking for Python site-packages path... " >&6; }
+-	   if test -z "$PYTHON_SITE_PKG"; then
+-		if test "$IMPORT_SYSCONFIG" = "import sysconfig"; then
+-			PYTHON_SITE_PKG=`$PYTHON -c "
+-$IMPORT_SYSCONFIG;
+-if hasattr(sysconfig, 'get_default_scheme'):
+-    scheme = sysconfig.get_default_scheme()
+-else:
+-    scheme = sysconfig._get_default_scheme()
+-if scheme == 'posix_local':
+-    # Debian's default scheme installs to /usr/local/ but we want to find headers in /usr/
+-    scheme = 'posix_prefix'
+-prefix = '$prefix'
+-if prefix == 'NONE':
+-    prefix = '$ac_default_prefix'
+-sitedir = sysconfig.get_path('purelib', scheme, vars={'base': prefix})
+-print(sitedir)"`
+-		else
+-			# distutils.sysconfig way
+-			PYTHON_SITE_PKG=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-				print (sysconfig.get_python_lib(0,0));"`
+-		fi
+-	   fi
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: result: $PYTHON_SITE_PKG" >&5
+-$as_echo "$PYTHON_SITE_PKG" >&6; }
+-
+-
+-	   #
+-	   # Check for platform-specific site packages
+-	   #
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for Python platform specific site-packages path" >&5
+-$as_echo_n "checking for Python platform specific site-packages path... " >&6; }
+-	   if test -z "$PYTHON_PLATFORM_SITE_PKG"; then
+-		if test "$IMPORT_SYSCONFIG" = "import sysconfig"; then
+-			PYTHON_PLATFORM_SITE_PKG=`$PYTHON -c "
+-$IMPORT_SYSCONFIG;
+-if hasattr(sysconfig, 'get_default_scheme'):
+-    scheme = sysconfig.get_default_scheme()
+-else:
+-    scheme = sysconfig._get_default_scheme()
+-if scheme == 'posix_local':
+-    # Debian's default scheme installs to /usr/local/ but we want to find headers in /usr/
+-    scheme = 'posix_prefix'
+-prefix = '$prefix'
+-if prefix == 'NONE':
+-    prefix = '$ac_default_prefix'
+-sitedir = sysconfig.get_path('platlib', scheme, vars={'platbase': prefix})
+-print(sitedir)"`
+-		else
+-			# distutils.sysconfig way
+-			PYTHON_PLATFORM_SITE_PKG=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-				print (sysconfig.get_python_lib(1,0));"`
+-		fi
+-	   fi
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: result: $PYTHON_PLATFORM_SITE_PKG" >&5
+-$as_echo "$PYTHON_PLATFORM_SITE_PKG" >&6; }
+-
+-
+-	   #
+-	   # libraries which must be linked in when embedding
+-	   #
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: checking python extra libraries" >&5
+-$as_echo_n "checking python extra libraries... " >&6; }
+-	   if test -z "$PYTHON_EXTRA_LIBS"; then
+-	      PYTHON_EXTRA_LIBS=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-                conf = sysconfig.get_config_var; \
+-                print (conf('LIBS') + ' ' + conf('SYSLIBS'))"`
+-	   fi
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: result: $PYTHON_EXTRA_LIBS" >&5
+-$as_echo "$PYTHON_EXTRA_LIBS" >&6; }
+-
+-
+-	   #
+-	   # linking flags needed when embedding
+-	   #
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: checking python extra linking flags" >&5
+-$as_echo_n "checking python extra linking flags... " >&6; }
+-	   if test -z "$PYTHON_EXTRA_LDFLAGS"; then
+-		PYTHON_EXTRA_LDFLAGS=`$PYTHON -c "$IMPORT_SYSCONFIG; \
+-			conf = sysconfig.get_config_var; \
+-			print (conf('LINKFORSHARED'))"`
+-		# Hack for macos, it sticks this in here.
+-		PYTHON_EXTRA_LDFLAGS=`echo $PYTHON_EXTRA_LDFLAGS | sed 's/CoreFoundation.*$/CoreFoundation/'`
+-	   fi
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: result: $PYTHON_EXTRA_LDFLAGS" >&5
+-$as_echo "$PYTHON_EXTRA_LDFLAGS" >&6; }
+-
+-
+-           if test "$ax_python_devel_check" = "yes"; then
+-               #
+-	       # final check to see if everything compiles alright
+-	       #
+-	       { $as_echo "$as_me:${as_lineno-$LINENO}: checking consistency of all components of python development environment" >&5
+-$as_echo_n "checking consistency of all components of python development environment... " >&6; }
+-	       # save current global flags
+-	       ac_save_LIBS="$LIBS"
+-	       ac_save_LDFLAGS="$LDFLAGS"
+-	       ac_save_CPPFLAGS="$CPPFLAGS"
+-	       LIBS="$ac_save_LIBS $PYTHON_LIBS $PYTHON_EXTRA_LIBS"
+-	       LDFLAGS="$ac_save_LDFLAGS $PYTHON_EXTRA_LDFLAGS"
+-	       CPPFLAGS="$ac_save_CPPFLAGS $PYTHON_CPPFLAGS"
+-	       ac_ext=c
+-ac_cpp='$CPP $CPPFLAGS'
+-ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+-ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+-ac_compiler_gnu=$ac_cv_c_compiler_gnu
+-
+-	       if test x$gcc_no_link = xyes; then
+-  as_fn_error $? "Link tests are not allowed after GCC_NO_EXECUTABLES." "$LINENO" 5
+-fi
+-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+-/* end confdefs.h.  */
+-
+-	           #include <Python.h>
+-int
+-main ()
+-{
+-Py_Initialize();
+-  ;
+-  return 0;
+-}
+-
+-_ACEOF
+-if ac_fn_c_try_link "$LINENO"; then :
+-  pythonexists=yes
+-else
+-  pythonexists=no
+-fi
+-rm -f core conftest.err conftest.$ac_objext \
+-    conftest$ac_exeext conftest.$ac_ext
+-	       ac_ext=c
+-ac_cpp='$CPP $CPPFLAGS'
+-ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+-ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+-ac_compiler_gnu=$ac_cv_c_compiler_gnu
+-
+-	       # turn back to default flags
+-	       CPPFLAGS="$ac_save_CPPFLAGS"
+-	       LIBS="$ac_save_LIBS"
+-	       LDFLAGS="$ac_save_LDFLAGS"
+-	       { $as_echo "$as_me:${as_lineno-$LINENO}: result: $pythonexists" >&5
+-$as_echo "$pythonexists" >&6; }
+-
+-	       if test ! "x$pythonexists" = "xyes"; then
+-	           { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING:
+-  Could not link test program to Python. Maybe the main Python library has been
+-  installed in some non-standard library path. If so, pass it to configure,
+-  via the LIBS environment variable.
+-  Example: ./configure LIBS=\"-L/usr/non-standard-path/python/lib\"
+-  ============================================================================
+-   ERROR!
+-   You probably have to install the development version of the Python package
+-   for your distribution.  The exact name of this package varies among them.
+-  ============================================================================
+-	      " >&5
+-$as_echo "$as_me: WARNING:
+-  Could not link test program to Python. Maybe the main Python library has been
+-  installed in some non-standard library path. If so, pass it to configure,
+-  via the LIBS environment variable.
+-  Example: ./configure LIBS=\"-L/usr/non-standard-path/python/lib\"
+-  ============================================================================
+-   ERROR!
+-   You probably have to install the development version of the Python package
+-   for your distribution.  The exact name of this package varies among them.
+-  ============================================================================
+-	      " >&2;}
+-	          if ! $ax_python_devel_optional; then
+-		     as_fn_error $? "Giving up" "$LINENO" 5
+-	          fi
+-	          ax_python_devel_found=no
+-	          PYTHON_VERSION=""
+-	      fi
+-	   fi
+-	fi
+-
+-        { $as_echo "$as_me:${as_lineno-$LINENO}: checking result of having a Python interpreter" >&5
+-$as_echo_n "checking result of having a Python interpreter... " >&6; }
+-	if test "$ax_python_interpreter" = "yes"; then
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+-$as_echo "yes" >&6; }
+-        else
+-	   { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+-$as_echo "no" >&6; }
+-	fi
+-
+-	#
+-	# all done!
+-	#
+-
+- if test x$ax_python_interpreter = xyes; then
+-  HAVE_PYTHON_INTERPRETER_TRUE=
+-  HAVE_PYTHON_INTERPRETER_FALSE='#'
+-else
+-  HAVE_PYTHON_INTERPRETER_TRUE='#'
+-  HAVE_PYTHON_INTERPRETER_FALSE=
+-fi
+-
+ 
+ 
+ 
+@@ -19996,89 +19406,6 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
+ 
+ 
+ 
+-case "${host}" in
+-    # PIC is the default on some targets or must not be used.
+-    *-*-darwin*)
+-	# For darwin, common symbols are not allowed in MH_DYLIB files
+-	case "${CFLAGS}" in
+-	  # If we are using a compiler supporting mdynamic-no-pic
+-	  # and the option has been tested as safe to add, then cancel
+-	  # it here, since the code generated is incompatible with shared
+-	  # libs.
+-	  *-mdynamic-no-pic*) PICFLAG='-fno-common -mno-dynamic-no-pic' ;;
+-	  *) PICFLAG=-fno-common ;;
+-	esac
+-	;;
+-    alpha*-dec-osf5*)
+-	# PIC is the default.
+-	;;
+-    hppa*64*-*-hpux*)
+-	# PIC is the default for 64-bit PA HP-UX.
+-	;;
+-    i[34567]86-*-cygwin* | x86_64-*-cygwin*)
+-	;;
+-    i[34567]86-*-mingw* | x86_64-*-mingw*)
+-	;;
+-    i[34567]86-*-interix[3-9]*)
+-	# Interix 3.x gcc -fpic/-fPIC options generate broken code.
+-	# Instead, we relocate shared libraries at runtime.
+-	;;
+-    i[34567]86-*-nto-qnx*)
+-	# QNX uses GNU C++, but need to define -shared option too, otherwise
+-	# it will coredump.
+-	PICFLAG='-fPIC -shared'
+-	;;
+-    i[34567]86-pc-msdosdjgpp*)
+-	# DJGPP does not support shared libraries at all.
+-	;;
+-    ia64*-*-hpux*)
+-	# On IA64 HP-UX, PIC is the default but the pic flag
+-	# sets the default TLS model and affects inlining.
+-	PICFLAG=-fPIC
+-	;;
+-    loongarch*-*-*)
+-	PICFLAG=-fpic
+-	;;
+-    mips-sgi-irix6*)
+-	# PIC is the default.
+-	;;
+-    rs6000-ibm-aix* | powerpc-ibm-aix*)
+-	# All AIX code is PIC.
+-	;;
+-
+-    # Some targets support both -fPIC and -fpic, but prefer the latter.
+-    # FIXME: Why?
+-    i[34567]86-*-* | x86_64-*-*)
+-	PICFLAG=-fpic
+-	;;
+-    # FIXME: Override -fPIC default in libgcc only?
+-    sh-*-linux* | sh[2346lbe]*-*-linux*)
+-	PICFLAG=-fpic
+-	;;
+-    sh*-*-netbsd*)
+-	PICFLAG=-fpic
+-	;;
+-    # Default to -fPIC unless specified otherwise.
+-    *)
+-	PICFLAG=-fPIC
+-	;;
+-esac
+-
+-# If the user explicitly uses -fpic/-fPIC, keep that.
+-case "${CFLAGS}" in
+-    *-fpic*)
+-	PICFLAG=-fpic
+-	;;
+-    *-fPIC*)
+-	PICFLAG=-fPIC
+-	;;
+-esac
+-
+-
+-
+-
+-
+-
+ 
+ 
+   { $as_echo "$as_me:${as_lineno-$LINENO}: checking m2 front end checking c library for access" >&5
+@@ -23985,10 +23312,6 @@ if test -z "${ENABLE_DARWIN_AT_RPATH_TRUE}" && test -z "${ENABLE_DARWIN_AT_RPATH
+   as_fn_error $? "conditional \"ENABLE_DARWIN_AT_RPATH\" was never defined.
+ Usually this means the macro was only invoked conditionally." "$LINENO" 5
+ fi
+-if test -z "${HAVE_PYTHON_INTERPRETER_TRUE}" && test -z "${HAVE_PYTHON_INTERPRETER_FALSE}"; then
+-  as_fn_error $? "conditional \"HAVE_PYTHON_INTERPRETER\" was never defined.
+-Usually this means the macro was only invoked conditionally." "$LINENO" 5
+-fi
+ if test -z "${BUILD_PIMLIB_TRUE}" && test -z "${BUILD_PIMLIB_FALSE}"; then
+   as_fn_error $? "conditional \"BUILD_PIMLIB\" was never defined.
+ Usually this means the macro was only invoked conditionally." "$LINENO" 5
+diff --git a/libgm2/configure.ac b/libgm2/configure.ac
+index 8f71649cd164..bd8b3c3e35d5 100644
+--- a/libgm2/configure.ac
++++ b/libgm2/configure.ac
+@@ -259,8 +259,7 @@ LT_INIT
+ AC_LIBTOOL_DLOPEN
+ 
+ AM_CONDITIONAL([ENABLE_DARWIN_AT_RPATH], [test x$enable_darwin_at_rpath = xyes])
+-AC_PYTHON_DEVEL([>= '3.0'],[no],[no])
+-AM_CONDITIONAL([HAVE_PYTHON_INTERPRETER], [test x$ax_python_interpreter = xyes])
++
+ AC_SUBST(enable_shared)
+ AC_SUBST(enable_static)
+ 
+@@ -303,8 +302,6 @@ AC_PROG_CC
+ m4_rename_force([real_PRECIOUS],[_AC_ARG_VAR_PRECIOUS])
+ 
+ AC_SUBST(CFLAGS)
+-GCC_PICFLAG
+-AC_SUBST([PICFLAG])
+ 
+ AC_DEFUN([GM2_UNDEF],[
+   $as_echo "#undef HAVE_$1" >>confdefs.h
+diff --git a/libgm2/libm2cor/Makefile.am b/libgm2/libm2cor/Makefile.am
+index dc8478b449a7..edf9243a5b83 100644
+--- a/libgm2/libm2cor/Makefile.am
++++ b/libgm2/libm2cor/Makefile.am
+@@ -103,8 +103,7 @@ M2DEFS = Executive.def \
+          TimerHandler.def
+ 
+ M2MODS = Executive.mod \
+-         TimerHandler.mod \
+-         SYSTEM.mod
++         SYSTEM.mod  TimerHandler.mod
+ 
+ toolexeclib_LTLIBRARIES = libm2cor.la
+ 
+@@ -113,9 +112,7 @@ libm2cor_la_SOURCES = $(M2MODS) KeyBoardLEDs.cc
+ nodist_EXTRA_libm2cor_la_SOURCES = dummy.c  ## forces automake to generate the LINK definition
+ 
+ libm2cordir = libm2cor
+-libm2cor_la_DEPENDENCIES = SYSTEM.def \
+-     $(addsuffix .lo, $(basename $(libm2cor_la_SOURCES)))
+-
++libm2cor_la_DEPENDENCIES = SYSTEM.def $(addsuffix .lo, $(basename $(libm2cor_la_SOURCES)))
+ libm2cor_la_CFLAGS = \
+     -I. -I.. -I$(GM2_SRC)/gm2-libs -I$(GM2_SRC)/gm2-libs-iso \
+     -DBUILD_GM2_LIBS -I@srcdir@/../  -I@srcdir@/../libm2iso
+@@ -124,7 +121,6 @@ libm2cor_la_M2FLAGS = \
+     -fm2-pathname=m2cor -I. -I$(GM2_SRC)/gm2-libs-coroutines \
+     -fm2-pathname=m2pim -I$(GM2_SRC)/gm2-libs \
+     -fm2-pathname=m2iso -I$(GM2_SRC)/gm2-libs-iso \
+-    -fm2-pathname=m2cor -I. -I$(GM2_SRC)/gm2-libs-cor-common \
+     -fm2-g -g -Wcase-enum -Wreturn-type -fcase -fm2-prefix=m2cor
+ 
+ if TARGET_DARWIN
+@@ -137,33 +133,26 @@ libm2cor_la_link_flags += -nodefaultrpaths -Wl,-rpath,@loader_path/
+ endif
+ 
+ libm2cor_la_LINK = $(LINK) -version-info $(libtool_VERSION) $(libm2cor_la_link_flags)
+-BUILT_SOURCES = SYSTEM.def SYSTEM.mod
++BUILT_SOURCES = SYSTEM.def
+ CLEANFILES = SYSTEM.def
+ 
+ M2LIBDIR = /m2/m2cor/
+ 
+ SYSTEM.def: Makefile
+ 	bash $(GM2_SRC)/tools-src/makeSystem -fpim \
+-             $(GM2_SRC)/gm2-libs-cor-common/SYSTEM.def \
+-             $(GM2_SRC)/gm2-libs-cor-common/SYSTEM.mod \
+-             -I$(GM2_SRC)/gm2-libs-cor-common \
+-             -I$(GM2_SRC)/gm2-libs-coroutines \
+-             -I$(GM2_SRC)/gm2-libs \
+-             -I$(GM2_SRC)/gm2-libs-iso \
++             $(GM2_SRC)/gm2-libs-coroutines/SYSTEM.def \
++             $(GM2_SRC)/gm2-libs-coroutines/SYSTEM.mod \
++             -I$(GM2_SRC)/gm2-libs-coroutines -I$(GM2_SRC)/gm2-libs -I$(GM2_SRC)/gm2-libs-iso \
+              "$(GM2_FOR_TARGET)" $@
+ 
+-SYSTEM.mod: $(GM2_SRC)/gm2-libs-cor-common/SYSTEM.mod
+-	cp $< $@
+-
+ .mod.lo:
+-	$(LIBTOOL) --tag CC \
+-                   $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
++	$(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
+                    --mode=compile $(GM2_FOR_TARGET) \
+                    -c $(CFLAGS_FOR_TARGET) $(LIBCFLAGS) $(libm2cor_la_M2FLAGS) $< -o $@
+ 
+ .cc.lo:
+-	$(LIBTOOL) --tag CXX --mode=compile \
+-                   $(CXX) -c -I$(srcdir) $(CXXFLAGS) $(LIBCFLAGS) $(libm2cor_la_CFLAGS) $< -o $@
++	$(LIBTOOL) --tag=CXX --mode=compile $(CXX) \
++                   -c -I$(srcdir) $(CXXFLAGS) $(LIBCFLAGS) $(libm2cor_la_CFLAGS) $< -o $@
+ 
+ install-data-local: force
+ 	mkdir -p $(DESTDIR)$(inst_libdir)/$(M2LIBDIR)
+diff --git a/libgm2/libm2cor/Makefile.in b/libgm2/libm2cor/Makefile.in
+index fe2fe468f608..19efef15b829 100644
+--- a/libgm2/libm2cor/Makefile.in
++++ b/libgm2/libm2cor/Makefile.in
+@@ -108,8 +108,7 @@ target_triplet = @target@
+ @BUILD_CORLIB_TRUE@@ENABLE_DARWIN_AT_RPATH_TRUE@am__append_1 = -nodefaultrpaths -Wl,-rpath,@loader_path/
+ subdir = libm2cor
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+-am__aclocal_m4_deps = $(top_srcdir)/ax_python_devel.m4 \
+-	$(top_srcdir)/../config/acx.m4 \
++am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+ 	$(top_srcdir)/../config/clang-plugin.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/gcc-plugin.m4 \
+@@ -117,10 +116,10 @@ am__aclocal_m4_deps = $(top_srcdir)/ax_python_devel.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/no-executables.m4 \
+ 	$(top_srcdir)/../config/override.m4 \
+-	$(top_srcdir)/../config/picflag.m4 $(top_srcdir)/../libtool.m4 \
+-	$(top_srcdir)/../ltoptions.m4 $(top_srcdir)/../ltsugar.m4 \
+-	$(top_srcdir)/../ltversion.m4 $(top_srcdir)/../lt~obsolete.m4 \
+-	$(top_srcdir)/acinclude.m4 $(top_srcdir)/../config/gc++filt.m4 \
++	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
++	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
++	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/acinclude.m4 \
++	$(top_srcdir)/../config/gc++filt.m4 \
+ 	$(top_srcdir)/../config/tls.m4 $(top_srcdir)/../config/gthr.m4 \
+ 	$(top_srcdir)/../config/cet.m4 $(top_srcdir)/configure.ac
+ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
+@@ -160,8 +159,8 @@ am__uninstall_files_from_dir = { \
+ am__installdirs = "$(DESTDIR)$(toolexeclibdir)"
+ LTLIBRARIES = $(toolexeclib_LTLIBRARIES)
+ libm2cor_la_LIBADD =
+-@BUILD_CORLIB_TRUE@am__objects_1 = Executive.lo TimerHandler.lo \
+-@BUILD_CORLIB_TRUE@	SYSTEM.lo
++@BUILD_CORLIB_TRUE@am__objects_1 = Executive.lo SYSTEM.lo \
++@BUILD_CORLIB_TRUE@	TimerHandler.lo
+ @BUILD_CORLIB_TRUE@am_libm2cor_la_OBJECTS = $(am__objects_1) \
+ @BUILD_CORLIB_TRUE@	KeyBoardLEDs.lo
+ libm2cor_la_OBJECTS = $(am_libm2cor_la_OBJECTS)
+@@ -315,15 +314,6 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
+ PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+-PICFLAG = @PICFLAG@
+-PYTHON = @PYTHON@
+-PYTHON_CPPFLAGS = @PYTHON_CPPFLAGS@
+-PYTHON_EXTRA_LDFLAGS = @PYTHON_EXTRA_LDFLAGS@
+-PYTHON_EXTRA_LIBS = @PYTHON_EXTRA_LIBS@
+-PYTHON_LIBS = @PYTHON_LIBS@
+-PYTHON_PLATFORM_SITE_PKG = @PYTHON_PLATFORM_SITE_PKG@
+-PYTHON_SITE_PKG = @PYTHON_SITE_PKG@
+-PYTHON_VERSION = @PYTHON_VERSION@
+ RANLIB = @RANLIB@
+ SED = @SED@
+ SET_MAKE = @SET_MAKE@
+@@ -342,7 +332,6 @@ am__leading_dot = @am__leading_dot@
+ am__quote = @am__quote@
+ am__tar = @am__tar@
+ am__untar = @am__untar@
+-ax_python_interpreter = @ax_python_interpreter@
+ bindir = @bindir@
+ build = @build@
+ build_alias = @build_alias@
+@@ -479,16 +468,13 @@ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+ @BUILD_CORLIB_TRUE@         TimerHandler.def
+ 
+ @BUILD_CORLIB_TRUE@M2MODS = Executive.mod \
+-@BUILD_CORLIB_TRUE@         TimerHandler.mod \
+-@BUILD_CORLIB_TRUE@         SYSTEM.mod
++@BUILD_CORLIB_TRUE@         SYSTEM.mod  TimerHandler.mod
+ 
+ @BUILD_CORLIB_TRUE@toolexeclib_LTLIBRARIES = libm2cor.la
+ @BUILD_CORLIB_TRUE@libm2cor_la_SOURCES = $(M2MODS) KeyBoardLEDs.cc
+ @BUILD_CORLIB_TRUE@nodist_EXTRA_libm2cor_la_SOURCES = dummy.c  ## forces automake to generate the LINK definition
+ @BUILD_CORLIB_TRUE@libm2cordir = libm2cor
+-@BUILD_CORLIB_TRUE@libm2cor_la_DEPENDENCIES = SYSTEM.def \
+-@BUILD_CORLIB_TRUE@     $(addsuffix .lo, $(basename $(libm2cor_la_SOURCES)))
+-
++@BUILD_CORLIB_TRUE@libm2cor_la_DEPENDENCIES = SYSTEM.def $(addsuffix .lo, $(basename $(libm2cor_la_SOURCES)))
+ @BUILD_CORLIB_TRUE@libm2cor_la_CFLAGS = \
+ @BUILD_CORLIB_TRUE@    -I. -I.. -I$(GM2_SRC)/gm2-libs -I$(GM2_SRC)/gm2-libs-iso \
+ @BUILD_CORLIB_TRUE@    -DBUILD_GM2_LIBS -I@srcdir@/../  -I@srcdir@/../libm2iso
+@@ -497,7 +483,6 @@ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+ @BUILD_CORLIB_TRUE@    -fm2-pathname=m2cor -I. -I$(GM2_SRC)/gm2-libs-coroutines \
+ @BUILD_CORLIB_TRUE@    -fm2-pathname=m2pim -I$(GM2_SRC)/gm2-libs \
+ @BUILD_CORLIB_TRUE@    -fm2-pathname=m2iso -I$(GM2_SRC)/gm2-libs-iso \
+-@BUILD_CORLIB_TRUE@    -fm2-pathname=m2cor -I. -I$(GM2_SRC)/gm2-libs-cor-common \
+ @BUILD_CORLIB_TRUE@    -fm2-g -g -Wcase-enum -Wreturn-type -fcase -fm2-prefix=m2cor
+ 
+ @BUILD_CORLIB_TRUE@@TARGET_DARWIN_FALSE@libm2cor_la_link_flags =  \
+@@ -505,7 +490,7 @@ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+ @BUILD_CORLIB_TRUE@@TARGET_DARWIN_TRUE@libm2cor_la_link_flags = -Wl,-undefined,dynamic_lookup \
+ @BUILD_CORLIB_TRUE@@TARGET_DARWIN_TRUE@	$(am__append_1)
+ @BUILD_CORLIB_TRUE@libm2cor_la_LINK = $(LINK) -version-info $(libtool_VERSION) $(libm2cor_la_link_flags)
+-@BUILD_CORLIB_TRUE@BUILT_SOURCES = SYSTEM.def SYSTEM.mod
++@BUILD_CORLIB_TRUE@BUILT_SOURCES = SYSTEM.def
+ @BUILD_CORLIB_TRUE@CLEANFILES = SYSTEM.def
+ @BUILD_CORLIB_TRUE@M2LIBDIR = /m2/m2cor/
+ all: $(BUILT_SOURCES)
+@@ -831,26 +816,19 @@ uninstall-am: uninstall-toolexeclibLTLIBRARIES
+ 
+ @BUILD_CORLIB_TRUE@SYSTEM.def: Makefile
+ @BUILD_CORLIB_TRUE@	bash $(GM2_SRC)/tools-src/makeSystem -fpim \
+-@BUILD_CORLIB_TRUE@             $(GM2_SRC)/gm2-libs-cor-common/SYSTEM.def \
+-@BUILD_CORLIB_TRUE@             $(GM2_SRC)/gm2-libs-cor-common/SYSTEM.mod \
+-@BUILD_CORLIB_TRUE@             -I$(GM2_SRC)/gm2-libs-cor-common \
+-@BUILD_CORLIB_TRUE@             -I$(GM2_SRC)/gm2-libs-coroutines \
+-@BUILD_CORLIB_TRUE@             -I$(GM2_SRC)/gm2-libs \
+-@BUILD_CORLIB_TRUE@             -I$(GM2_SRC)/gm2-libs-iso \
++@BUILD_CORLIB_TRUE@             $(GM2_SRC)/gm2-libs-coroutines/SYSTEM.def \
++@BUILD_CORLIB_TRUE@             $(GM2_SRC)/gm2-libs-coroutines/SYSTEM.mod \
++@BUILD_CORLIB_TRUE@             -I$(GM2_SRC)/gm2-libs-coroutines -I$(GM2_SRC)/gm2-libs -I$(GM2_SRC)/gm2-libs-iso \
+ @BUILD_CORLIB_TRUE@             "$(GM2_FOR_TARGET)" $@
+ 
+-@BUILD_CORLIB_TRUE@SYSTEM.mod: $(GM2_SRC)/gm2-libs-cor-common/SYSTEM.mod
+-@BUILD_CORLIB_TRUE@	cp $< $@
+-
+ @BUILD_CORLIB_TRUE@.mod.lo:
+-@BUILD_CORLIB_TRUE@	$(LIBTOOL) --tag CC \
+-@BUILD_CORLIB_TRUE@                   $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
++@BUILD_CORLIB_TRUE@	$(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
+ @BUILD_CORLIB_TRUE@                   --mode=compile $(GM2_FOR_TARGET) \
+ @BUILD_CORLIB_TRUE@                   -c $(CFLAGS_FOR_TARGET) $(LIBCFLAGS) $(libm2cor_la_M2FLAGS) $< -o $@
+ 
+ @BUILD_CORLIB_TRUE@.cc.lo:
+-@BUILD_CORLIB_TRUE@	$(LIBTOOL) --tag CXX --mode=compile \
+-@BUILD_CORLIB_TRUE@                   $(CXX) -c -I$(srcdir) $(CXXFLAGS) $(LIBCFLAGS) $(libm2cor_la_CFLAGS) $< -o $@
++@BUILD_CORLIB_TRUE@	$(LIBTOOL) --tag=CXX --mode=compile $(CXX) \
++@BUILD_CORLIB_TRUE@                   -c -I$(srcdir) $(CXXFLAGS) $(LIBCFLAGS) $(libm2cor_la_CFLAGS) $< -o $@
+ 
+ @BUILD_CORLIB_TRUE@install-data-local: force
+ @BUILD_CORLIB_TRUE@	mkdir -p $(DESTDIR)$(inst_libdir)/$(M2LIBDIR)
+diff --git a/libgm2/libm2iso/Makefile.am b/libgm2/libm2iso/Makefile.am
+index b271e34b18c6..1af1d6aeb931 100644
+--- a/libgm2/libm2iso/Makefile.am
++++ b/libgm2/libm2iso/Makefile.am
+@@ -53,7 +53,6 @@ AM_MAKEFLAGS = \
+ 	"CC_FOR_BUILD=$(CC_FOR_BUILD)" \
+ 	"CC_FOR_TARGET=$(CC_FOR_TARGET)" \
+ 	"GM2_FOR_TARGET=$(GM2_FOR_TARGET)" \
+-        "GM2_FOR_TARGET_ESC=$(GM2_FOR_TARGET_ESC)" \
+ 	"CFLAGS=$(CFLAGS)" \
+ 	"CXXFLAGS=$(CXXFLAGS)" \
+ 	"CFLAGS_FOR_BUILD=$(CFLAGS_FOR_BUILD)" \
+@@ -91,9 +90,7 @@ AM_MAKEFLAGS = \
+ 	"NM_FOR_TARGET=$(NM_FOR_TARGET)" \
+ 	"DESTDIR=$(DESTDIR)" \
+ 	"WERROR=$(WERROR)" \
+-        "TARGET_LIB_PATH_libgm2=$(TARGET_LIB_PATH_libgm2)" \
+-	"PYTHON=$(PYTHON)" \
+-        "HAVE_PYTHON_INTERPRETER=$(HAVE_PYTHON_INTERPRETER)"
++        "TARGET_LIB_PATH_libgm2=$(TARGET_LIB_PATH_libgm2)"
+ 
+ # Subdir rules rely on $(FLAGS_TO_PASS)
+ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+@@ -208,7 +205,6 @@ libm2iso_la_CFLAGS = \
+ libm2iso_la_M2FLAGS = \
+   -fm2-pathname=m2iso -I. -Ilibm2iso -I$(GM2_SRC)/gm2-libs-iso \
+   -fm2-pathname=m2pim -I$(GM2_SRC)/gm2-libs \
+-  -fm2-pathname=m2pim -I../libm2pim \
+   -fiso -fextended-opaque -fm2-g -g -Wcase-enum \
+   -Wall \
+   -Wreturn-type -fcase -fm2-prefix=m2iso
+@@ -223,159 +219,31 @@ libm2iso_la_link_flags += -nodefaultrpaths -Wl,-rpath,@loader_path/
+ endif
+ 
+ libm2iso_la_LINK = $(LINK) -version-info $(libtool_VERSION) $(libm2iso_la_link_flags) -lm
+-CLEANFILES = \
+-   SYSTEM.def SYSTEM.mod cbuiltin.def \
+-   ShortComplex.def Complex.def LongComplex.def \
+-   ShortComplex.mod Complex.mod LongComplex.mod
+-BUILT_SOURCES = \
+-   SYSTEM.def SYSTEM.mod cbuiltin.def \
+-   ShortComplexMath.def ComplexMath.def LongComplexMath.def \
+-   ShortComplexMath.mod ComplexMath.mod LongComplexMath.mod
++CLEANFILES = SYSTEM.def
++BUILT_SOURCES = SYSTEM.def
+ 
+ M2LIBDIR = /m2/m2iso/
+ 
+ M2HEADER_FILES = m2rts.h
+ 
+-GENERATED = \
+-  SYSTEM.def \
+-  SYSTEM.mod \
+-  ../libm2pim/Builtins.def \
+-  ../libm2pim/Builtins.mod \
+-  ../libm2pim/cbuiltin.def
+-
+-if HAVE_PYTHON_INTERPRETER
+-SYSTEM.def: Makefile
+-	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-             -D=$(GM2_SRC)/gm2-libs-iso-common/SYSTEM.def \
+-             -M=$(GM2_SRC)/gm2-libs-iso-common/SYSTEM.mod \
+-             -I=$(GM2_SRC)/gm2-libs-iso \
+-             -I=$(GM2_SRC)/gm2-libs \
+-             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-else
+ SYSTEM.def: Makefile
+ 	bash $(GM2_SRC)/tools-src/makeSystem -fiso \
+-             $(GM2_SRC)/gm2-libs-iso-common/SYSTEM.def \
+-             $(GM2_SRC)/gm2-libs-iso-common/SYSTEM.mod \
+-             -I$(GM2_SRC)/gm2-libs-iso \
+-             -I$(GM2_SRC)/gm2-libs \
+-             -I$(GM2_SRC)/gm2-libs-iso-common \
++             $(GM2_SRC)/gm2-libs-iso/SYSTEM.def \
++             $(GM2_SRC)/gm2-libs-iso/SYSTEM.mod \
++             -I$(GM2_SRC)/gm2-libs-iso -I$(GM2_SRC)/gm2-libs \
+              "$(GM2_FOR_TARGET)" $@
+-endif
+-
+-../libm2pim/Builtins.def:
+-	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) Builtins.def
+-
+-../libm2pim/Builtins.mod:
+-	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) Builtins.mod
+-
+-../libm2pim/cbuiltin.def:
+-	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) cbuiltin.def
+-
+-if HAVE_PYTHON_INTERPRETER
+-ShortComplexMath.def: Makefile
+-	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-             -D=$(GM2_SRC)/gm2-libs-iso-common/ShortComplexMath.def \
+-             -M=$(GM2_SRC)/gm2-libs-iso-common/ShortComplexMath.mod \
+-             -I=$(GM2_SRC)/gm2-libs-iso -I=$(GM2_SRC)/gm2-libs \
+-             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-else
+-ShortComplexMath.def: Makefile
+-	cp $(GM2_SRC)/gm2-libs-iso-common/ShortComplexMath.def $@
+-endif
+-
+-if HAVE_PYTHON_INTERPRETER
+-ShortComplexMath.mod: Makefile
+-	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-             -M=$(GM2_SRC)/gm2-libs-iso-common/ShortComplexMath.mod \
+-             -I=$(GM2_SRC)/gm2-libs-iso -I=$(GM2_SRC)/gm2-libs \
+-             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-else
+-ShortComplexMath.mod: Makefile
+-	cp $(GM2_SRC)/gm2-libs-iso-common/ShortComplexMath.mod $@
+-endif
+-
+-if HAVE_PYTHON_INTERPRETER
+-ComplexMath.def: Makefile
+-	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-             -D=$(GM2_SRC)/gm2-libs-iso-common/ComplexMath.def \
+-             -M=$(GM2_SRC)/gm2-libs-iso-common/ComplexMath.mod \
+-             -I=$(GM2_SRC)/gm2-libs-iso -I=$(GM2_SRC)/gm2-libs \
+-             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-else
+-ComplexMath.def: Makefile
+-	cp $(GM2_SRC)/gm2-libs-iso-common/ComplexMath.def $@
+-endif
+-
+-if HAVE_PYTHON_INTERPRETER
+-ComplexMath.mod: Makefile
+-	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-             -M=$(GM2_SRC)/gm2-libs-iso-common/ComplexMath.mod \
+-             -I=$(GM2_SRC)/gm2-libs-iso -I=$(GM2_SRC)/gm2-libs \
+-             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-else
+-ComplexMath.mod: Makefile
+-	cp $(GM2_SRC)/gm2-libs-iso-common/ComplexMath.mod $@
+-endif
+-
+-if HAVE_PYTHON_INTERPRETER
+-LongComplexMath.def: Makefile
+-	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-             -D=$(GM2_SRC)/gm2-libs-iso-common/LongComplexMath.def \
+-             -M=$(GM2_SRC)/gm2-libs-iso-common/LongComplexMath.mod \
+-             -I=$(GM2_SRC)/gm2-libs-iso -I=$(GM2_SRC)/gm2-libs \
+-             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-else
+-LongComplexMath.def: Makefile
+-	cp $(GM2_SRC)/gm2-libs-iso-common/LongComplexMath.def $@
+-endif
+-
+-if HAVE_PYTHON_INTERPRETER
+-LongComplexMath.mod: Makefile
+-	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-             -M=$(GM2_SRC)/gm2-libs-iso-common/LongComplexMath.mod \
+-             -I=$(GM2_SRC)/gm2-libs-iso -I=$(GM2_SRC)/gm2-libs \
+-             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-else
+-LongComplexMath.mod: Makefile
+-	cp $(GM2_SRC)/gm2-libs-iso-common/LongComplexMath.mod $@
+-endif
+-
+-if HAVE_PYTHON_INTERPRETER
+-cbuiltin.def: ../libm2pim/cbuiltin.def
+-	cp $< $@
+-else
+-cbuiltin.def: Makefile
+-	cp $(GM2_SRC)/gm2-libs-pim-common/cbuiltin.def $@
+-endif
+-
+-SYSTEM.mod: Makefile
+-	cp $(GM2_SRC)/gm2-libs-iso-common/SYSTEM.mod $@
+-
+-ComplexMath.lo: $(GENERATED) ComplexMath.def ComplexMath.mod
+-LongComplexMath.lo: $(GENERATED) LongComplexMath.def LongComplexMath.mod
+-ShortComplexMath.lo: $(GENERATED) ShortComplexMath.def ShortComplexMath.mod
+ 
+-.mod.lo: $(BUILT_SOURCES)
+-	$(LIBTOOL) --tag CC \
+-                   $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile \
++.mod.lo:
++	$(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile \
+                    $(GM2_FOR_TARGET) -c \
+                    $(CFLAGS_FOR_TARGET) $(LIBCFLAGS) $(libm2iso_la_M2FLAGS) $< -o $@
+ 
+ .cc.lo:
+-	$(LIBTOOL) --tag CXX --mode=compile \
+-                   $(CXX) -c -I$(srcdir) \
++	$(LIBTOOL) --tag=CXX --mode=compile $(CXX) -c -I$(srcdir) \
+                    $(CXXFLAGS) $(LIBCFLAGS) $(libm2iso_la_CFLAGS) $< -o $@
+ 
+ .c.lo:
+-	$(LIBTOOL) --tag CC --mode=compile \
+-                   $(CC) -c -I$(srcdir) \
++	$(LIBTOOL) --tag=CC --mode=compile $(CC) -c -I$(srcdir) \
+                    $(CFLAGS) $(LIBCFLAGS) $(libm2iso_la_CFLAGS) $< -o $@
+ 
+ install-data-local: force
+diff --git a/libgm2/libm2iso/Makefile.in b/libgm2/libm2iso/Makefile.in
+index 37216b856c82..d6b143eaf234 100644
+--- a/libgm2/libm2iso/Makefile.in
++++ b/libgm2/libm2iso/Makefile.in
+@@ -108,8 +108,7 @@ target_triplet = @target@
+ @BUILD_ISOLIB_TRUE@@ENABLE_DARWIN_AT_RPATH_TRUE@am__append_1 = -nodefaultrpaths -Wl,-rpath,@loader_path/
+ subdir = libm2iso
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+-am__aclocal_m4_deps = $(top_srcdir)/ax_python_devel.m4 \
+-	$(top_srcdir)/../config/acx.m4 \
++am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+ 	$(top_srcdir)/../config/clang-plugin.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/gcc-plugin.m4 \
+@@ -117,10 +116,10 @@ am__aclocal_m4_deps = $(top_srcdir)/ax_python_devel.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/no-executables.m4 \
+ 	$(top_srcdir)/../config/override.m4 \
+-	$(top_srcdir)/../config/picflag.m4 $(top_srcdir)/../libtool.m4 \
+-	$(top_srcdir)/../ltoptions.m4 $(top_srcdir)/../ltsugar.m4 \
+-	$(top_srcdir)/../ltversion.m4 $(top_srcdir)/../lt~obsolete.m4 \
+-	$(top_srcdir)/acinclude.m4 $(top_srcdir)/../config/gc++filt.m4 \
++	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
++	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
++	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/acinclude.m4 \
++	$(top_srcdir)/../config/gc++filt.m4 \
+ 	$(top_srcdir)/../config/tls.m4 $(top_srcdir)/../config/gthr.m4 \
+ 	$(top_srcdir)/../config/cet.m4 $(top_srcdir)/configure.ac
+ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
+@@ -341,15 +340,6 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
+ PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+-PICFLAG = @PICFLAG@
+-PYTHON = @PYTHON@
+-PYTHON_CPPFLAGS = @PYTHON_CPPFLAGS@
+-PYTHON_EXTRA_LDFLAGS = @PYTHON_EXTRA_LDFLAGS@
+-PYTHON_EXTRA_LIBS = @PYTHON_EXTRA_LIBS@
+-PYTHON_LIBS = @PYTHON_LIBS@
+-PYTHON_PLATFORM_SITE_PKG = @PYTHON_PLATFORM_SITE_PKG@
+-PYTHON_SITE_PKG = @PYTHON_SITE_PKG@
+-PYTHON_VERSION = @PYTHON_VERSION@
+ RANLIB = @RANLIB@
+ SED = @SED@
+ SET_MAKE = @SET_MAKE@
+@@ -368,7 +358,6 @@ am__leading_dot = @am__leading_dot@
+ am__quote = @am__quote@
+ am__tar = @am__tar@
+ am__untar = @am__untar@
+-ax_python_interpreter = @ax_python_interpreter@
+ bindir = @bindir@
+ build = @build@
+ build_alias = @build_alias@
+@@ -458,7 +447,6 @@ AM_MAKEFLAGS = \
+ 	"CC_FOR_BUILD=$(CC_FOR_BUILD)" \
+ 	"CC_FOR_TARGET=$(CC_FOR_TARGET)" \
+ 	"GM2_FOR_TARGET=$(GM2_FOR_TARGET)" \
+-        "GM2_FOR_TARGET_ESC=$(GM2_FOR_TARGET_ESC)" \
+ 	"CFLAGS=$(CFLAGS)" \
+ 	"CXXFLAGS=$(CXXFLAGS)" \
+ 	"CFLAGS_FOR_BUILD=$(CFLAGS_FOR_BUILD)" \
+@@ -496,9 +484,7 @@ AM_MAKEFLAGS = \
+ 	"NM_FOR_TARGET=$(NM_FOR_TARGET)" \
+ 	"DESTDIR=$(DESTDIR)" \
+ 	"WERROR=$(WERROR)" \
+-        "TARGET_LIB_PATH_libgm2=$(TARGET_LIB_PATH_libgm2)" \
+-	"PYTHON=$(PYTHON)" \
+-        "HAVE_PYTHON_INTERPRETER=$(HAVE_PYTHON_INTERPRETER)"
++        "TARGET_LIB_PATH_libgm2=$(TARGET_LIB_PATH_libgm2)"
+ 
+ 
+ # Subdir rules rely on $(FLAGS_TO_PASS)
+@@ -610,7 +596,6 @@ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+ @BUILD_ISOLIB_TRUE@libm2iso_la_M2FLAGS = \
+ @BUILD_ISOLIB_TRUE@  -fm2-pathname=m2iso -I. -Ilibm2iso -I$(GM2_SRC)/gm2-libs-iso \
+ @BUILD_ISOLIB_TRUE@  -fm2-pathname=m2pim -I$(GM2_SRC)/gm2-libs \
+-@BUILD_ISOLIB_TRUE@  -fm2-pathname=m2pim -I../libm2pim \
+ @BUILD_ISOLIB_TRUE@  -fiso -fextended-opaque -fm2-g -g -Wcase-enum \
+ @BUILD_ISOLIB_TRUE@  -Wall \
+ @BUILD_ISOLIB_TRUE@  -Wreturn-type -fcase -fm2-prefix=m2iso
+@@ -620,25 +605,10 @@ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+ @BUILD_ISOLIB_TRUE@@TARGET_DARWIN_TRUE@libm2iso_la_link_flags = -Wl,-undefined,dynamic_lookup \
+ @BUILD_ISOLIB_TRUE@@TARGET_DARWIN_TRUE@	$(am__append_1)
+ @BUILD_ISOLIB_TRUE@libm2iso_la_LINK = $(LINK) -version-info $(libtool_VERSION) $(libm2iso_la_link_flags) -lm
+-@BUILD_ISOLIB_TRUE@CLEANFILES = \
+-@BUILD_ISOLIB_TRUE@   SYSTEM.def SYSTEM.mod cbuiltin.def \
+-@BUILD_ISOLIB_TRUE@   ShortComplex.def Complex.def LongComplex.def \
+-@BUILD_ISOLIB_TRUE@   ShortComplex.mod Complex.mod LongComplex.mod
+-
+-@BUILD_ISOLIB_TRUE@BUILT_SOURCES = \
+-@BUILD_ISOLIB_TRUE@   SYSTEM.def SYSTEM.mod cbuiltin.def \
+-@BUILD_ISOLIB_TRUE@   ShortComplexMath.def ComplexMath.def LongComplexMath.def \
+-@BUILD_ISOLIB_TRUE@   ShortComplexMath.mod ComplexMath.mod LongComplexMath.mod
+-
++@BUILD_ISOLIB_TRUE@CLEANFILES = SYSTEM.def
++@BUILD_ISOLIB_TRUE@BUILT_SOURCES = SYSTEM.def
+ @BUILD_ISOLIB_TRUE@M2LIBDIR = /m2/m2iso/
+ @BUILD_ISOLIB_TRUE@M2HEADER_FILES = m2rts.h
+-@BUILD_ISOLIB_TRUE@GENERATED = \
+-@BUILD_ISOLIB_TRUE@  SYSTEM.def \
+-@BUILD_ISOLIB_TRUE@  SYSTEM.mod \
+-@BUILD_ISOLIB_TRUE@  ../libm2pim/Builtins.def \
+-@BUILD_ISOLIB_TRUE@  ../libm2pim/Builtins.mod \
+-@BUILD_ISOLIB_TRUE@  ../libm2pim/cbuiltin.def
+-
+ all: $(BUILT_SOURCES)
+ 	$(MAKE) $(AM_MAKEFLAGS) all-am
+ 
+@@ -963,115 +933,24 @@ uninstall-am: uninstall-toolexeclibLTLIBRARIES
+ .PRECIOUS: Makefile
+ 
+ 
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@SYSTEM.def: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -D=$(GM2_SRC)/gm2-libs-iso-common/SYSTEM.def \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -M=$(GM2_SRC)/gm2-libs-iso-common/SYSTEM.mod \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@SYSTEM.def: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@	bash $(GM2_SRC)/tools-src/makeSystem -fiso \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@             $(GM2_SRC)/gm2-libs-iso-common/SYSTEM.def \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@             $(GM2_SRC)/gm2-libs-iso-common/SYSTEM.mod \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@             -I$(GM2_SRC)/gm2-libs-iso \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@             -I$(GM2_SRC)/gm2-libs \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@             -I$(GM2_SRC)/gm2-libs-iso-common \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@             "$(GM2_FOR_TARGET)" $@
+-
+-@BUILD_ISOLIB_TRUE@../libm2pim/Builtins.def:
+-@BUILD_ISOLIB_TRUE@	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) Builtins.def
+-
+-@BUILD_ISOLIB_TRUE@../libm2pim/Builtins.mod:
+-@BUILD_ISOLIB_TRUE@	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) Builtins.mod
+-
+-@BUILD_ISOLIB_TRUE@../libm2pim/cbuiltin.def:
+-@BUILD_ISOLIB_TRUE@	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) cbuiltin.def
+-
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@ShortComplexMath.def: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -D=$(GM2_SRC)/gm2-libs-iso-common/ShortComplexMath.def \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -M=$(GM2_SRC)/gm2-libs-iso-common/ShortComplexMath.mod \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso -I=$(GM2_SRC)/gm2-libs \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@ShortComplexMath.def: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@	cp $(GM2_SRC)/gm2-libs-iso-common/ShortComplexMath.def $@
+-
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@ShortComplexMath.mod: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -M=$(GM2_SRC)/gm2-libs-iso-common/ShortComplexMath.mod \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso -I=$(GM2_SRC)/gm2-libs \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@ShortComplexMath.mod: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@	cp $(GM2_SRC)/gm2-libs-iso-common/ShortComplexMath.mod $@
+-
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@ComplexMath.def: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -D=$(GM2_SRC)/gm2-libs-iso-common/ComplexMath.def \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -M=$(GM2_SRC)/gm2-libs-iso-common/ComplexMath.mod \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso -I=$(GM2_SRC)/gm2-libs \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@ComplexMath.def: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@	cp $(GM2_SRC)/gm2-libs-iso-common/ComplexMath.def $@
+-
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@ComplexMath.mod: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -M=$(GM2_SRC)/gm2-libs-iso-common/ComplexMath.mod \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso -I=$(GM2_SRC)/gm2-libs \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@ComplexMath.mod: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@	cp $(GM2_SRC)/gm2-libs-iso-common/ComplexMath.mod $@
+-
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@LongComplexMath.def: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -D=$(GM2_SRC)/gm2-libs-iso-common/LongComplexMath.def \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -M=$(GM2_SRC)/gm2-libs-iso-common/LongComplexMath.mod \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso -I=$(GM2_SRC)/gm2-libs \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@LongComplexMath.def: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@	cp $(GM2_SRC)/gm2-libs-iso-common/LongComplexMath.def $@
+-
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@LongComplexMath.mod: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fiso \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -M=$(GM2_SRC)/gm2-libs-iso-common/LongComplexMath.mod \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso -I=$(GM2_SRC)/gm2-libs \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-iso-common \
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@LongComplexMath.mod: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@	cp $(GM2_SRC)/gm2-libs-iso-common/LongComplexMath.mod $@
+-
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@cbuiltin.def: ../libm2pim/cbuiltin.def
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@	cp $< $@
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@cbuiltin.def: Makefile
+-@BUILD_ISOLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@	cp $(GM2_SRC)/gm2-libs-pim-common/cbuiltin.def $@
+-
+-@BUILD_ISOLIB_TRUE@SYSTEM.mod: Makefile
+-@BUILD_ISOLIB_TRUE@	cp $(GM2_SRC)/gm2-libs-iso-common/SYSTEM.mod $@
+-
+-@BUILD_ISOLIB_TRUE@ComplexMath.lo: $(GENERATED) ComplexMath.def ComplexMath.mod
+-@BUILD_ISOLIB_TRUE@LongComplexMath.lo: $(GENERATED) LongComplexMath.def LongComplexMath.mod
+-@BUILD_ISOLIB_TRUE@ShortComplexMath.lo: $(GENERATED) ShortComplexMath.def ShortComplexMath.mod
+-
+-@BUILD_ISOLIB_TRUE@.mod.lo: $(BUILT_SOURCES)
+-@BUILD_ISOLIB_TRUE@	$(LIBTOOL) --tag CC \
+-@BUILD_ISOLIB_TRUE@                   $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile \
++@BUILD_ISOLIB_TRUE@SYSTEM.def: Makefile
++@BUILD_ISOLIB_TRUE@	bash $(GM2_SRC)/tools-src/makeSystem -fiso \
++@BUILD_ISOLIB_TRUE@             $(GM2_SRC)/gm2-libs-iso/SYSTEM.def \
++@BUILD_ISOLIB_TRUE@             $(GM2_SRC)/gm2-libs-iso/SYSTEM.mod \
++@BUILD_ISOLIB_TRUE@             -I$(GM2_SRC)/gm2-libs-iso -I$(GM2_SRC)/gm2-libs \
++@BUILD_ISOLIB_TRUE@             "$(GM2_FOR_TARGET)" $@
++
++@BUILD_ISOLIB_TRUE@.mod.lo:
++@BUILD_ISOLIB_TRUE@	$(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile \
+ @BUILD_ISOLIB_TRUE@                   $(GM2_FOR_TARGET) -c \
+ @BUILD_ISOLIB_TRUE@                   $(CFLAGS_FOR_TARGET) $(LIBCFLAGS) $(libm2iso_la_M2FLAGS) $< -o $@
+ 
+ @BUILD_ISOLIB_TRUE@.cc.lo:
+-@BUILD_ISOLIB_TRUE@	$(LIBTOOL) --tag CXX --mode=compile \
+-@BUILD_ISOLIB_TRUE@                   $(CXX) -c -I$(srcdir) \
++@BUILD_ISOLIB_TRUE@	$(LIBTOOL) --tag=CXX --mode=compile $(CXX) -c -I$(srcdir) \
+ @BUILD_ISOLIB_TRUE@                   $(CXXFLAGS) $(LIBCFLAGS) $(libm2iso_la_CFLAGS) $< -o $@
+ 
+ @BUILD_ISOLIB_TRUE@.c.lo:
+-@BUILD_ISOLIB_TRUE@	$(LIBTOOL) --tag CC --mode=compile \
+-@BUILD_ISOLIB_TRUE@                   $(CC) -c -I$(srcdir) \
++@BUILD_ISOLIB_TRUE@	$(LIBTOOL) --tag=CC --mode=compile $(CC) -c -I$(srcdir) \
+ @BUILD_ISOLIB_TRUE@                   $(CFLAGS) $(LIBCFLAGS) $(libm2iso_la_CFLAGS) $< -o $@
+ 
+ @BUILD_ISOLIB_TRUE@install-data-local: force
+diff --git a/libgm2/libm2log/Makefile.am b/libgm2/libm2log/Makefile.am
+index d97fab7b8696..8078be8d16d2 100644
+--- a/libgm2/libm2log/Makefile.am
++++ b/libgm2/libm2log/Makefile.am
+@@ -124,11 +124,6 @@ M2MODS = BitBlockOps.mod  BitByteOps.mod \
+          Strings.mod  Termbase.mod \
+          Terminal.mod  TimeDate.mod
+ 
+-GENERATED = \
+- ../libm2pim/SYSTEM.def \
+- ../libm2pim/Builtins.def \
+- ../libm2pim/Builtins.mod \
+- ../libm2pim/cbuiltin.def
+ 
+ libm2logdir = libm2log
+ toolexeclib_LTLIBRARIES = libm2log.la
+@@ -154,49 +149,15 @@ if ENABLE_DARWIN_AT_RPATH
+ libm2log_la_link_flags += -nodefaultrpaths -Wl,-rpath,@loader_path/
+ endif
+ libm2log_la_LINK = $(LINK) -version-info $(libtool_VERSION) $(libm2log_la_link_flags) -lm
++BUILT_SOURCES = ../libm2pim/SYSTEM.def
+ 
+ M2LIBDIR = /m2/m2log/
+ 
+-../libm2pim/SYSTEM.def:
++../libm2pim/SYSTEM.def: ../libm2pim/Makefile
+ 	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) SYSTEM.def
+ 
+-../libm2pim/Builtins.def:
+-	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) Builtins.def
+-
+-../libm2pim/Builtins.mod:
+-	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) Builtins.mod
+-
+-../libm2pim/cbuiltin.def:
+-	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) cbuiltin.def
+-
+-BitBlockOps.lo: $(GENERATED) BitBlockOps.mod
+-BitByteOps.lo: $(GENERATED) BitByteOps.mod
+-BitWordOps.lo: $(GENERATED) BitWordOps.mod
+-BlockOps.lo: $(GENERATED) BlockOps.mod
+-CardinalIO.lo: $(GENERATED) CardinalIO.mod
+-Conversions.lo: $(GENERATED) Conversions.mod
+-DebugPMD.lo: $(GENERATED) DebugPMD.mod
+-DebugTrace.lo: $(GENERATED) DebugTrace.mod
+-Delay.lo: $(GENERATED) Delay.mod
+-Display.lo: $(GENERATED) Display.mod
+-ErrorCode.lo: $(GENERATED) ErrorCode.mod
+-FileSystem.lo: $(GENERATED) FileSystem.mod
+-FloatingUtilities.lo: $(GENERATED) FloatingUtilities.mod
+-InOut.lo: $(GENERATED) InOut.mod
+-Keyboard.lo: $(GENERATED) Keyboard.mod
+-LongIO.lo: $(GENERATED) LongIO.mod
+-NumberConversion.lo: $(GENERATED) NumberConversion.mod
+-Random.lo: $(GENERATED) Random.mod
+-RealConversions.lo: $(GENERATED) RealConversions.mod
+-RealInOut.lo: $(GENERATED) RealInOut.mod
+-Strings.lo: $(GENERATED) Strings.mod
+-Termbase.lo: $(GENERATED) Termbase.mod
+-Terminal.lo: $(GENERATED) Terminal.mod
+-TimeDate.lo: $(GENERATED) TimeDate.mod
+-
+ .mod.lo:
+-	$(LIBTOOL) --tag=CC \
+-                   $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile \
++	$(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile \
+                    $(GM2_FOR_TARGET) -c \
+                    $(CFLAGS_FOR_TARGET) $(LIBCFLAGS) $(libm2log_la_M2FLAGS) $< -o $@
+ 
+diff --git a/libgm2/libm2log/Makefile.in b/libgm2/libm2log/Makefile.in
+index 1bf8ec794150..93dcc6639fd5 100644
+--- a/libgm2/libm2log/Makefile.in
++++ b/libgm2/libm2log/Makefile.in
+@@ -108,8 +108,7 @@ target_triplet = @target@
+ @BUILD_LOGLIB_TRUE@@ENABLE_DARWIN_AT_RPATH_TRUE@am__append_1 = -nodefaultrpaths -Wl,-rpath,@loader_path/
+ subdir = libm2log
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+-am__aclocal_m4_deps = $(top_srcdir)/ax_python_devel.m4 \
+-	$(top_srcdir)/../config/acx.m4 \
++am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+ 	$(top_srcdir)/../config/clang-plugin.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/gcc-plugin.m4 \
+@@ -117,10 +116,10 @@ am__aclocal_m4_deps = $(top_srcdir)/ax_python_devel.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/no-executables.m4 \
+ 	$(top_srcdir)/../config/override.m4 \
+-	$(top_srcdir)/../config/picflag.m4 $(top_srcdir)/../libtool.m4 \
+-	$(top_srcdir)/../ltoptions.m4 $(top_srcdir)/../ltsugar.m4 \
+-	$(top_srcdir)/../ltversion.m4 $(top_srcdir)/../lt~obsolete.m4 \
+-	$(top_srcdir)/acinclude.m4 $(top_srcdir)/../config/gc++filt.m4 \
++	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
++	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
++	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/acinclude.m4 \
++	$(top_srcdir)/../config/gc++filt.m4 \
+ 	$(top_srcdir)/../config/tls.m4 $(top_srcdir)/../config/gthr.m4 \
+ 	$(top_srcdir)/../config/cet.m4 $(top_srcdir)/configure.ac
+ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
+@@ -304,15 +303,6 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
+ PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+-PICFLAG = @PICFLAG@
+-PYTHON = @PYTHON@
+-PYTHON_CPPFLAGS = @PYTHON_CPPFLAGS@
+-PYTHON_EXTRA_LDFLAGS = @PYTHON_EXTRA_LDFLAGS@
+-PYTHON_EXTRA_LIBS = @PYTHON_EXTRA_LIBS@
+-PYTHON_LIBS = @PYTHON_LIBS@
+-PYTHON_PLATFORM_SITE_PKG = @PYTHON_PLATFORM_SITE_PKG@
+-PYTHON_SITE_PKG = @PYTHON_SITE_PKG@
+-PYTHON_VERSION = @PYTHON_VERSION@
+ RANLIB = @RANLIB@
+ SED = @SED@
+ SET_MAKE = @SET_MAKE@
+@@ -331,7 +321,6 @@ am__leading_dot = @am__leading_dot@
+ am__quote = @am__quote@
+ am__tar = @am__tar@
+ am__untar = @am__untar@
+-ax_python_interpreter = @ax_python_interpreter@
+ bindir = @bindir@
+ build = @build@
+ build_alias = @build_alias@
+@@ -489,12 +478,6 @@ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+ @BUILD_LOGLIB_TRUE@         Strings.mod  Termbase.mod \
+ @BUILD_LOGLIB_TRUE@         Terminal.mod  TimeDate.mod
+ 
+-@BUILD_LOGLIB_TRUE@GENERATED = \
+-@BUILD_LOGLIB_TRUE@ ../libm2pim/SYSTEM.def \
+-@BUILD_LOGLIB_TRUE@ ../libm2pim/Builtins.def \
+-@BUILD_LOGLIB_TRUE@ ../libm2pim/Builtins.mod \
+-@BUILD_LOGLIB_TRUE@ ../libm2pim/cbuiltin.def
+-
+ @BUILD_LOGLIB_TRUE@libm2logdir = libm2log
+ @BUILD_LOGLIB_TRUE@toolexeclib_LTLIBRARIES = libm2log.la
+ @BUILD_LOGLIB_TRUE@libm2log_la_SOURCES = $(M2MODS) Break.c
+@@ -514,8 +497,10 @@ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+ @BUILD_LOGLIB_TRUE@@TARGET_DARWIN_TRUE@libm2log_la_link_flags = -Wl,-undefined,dynamic_lookup \
+ @BUILD_LOGLIB_TRUE@@TARGET_DARWIN_TRUE@	$(am__append_1)
+ @BUILD_LOGLIB_TRUE@libm2log_la_LINK = $(LINK) -version-info $(libtool_VERSION) $(libm2log_la_link_flags) -lm
++@BUILD_LOGLIB_TRUE@BUILT_SOURCES = ../libm2pim/SYSTEM.def
+ @BUILD_LOGLIB_TRUE@M2LIBDIR = /m2/m2log/
+-all: all-am
++all: $(BUILT_SOURCES)
++	$(MAKE) $(AM_MAKEFLAGS) all-am
+ 
+ .SUFFIXES:
+ .SUFFIXES: .c .mod .def .o .obj .lo .a .la
+@@ -681,13 +666,15 @@ cscopelist-am: $(am__tagged_files)
+ distclean-tags:
+ 	-rm -f TAGS ID GTAGS GRTAGS GSYMS GPATH tags
+ check-am: all-am
+-check: check-am
++check: $(BUILT_SOURCES)
++	$(MAKE) $(AM_MAKEFLAGS) check-am
+ all-am: Makefile $(LTLIBRARIES)
+ installdirs:
+ 	for dir in "$(DESTDIR)$(toolexeclibdir)"; do \
+ 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
+ 	done
+-install: install-am
++install: $(BUILT_SOURCES)
++	$(MAKE) $(AM_MAKEFLAGS) install-am
+ install-exec: install-exec-am
+ install-data: install-data-am
+ uninstall: uninstall-am
+@@ -717,6 +704,7 @@ distclean-generic:
+ maintainer-clean-generic:
+ 	@echo "This command is intended for maintainers to use"
+ 	@echo "it deletes files that may require special tools to rebuild."
++	-test -z "$(BUILT_SOURCES)" || rm -f $(BUILT_SOURCES)
+ @BUILD_LOGLIB_FALSE@install-data-local:
+ clean: clean-am
+ 
+@@ -789,7 +777,7 @@ ps-am:
+ 
+ uninstall-am: uninstall-toolexeclibLTLIBRARIES
+ 
+-.MAKE: install-am install-strip
++.MAKE: all check install install-am install-strip
+ 
+ .PHONY: CTAGS GTAGS TAGS all all-am check check-am clean clean-generic \
+ 	clean-libtool clean-toolexeclibLTLIBRARIES cscopelist-am ctags \
+@@ -809,46 +797,11 @@ uninstall-am: uninstall-toolexeclibLTLIBRARIES
+ .PRECIOUS: Makefile
+ 
+ 
+-@BUILD_LOGLIB_TRUE@../libm2pim/SYSTEM.def:
++@BUILD_LOGLIB_TRUE@../libm2pim/SYSTEM.def: ../libm2pim/Makefile
+ @BUILD_LOGLIB_TRUE@	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) SYSTEM.def
+ 
+-@BUILD_LOGLIB_TRUE@../libm2pim/Builtins.def:
+-@BUILD_LOGLIB_TRUE@	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) Builtins.def
+-
+-@BUILD_LOGLIB_TRUE@../libm2pim/Builtins.mod:
+-@BUILD_LOGLIB_TRUE@	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) Builtins.mod
+-
+-@BUILD_LOGLIB_TRUE@../libm2pim/cbuiltin.def:
+-@BUILD_LOGLIB_TRUE@	cd ../libm2pim ; $(MAKE) $(AM_MAKEFLAGS) cbuiltin.def
+-
+-@BUILD_LOGLIB_TRUE@BitBlockOps.lo: $(GENERATED) BitBlockOps.mod
+-@BUILD_LOGLIB_TRUE@BitByteOps.lo: $(GENERATED) BitByteOps.mod
+-@BUILD_LOGLIB_TRUE@BitWordOps.lo: $(GENERATED) BitWordOps.mod
+-@BUILD_LOGLIB_TRUE@BlockOps.lo: $(GENERATED) BlockOps.mod
+-@BUILD_LOGLIB_TRUE@CardinalIO.lo: $(GENERATED) CardinalIO.mod
+-@BUILD_LOGLIB_TRUE@Conversions.lo: $(GENERATED) Conversions.mod
+-@BUILD_LOGLIB_TRUE@DebugPMD.lo: $(GENERATED) DebugPMD.mod
+-@BUILD_LOGLIB_TRUE@DebugTrace.lo: $(GENERATED) DebugTrace.mod
+-@BUILD_LOGLIB_TRUE@Delay.lo: $(GENERATED) Delay.mod
+-@BUILD_LOGLIB_TRUE@Display.lo: $(GENERATED) Display.mod
+-@BUILD_LOGLIB_TRUE@ErrorCode.lo: $(GENERATED) ErrorCode.mod
+-@BUILD_LOGLIB_TRUE@FileSystem.lo: $(GENERATED) FileSystem.mod
+-@BUILD_LOGLIB_TRUE@FloatingUtilities.lo: $(GENERATED) FloatingUtilities.mod
+-@BUILD_LOGLIB_TRUE@InOut.lo: $(GENERATED) InOut.mod
+-@BUILD_LOGLIB_TRUE@Keyboard.lo: $(GENERATED) Keyboard.mod
+-@BUILD_LOGLIB_TRUE@LongIO.lo: $(GENERATED) LongIO.mod
+-@BUILD_LOGLIB_TRUE@NumberConversion.lo: $(GENERATED) NumberConversion.mod
+-@BUILD_LOGLIB_TRUE@Random.lo: $(GENERATED) Random.mod
+-@BUILD_LOGLIB_TRUE@RealConversions.lo: $(GENERATED) RealConversions.mod
+-@BUILD_LOGLIB_TRUE@RealInOut.lo: $(GENERATED) RealInOut.mod
+-@BUILD_LOGLIB_TRUE@Strings.lo: $(GENERATED) Strings.mod
+-@BUILD_LOGLIB_TRUE@Termbase.lo: $(GENERATED) Termbase.mod
+-@BUILD_LOGLIB_TRUE@Terminal.lo: $(GENERATED) Terminal.mod
+-@BUILD_LOGLIB_TRUE@TimeDate.lo: $(GENERATED) TimeDate.mod
+-
+ @BUILD_LOGLIB_TRUE@.mod.lo:
+-@BUILD_LOGLIB_TRUE@	$(LIBTOOL) --tag=CC \
+-@BUILD_LOGLIB_TRUE@                   $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile \
++@BUILD_LOGLIB_TRUE@	$(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile \
+ @BUILD_LOGLIB_TRUE@                   $(GM2_FOR_TARGET) -c \
+ @BUILD_LOGLIB_TRUE@                   $(CFLAGS_FOR_TARGET) $(LIBCFLAGS) $(libm2log_la_M2FLAGS) $< -o $@
+ 
+diff --git a/libgm2/libm2min/Makefile.am b/libgm2/libm2min/Makefile.am
+index d3cc8882d304..8cee85fd4772 100644
+--- a/libgm2/libm2min/Makefile.am
++++ b/libgm2/libm2min/Makefile.am
+@@ -125,28 +125,20 @@ CLEANFILES = SYSTEM.def
+ M2LIBDIR = /m2/m2min/
+ 
+ .mod.lo:
+-	$(LIBTOOL) --tag CC \
+-                   $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile \
++	$(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile \
+                    $(GM2_FOR_TARGET) -c \
+                    $(CFLAGS_FOR_TARGET) $(LIBCFLAGS) $(libm2min_la_M2FLAGS) $< -o $@
+ 
+ libc.o: $(GM2_SRC)/gm2-libs-min/libc.c
+ 
+-if HAVE_PYTHON_INTERPRETER
+-SYSTEM.def: Makefile
+-	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fpim \
+-             -D=$(GM2_SRC)/gm2-libs-min/SYSTEM.def \
+-             -M=$(GM2_SRC)/gm2-libs-min/SYSTEM.mod \
+-             -I=$(GM2_SRC)/gm2-libs-min -I=$(GM2_SRC)/gm2-libs \
+-             -C="$(GM2_FOR_TARGET_ESC) -fno-exceptions" -o $@
+-else
++
+ SYSTEM.def: Makefile
++	echo "CC = $(CC_FOR_BUILD)  CC_FOR_TARGET = $(CC_FOR_TARGET)  GM2 = $(GM2)  GM2_FOR_TARGET = $(GM2_FOR_TARGET) GM2_FOR_BUILD = $(GM2_FOR_BUILD)"
+ 	bash $(GM2_SRC)/tools-src/makeSystem -fpim \
+              $(GM2_SRC)/gm2-libs-min/SYSTEM.def \
+              $(GM2_SRC)/gm2-libs-min/SYSTEM.mod \
+              -I$(GM2_SRC)/gm2-libs-min -I$(GM2_SRC)/gm2-libs \
+              "$(GM2_FOR_TARGET) -fno-exceptions" $@
+-endif
+ 
+ install-data-local: force
+ 	mkdir -p $(DESTDIR)$(inst_libdir)/$(M2LIBDIR)
+diff --git a/libgm2/libm2min/Makefile.in b/libgm2/libm2min/Makefile.in
+index 85d289a5b992..2c6bb9a77f5c 100644
+--- a/libgm2/libm2min/Makefile.in
++++ b/libgm2/libm2min/Makefile.in
+@@ -108,8 +108,7 @@ target_triplet = @target@
+ @ENABLE_DARWIN_AT_RPATH_TRUE@am__append_1 = -nodefaultrpaths -Wl,-rpath,@loader_path/
+ subdir = libm2min
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+-am__aclocal_m4_deps = $(top_srcdir)/ax_python_devel.m4 \
+-	$(top_srcdir)/../config/acx.m4 \
++am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+ 	$(top_srcdir)/../config/clang-plugin.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/gcc-plugin.m4 \
+@@ -117,10 +116,10 @@ am__aclocal_m4_deps = $(top_srcdir)/ax_python_devel.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/no-executables.m4 \
+ 	$(top_srcdir)/../config/override.m4 \
+-	$(top_srcdir)/../config/picflag.m4 $(top_srcdir)/../libtool.m4 \
+-	$(top_srcdir)/../ltoptions.m4 $(top_srcdir)/../ltsugar.m4 \
+-	$(top_srcdir)/../ltversion.m4 $(top_srcdir)/../lt~obsolete.m4 \
+-	$(top_srcdir)/acinclude.m4 $(top_srcdir)/../config/gc++filt.m4 \
++	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
++	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
++	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/acinclude.m4 \
++	$(top_srcdir)/../config/gc++filt.m4 \
+ 	$(top_srcdir)/../config/tls.m4 $(top_srcdir)/../config/gthr.m4 \
+ 	$(top_srcdir)/../config/cet.m4 $(top_srcdir)/configure.ac
+ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
+@@ -294,15 +293,6 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
+ PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+-PICFLAG = @PICFLAG@
+-PYTHON = @PYTHON@
+-PYTHON_CPPFLAGS = @PYTHON_CPPFLAGS@
+-PYTHON_EXTRA_LDFLAGS = @PYTHON_EXTRA_LDFLAGS@
+-PYTHON_EXTRA_LIBS = @PYTHON_EXTRA_LIBS@
+-PYTHON_LIBS = @PYTHON_LIBS@
+-PYTHON_PLATFORM_SITE_PKG = @PYTHON_PLATFORM_SITE_PKG@
+-PYTHON_SITE_PKG = @PYTHON_SITE_PKG@
+-PYTHON_VERSION = @PYTHON_VERSION@
+ RANLIB = @RANLIB@
+ SED = @SED@
+ SET_MAKE = @SET_MAKE@
+@@ -321,7 +311,6 @@ am__leading_dot = @am__leading_dot@
+ am__quote = @am__quote@
+ am__tar = @am__tar@
+ am__untar = @am__untar@
+-ax_python_interpreter = @ax_python_interpreter@
+ bindir = @bindir@
+ build = @build@
+ build_alias = @build_alias@
+@@ -773,25 +762,19 @@ uninstall-am: uninstall-toolexeclibLTLIBRARIES
+ 
+ 
+ .mod.lo:
+-	$(LIBTOOL) --tag CC \
+-                   $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile \
++	$(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile \
+                    $(GM2_FOR_TARGET) -c \
+                    $(CFLAGS_FOR_TARGET) $(LIBCFLAGS) $(libm2min_la_M2FLAGS) $< -o $@
+ 
+ libc.o: $(GM2_SRC)/gm2-libs-min/libc.c
+ 
+-@HAVE_PYTHON_INTERPRETER_TRUE@SYSTEM.def: Makefile
+-@HAVE_PYTHON_INTERPRETER_TRUE@	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fpim \
+-@HAVE_PYTHON_INTERPRETER_TRUE@             -D=$(GM2_SRC)/gm2-libs-min/SYSTEM.def \
+-@HAVE_PYTHON_INTERPRETER_TRUE@             -M=$(GM2_SRC)/gm2-libs-min/SYSTEM.mod \
+-@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-min -I=$(GM2_SRC)/gm2-libs \
+-@HAVE_PYTHON_INTERPRETER_TRUE@             -C="$(GM2_FOR_TARGET_ESC) -fno-exceptions" -o $@
+-@HAVE_PYTHON_INTERPRETER_FALSE@SYSTEM.def: Makefile
+-@HAVE_PYTHON_INTERPRETER_FALSE@	bash $(GM2_SRC)/tools-src/makeSystem -fpim \
+-@HAVE_PYTHON_INTERPRETER_FALSE@             $(GM2_SRC)/gm2-libs-min/SYSTEM.def \
+-@HAVE_PYTHON_INTERPRETER_FALSE@             $(GM2_SRC)/gm2-libs-min/SYSTEM.mod \
+-@HAVE_PYTHON_INTERPRETER_FALSE@             -I$(GM2_SRC)/gm2-libs-min -I$(GM2_SRC)/gm2-libs \
+-@HAVE_PYTHON_INTERPRETER_FALSE@             "$(GM2_FOR_TARGET) -fno-exceptions" $@
++SYSTEM.def: Makefile
++	echo "CC = $(CC_FOR_BUILD)  CC_FOR_TARGET = $(CC_FOR_TARGET)  GM2 = $(GM2)  GM2_FOR_TARGET = $(GM2_FOR_TARGET) GM2_FOR_BUILD = $(GM2_FOR_BUILD)"
++	bash $(GM2_SRC)/tools-src/makeSystem -fpim \
++             $(GM2_SRC)/gm2-libs-min/SYSTEM.def \
++             $(GM2_SRC)/gm2-libs-min/SYSTEM.mod \
++             -I$(GM2_SRC)/gm2-libs-min -I$(GM2_SRC)/gm2-libs \
++             "$(GM2_FOR_TARGET) -fno-exceptions" $@
+ 
+ install-data-local: force
+ 	mkdir -p $(DESTDIR)$(inst_libdir)/$(M2LIBDIR)
+diff --git a/libgm2/libm2pim/Makefile.am b/libgm2/libm2pim/Makefile.am
+index 508358da9c57..cc27a0770309 100644
+--- a/libgm2/libm2pim/Makefile.am
++++ b/libgm2/libm2pim/Makefile.am
+@@ -52,7 +52,6 @@ AM_MAKEFLAGS = \
+ 	"CC_FOR_BUILD=$(CC_FOR_BUILD)" \
+ 	"CC_FOR_TARGET=$(CC_FOR_TARGET)" \
+ 	"GM2_FOR_TARGET=$(GM2_FOR_TARGET)" \
+-        "GM2_FOR_TARGET_ESC=$(GM2_FOR_TARGET_ESC)" \
+ 	"CFLAGS=$(CFLAGS)" \
+ 	"CXXFLAGS=$(CXXFLAGS)" \
+ 	"CFLAGS_FOR_BUILD=$(CFLAGS_FOR_BUILD)" \
+@@ -89,9 +88,7 @@ AM_MAKEFLAGS = \
+ 	"NM_FOR_TARGET=$(NM_FOR_TARGET)" \
+ 	"DESTDIR=$(DESTDIR)" \
+ 	"WERROR=$(WERROR)" \
+-        "TARGET_LIB_PATH_libgm2=$(TARGET_LIB_PATH_libgm2)" \
+-	"PYTHON=$(PYTHON)" \
+-        "HAVE_PYTHON_INTERPRETER=$(HAVE_PYTHON_INTERPRETER)"
++        "TARGET_LIB_PATH_libgm2=$(TARGET_LIB_PATH_libgm2)"
+ 
+ # Subdir rules rely on $(FLAGS_TO_PASS)
+ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+@@ -106,7 +103,7 @@ M2MODS = ASCII.mod \
+        M2Diagnostic.mod \
+        M2WIDESET.mod \
+        Assertion.mod NumberIO.mod \
+-       Break.mod \
++       Break.mod SYSTEM.mod \
+        CmdArgs.mod Scan.mod \
+        StrCase.mod FIO.mod \
+        StrIO.mod StrLib.mod \
+@@ -185,9 +182,7 @@ libm2pim_la_SOURCES = $(M2MODS) \
+                       CFileSysOp.cc
+ 
+ libm2pimdir = libm2pim
+-libm2pim_la_DEPENDENCIES = SYSTEM.def \
+-   $(addsuffix .lo, $(basename $(libm2pim_la_SOURCES))) \
+-   SYSTEM.lo
++libm2pim_la_DEPENDENCIES = SYSTEM.def $(addsuffix .lo, $(basename $(libm2pim_la_SOURCES)))
+ libm2pim_la_CFLAGS = \
+   -I. -I.. -I$(GM2_SRC)/gm2-libs -I$(GM2_SRC)/gm2-libs-iso \
+   -DBUILD_GM2_LIBS -I@srcdir@/../  -I@srcdir@/../libm2iso
+@@ -199,8 +194,6 @@ libm2pim_la_M2FLAGS = \
+   -Wall \
+   -fcase -fm2-prefix=m2pim
+ 
+-libm2pim_la_LIBADD = SYSTEM.lo
+-
+ if TARGET_DARWIN
+ libm2pim_la_link_flags = -Wl,-undefined,dynamic_lookup
+ else
+@@ -210,89 +203,26 @@ if ENABLE_DARWIN_AT_RPATH
+ libm2pim_la_link_flags += -nodefaultrpaths -Wl,-rpath,@loader_path/
+ endif
+ libm2pim_la_LINK = $(LINK) -version-info $(libtool_VERSION) $(libm2pim_la_link_flags) -lm
+-BUILT_SOURCES = SYSTEM.def \
+-                Builtins.def Builtins.mod \
+-                cbuiltin.def
+-CLEANFILES = SYSTEM.def \
+-             Builtins.def Builtins.mod \
+-             cbuiltin.def
++BUILT_SOURCES = SYSTEM.def
++CLEANFILES = SYSTEM.def
+ 
+ M2LIBDIR = /m2/m2pim/
+ 
+-if HAVE_PYTHON_INTERPRETER
+-SYSTEM.def: Makefile
+-	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fpim \
+-             -D=$(GM2_SRC)/gm2-libs-pim-common/SYSTEM.def \
+-             -M=$(GM2_SRC)/gm2-libs-pim-common/SYSTEM.mod \
+-             -I=$(GM2_SRC)/gm2-libs-pim-common \
+-             -I=$(GM2_SRC)/gm2-libs \
+-             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-else
+ SYSTEM.def: Makefile
+ 	bash $(GM2_SRC)/tools-src/makeSystem -fpim \
+-             $(GM2_SRC)/gm2-libs-pim-common/SYSTEM.def \
+-             $(GM2_SRC)/gm2-libs-pim-common/SYSTEM.mod \
+-             -I$(GM2_SRC)/gm2-libs-pim-common \
++             $(GM2_SRC)/gm2-libs/SYSTEM.def \
++             $(GM2_SRC)/gm2-libs/SYSTEM.mod \
+              -I$(GM2_SRC)/gm2-libs \
+              "$(GM2_FOR_TARGET)" $@
+-endif
+-
+-if HAVE_PYTHON_INTERPRETER
+-Builtins.def: Makefile
+-	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fpim \
+-             -D=$(GM2_SRC)/gm2-libs-pim-common/Builtins.def \
+-             -M=$(GM2_SRC)/gm2-libs-pim-common/Builtins.mod \
+-             -I=$(GM2_SRC)/gm2-libs-pim-common \
+-             -I=$(GM2_SRC)/gm2-libs \
+-             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-else
+-Builtins.def: Makefile
+-	cp $(GM2_SRC)/gm2-libs-pim-common/Builtins.def $@
+-endif
+-
+-if HAVE_PYTHON_INTERPRETER
+-Builtins.mod: Makefile
+-	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fpim \
+-             -M=$(GM2_SRC)/gm2-libs-pim-common/Builtins.mod \
+-             -I=$(GM2_SRC)/gm2-libs-pim-common \
+-             -I=$(GM2_SRC)/gm2-libs \
+-             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-else
+-Builtins.mod: Makefile
+-	cp $(GM2_SRC)/gm2-libs-pim-common/Builtins.mod $@
+-endif
+-
+-if HAVE_PYTHON_INTERPRETER
+-cbuiltin.def: Makefile
+-	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fpim \
+-             -D=$(GM2_SRC)/gm2-libs-pim-common/cbuiltin.def \
+-             -M=$(GM2_SRC)/gm2-libs-pim-common/Builtins.mod \
+-             -I=$(GM2_SRC)/gm2-libs-pim-common \
+-             -I=$(GM2_SRC)/gm2-libs \
+-             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-else
+-cbuiltin.def: Makefile
+-	cp $(GM2_SRC)/gm2-libs-pim-common/cbuiltin.def $@
+-endif
+-
+-SYSTEM.lo: $(GM2_SRC)/gm2-libs-pim-common/SYSTEM.mod
+-	$(LIBTOOL) --tag CC \
+-                   $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
+-                   --mode=compile $(GM2_FOR_TARGET) \
+-                   -c $(CFLAGS_FOR_TARGET) $(LIBCFLAGS) $(libm2pim_la_M2FLAGS) $< -o $@
+-
+-Builtins.lo: Builtins.mod Builtins.def
+ 
+-.mod.lo: SYSTEM.def Builtins.def Builtins.mod cbuiltin.def
+-	$(LIBTOOL) --tag CC \
+-                   $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
++.mod.lo: SYSTEM.def
++	$(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
+                    --mode=compile $(GM2_FOR_TARGET) \
+                    -c $(CFLAGS_FOR_TARGET) $(LIBCFLAGS) $(libm2pim_la_M2FLAGS) $< -o $@
+ 
+ .cc.lo:
+-	$(LIBTOOL) --tag CXX --mode=compile \
+-                   $(CXX) -c -I$(srcdir) $(CXXFLAGS) $(LIBCFLAGS) \
+-                   $(libm2pim_la_CFLAGS) $< -o $@
++	$(LIBTOOL) --tag=CXX --mode=compile $(CXX) -c -I$(srcdir) \
++                   $(CXXFLAGS) $(LIBCFLAGS) $(libm2pim_la_CFLAGS) $< -o $@
+ 
+ install-data-local: force
+ 	mkdir -p $(DESTDIR)$(inst_libdir)/$(M2LIBDIR)
+diff --git a/libgm2/libm2pim/Makefile.in b/libgm2/libm2pim/Makefile.in
+index 213f5c1e6268..33b97bf65540 100644
+--- a/libgm2/libm2pim/Makefile.in
++++ b/libgm2/libm2pim/Makefile.in
+@@ -108,8 +108,7 @@ target_triplet = @target@
+ @BUILD_PIMLIB_TRUE@@ENABLE_DARWIN_AT_RPATH_TRUE@am__append_1 = -nodefaultrpaths -Wl,-rpath,@loader_path/
+ subdir = libm2pim
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+-am__aclocal_m4_deps = $(top_srcdir)/ax_python_devel.m4 \
+-	$(top_srcdir)/../config/acx.m4 \
++am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
+ 	$(top_srcdir)/../config/clang-plugin.m4 \
+ 	$(top_srcdir)/../config/depstand.m4 \
+ 	$(top_srcdir)/../config/gcc-plugin.m4 \
+@@ -117,10 +116,10 @@ am__aclocal_m4_deps = $(top_srcdir)/ax_python_devel.m4 \
+ 	$(top_srcdir)/../config/multi.m4 \
+ 	$(top_srcdir)/../config/no-executables.m4 \
+ 	$(top_srcdir)/../config/override.m4 \
+-	$(top_srcdir)/../config/picflag.m4 $(top_srcdir)/../libtool.m4 \
+-	$(top_srcdir)/../ltoptions.m4 $(top_srcdir)/../ltsugar.m4 \
+-	$(top_srcdir)/../ltversion.m4 $(top_srcdir)/../lt~obsolete.m4 \
+-	$(top_srcdir)/acinclude.m4 $(top_srcdir)/../config/gc++filt.m4 \
++	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
++	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
++	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/acinclude.m4 \
++	$(top_srcdir)/../config/gc++filt.m4 \
+ 	$(top_srcdir)/../config/tls.m4 $(top_srcdir)/../config/gthr.m4 \
+ 	$(top_srcdir)/../config/cet.m4 $(top_srcdir)/configure.ac
+ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
+@@ -159,13 +158,14 @@ am__uninstall_files_from_dir = { \
+   }
+ am__installdirs = "$(DESTDIR)$(toolexeclibdir)"
+ LTLIBRARIES = $(toolexeclib_LTLIBRARIES)
++libm2pim_la_LIBADD =
+ @BUILD_PIMLIB_TRUE@am__objects_1 = ASCII.lo Args.lo BinDict.lo IO.lo \
+ @BUILD_PIMLIB_TRUE@	M2RTS.lo M2Dependent.lo M2Diagnostic.lo \
+ @BUILD_PIMLIB_TRUE@	M2WIDESET.lo Assertion.lo NumberIO.lo \
+-@BUILD_PIMLIB_TRUE@	Break.lo CmdArgs.lo Scan.lo StrCase.lo \
+-@BUILD_PIMLIB_TRUE@	FIO.lo StrIO.lo StrLib.lo TimeString.lo \
+-@BUILD_PIMLIB_TRUE@	Environment.lo FpuIO.lo Debug.lo \
+-@BUILD_PIMLIB_TRUE@	SysStorage.lo Storage.lo StdIO.lo \
++@BUILD_PIMLIB_TRUE@	Break.lo SYSTEM.lo CmdArgs.lo Scan.lo \
++@BUILD_PIMLIB_TRUE@	StrCase.lo FIO.lo StrIO.lo StrLib.lo \
++@BUILD_PIMLIB_TRUE@	TimeString.lo Environment.lo FpuIO.lo \
++@BUILD_PIMLIB_TRUE@	Debug.lo SysStorage.lo Storage.lo StdIO.lo \
+ @BUILD_PIMLIB_TRUE@	SEnvironment.lo DynamicStrings.lo SFIO.lo \
+ @BUILD_PIMLIB_TRUE@	SArgs.lo SCmdArgs.lo PushBackInput.lo \
+ @BUILD_PIMLIB_TRUE@	StringConvert.lo FormatStrings.lo \
+@@ -331,15 +331,6 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
+ PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+-PICFLAG = @PICFLAG@
+-PYTHON = @PYTHON@
+-PYTHON_CPPFLAGS = @PYTHON_CPPFLAGS@
+-PYTHON_EXTRA_LDFLAGS = @PYTHON_EXTRA_LDFLAGS@
+-PYTHON_EXTRA_LIBS = @PYTHON_EXTRA_LIBS@
+-PYTHON_LIBS = @PYTHON_LIBS@
+-PYTHON_PLATFORM_SITE_PKG = @PYTHON_PLATFORM_SITE_PKG@
+-PYTHON_SITE_PKG = @PYTHON_SITE_PKG@
+-PYTHON_VERSION = @PYTHON_VERSION@
+ RANLIB = @RANLIB@
+ SED = @SED@
+ SET_MAKE = @SET_MAKE@
+@@ -358,7 +349,6 @@ am__leading_dot = @am__leading_dot@
+ am__quote = @am__quote@
+ am__tar = @am__tar@
+ am__untar = @am__untar@
+-ax_python_interpreter = @ax_python_interpreter@
+ bindir = @bindir@
+ build = @build@
+ build_alias = @build_alias@
+@@ -447,7 +437,6 @@ AM_MAKEFLAGS = \
+ 	"CC_FOR_BUILD=$(CC_FOR_BUILD)" \
+ 	"CC_FOR_TARGET=$(CC_FOR_TARGET)" \
+ 	"GM2_FOR_TARGET=$(GM2_FOR_TARGET)" \
+-        "GM2_FOR_TARGET_ESC=$(GM2_FOR_TARGET_ESC)" \
+ 	"CFLAGS=$(CFLAGS)" \
+ 	"CXXFLAGS=$(CXXFLAGS)" \
+ 	"CFLAGS_FOR_BUILD=$(CFLAGS_FOR_BUILD)" \
+@@ -484,9 +473,7 @@ AM_MAKEFLAGS = \
+ 	"NM_FOR_TARGET=$(NM_FOR_TARGET)" \
+ 	"DESTDIR=$(DESTDIR)" \
+ 	"WERROR=$(WERROR)" \
+-        "TARGET_LIB_PATH_libgm2=$(TARGET_LIB_PATH_libgm2)" \
+-	"PYTHON=$(PYTHON)" \
+-        "HAVE_PYTHON_INTERPRETER=$(HAVE_PYTHON_INTERPRETER)"
++        "TARGET_LIB_PATH_libgm2=$(TARGET_LIB_PATH_libgm2)"
+ 
+ 
+ # Subdir rules rely on $(FLAGS_TO_PASS)
+@@ -499,7 +486,7 @@ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+ @BUILD_PIMLIB_TRUE@       M2Diagnostic.mod \
+ @BUILD_PIMLIB_TRUE@       M2WIDESET.mod \
+ @BUILD_PIMLIB_TRUE@       Assertion.mod NumberIO.mod \
+-@BUILD_PIMLIB_TRUE@       Break.mod \
++@BUILD_PIMLIB_TRUE@       Break.mod SYSTEM.mod \
+ @BUILD_PIMLIB_TRUE@       CmdArgs.mod Scan.mod \
+ @BUILD_PIMLIB_TRUE@       StrCase.mod FIO.mod \
+ @BUILD_PIMLIB_TRUE@       StrIO.mod StrLib.mod \
+@@ -578,10 +565,7 @@ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+ @BUILD_PIMLIB_TRUE@                      CFileSysOp.cc
+ 
+ @BUILD_PIMLIB_TRUE@libm2pimdir = libm2pim
+-@BUILD_PIMLIB_TRUE@libm2pim_la_DEPENDENCIES = SYSTEM.def \
+-@BUILD_PIMLIB_TRUE@   $(addsuffix .lo, $(basename $(libm2pim_la_SOURCES))) \
+-@BUILD_PIMLIB_TRUE@   SYSTEM.lo
+-
++@BUILD_PIMLIB_TRUE@libm2pim_la_DEPENDENCIES = SYSTEM.def $(addsuffix .lo, $(basename $(libm2pim_la_SOURCES)))
+ @BUILD_PIMLIB_TRUE@libm2pim_la_CFLAGS = \
+ @BUILD_PIMLIB_TRUE@  -I. -I.. -I$(GM2_SRC)/gm2-libs -I$(GM2_SRC)/gm2-libs-iso \
+ @BUILD_PIMLIB_TRUE@  -DBUILD_GM2_LIBS -I@srcdir@/../  -I@srcdir@/../libm2iso
+@@ -593,20 +577,13 @@ FLAGS_TO_PASS = $(AM_MAKEFLAGS)
+ @BUILD_PIMLIB_TRUE@  -Wall \
+ @BUILD_PIMLIB_TRUE@  -fcase -fm2-prefix=m2pim
+ 
+-@BUILD_PIMLIB_TRUE@libm2pim_la_LIBADD = SYSTEM.lo
+ @BUILD_PIMLIB_TRUE@@TARGET_DARWIN_FALSE@libm2pim_la_link_flags =  \
+ @BUILD_PIMLIB_TRUE@@TARGET_DARWIN_FALSE@	$(am__append_1)
+ @BUILD_PIMLIB_TRUE@@TARGET_DARWIN_TRUE@libm2pim_la_link_flags = -Wl,-undefined,dynamic_lookup \
+ @BUILD_PIMLIB_TRUE@@TARGET_DARWIN_TRUE@	$(am__append_1)
+ @BUILD_PIMLIB_TRUE@libm2pim_la_LINK = $(LINK) -version-info $(libtool_VERSION) $(libm2pim_la_link_flags) -lm
+-@BUILD_PIMLIB_TRUE@BUILT_SOURCES = SYSTEM.def \
+-@BUILD_PIMLIB_TRUE@                Builtins.def Builtins.mod \
+-@BUILD_PIMLIB_TRUE@                cbuiltin.def
+-
+-@BUILD_PIMLIB_TRUE@CLEANFILES = SYSTEM.def \
+-@BUILD_PIMLIB_TRUE@             Builtins.def Builtins.mod \
+-@BUILD_PIMLIB_TRUE@             cbuiltin.def
+-
++@BUILD_PIMLIB_TRUE@BUILT_SOURCES = SYSTEM.def
++@BUILD_PIMLIB_TRUE@CLEANFILES = SYSTEM.def
+ @BUILD_PIMLIB_TRUE@M2LIBDIR = /m2/m2pim/
+ all: $(BUILT_SOURCES)
+ 	$(MAKE) $(AM_MAKEFLAGS) all-am
+@@ -939,68 +916,21 @@ uninstall-am: uninstall-toolexeclibLTLIBRARIES
+ .PRECIOUS: Makefile
+ 
+ 
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@SYSTEM.def: Makefile
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fpim \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -D=$(GM2_SRC)/gm2-libs-pim-common/SYSTEM.def \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -M=$(GM2_SRC)/gm2-libs-pim-common/SYSTEM.mod \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-pim-common \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@SYSTEM.def: Makefile
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@	bash $(GM2_SRC)/tools-src/makeSystem -fpim \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@             $(GM2_SRC)/gm2-libs-pim-common/SYSTEM.def \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@             $(GM2_SRC)/gm2-libs-pim-common/SYSTEM.mod \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@             -I$(GM2_SRC)/gm2-libs-pim-common \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@             -I$(GM2_SRC)/gm2-libs \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@             "$(GM2_FOR_TARGET)" $@
+-
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@Builtins.def: Makefile
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fpim \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -D=$(GM2_SRC)/gm2-libs-pim-common/Builtins.def \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -M=$(GM2_SRC)/gm2-libs-pim-common/Builtins.mod \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-pim-common \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@Builtins.def: Makefile
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@	cp $(GM2_SRC)/gm2-libs-pim-common/Builtins.def $@
+-
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@Builtins.mod: Makefile
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fpim \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -M=$(GM2_SRC)/gm2-libs-pim-common/Builtins.mod \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-pim-common \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@Builtins.mod: Makefile
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@	cp $(GM2_SRC)/gm2-libs-pim-common/Builtins.mod $@
+-
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@cbuiltin.def: Makefile
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@	$(PYTHON) $(GM2_SRC)/tools-src/mktargetsrc.py --fpim \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -D=$(GM2_SRC)/gm2-libs-pim-common/cbuiltin.def \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -M=$(GM2_SRC)/gm2-libs-pim-common/Builtins.mod \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs-pim-common \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -I=$(GM2_SRC)/gm2-libs \
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_TRUE@             -C="$(GM2_FOR_TARGET_ESC)" -o $@
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@cbuiltin.def: Makefile
+-@BUILD_PIMLIB_TRUE@@HAVE_PYTHON_INTERPRETER_FALSE@	cp $(GM2_SRC)/gm2-libs-pim-common/cbuiltin.def $@
+-
+-@BUILD_PIMLIB_TRUE@SYSTEM.lo: $(GM2_SRC)/gm2-libs-pim-common/SYSTEM.mod
+-@BUILD_PIMLIB_TRUE@	$(LIBTOOL) --tag CC \
+-@BUILD_PIMLIB_TRUE@                   $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
+-@BUILD_PIMLIB_TRUE@                   --mode=compile $(GM2_FOR_TARGET) \
+-@BUILD_PIMLIB_TRUE@                   -c $(CFLAGS_FOR_TARGET) $(LIBCFLAGS) $(libm2pim_la_M2FLAGS) $< -o $@
+-
+-@BUILD_PIMLIB_TRUE@Builtins.lo: Builtins.mod Builtins.def
++@BUILD_PIMLIB_TRUE@SYSTEM.def: Makefile
++@BUILD_PIMLIB_TRUE@	bash $(GM2_SRC)/tools-src/makeSystem -fpim \
++@BUILD_PIMLIB_TRUE@             $(GM2_SRC)/gm2-libs/SYSTEM.def \
++@BUILD_PIMLIB_TRUE@             $(GM2_SRC)/gm2-libs/SYSTEM.mod \
++@BUILD_PIMLIB_TRUE@             -I$(GM2_SRC)/gm2-libs \
++@BUILD_PIMLIB_TRUE@             "$(GM2_FOR_TARGET)" $@
+ 
+-@BUILD_PIMLIB_TRUE@.mod.lo: SYSTEM.def Builtins.def Builtins.mod cbuiltin.def
+-@BUILD_PIMLIB_TRUE@	$(LIBTOOL) --tag CC \
+-@BUILD_PIMLIB_TRUE@                   $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
++@BUILD_PIMLIB_TRUE@.mod.lo: SYSTEM.def
++@BUILD_PIMLIB_TRUE@	$(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
+ @BUILD_PIMLIB_TRUE@                   --mode=compile $(GM2_FOR_TARGET) \
+ @BUILD_PIMLIB_TRUE@                   -c $(CFLAGS_FOR_TARGET) $(LIBCFLAGS) $(libm2pim_la_M2FLAGS) $< -o $@
+ 
+ @BUILD_PIMLIB_TRUE@.cc.lo:
+-@BUILD_PIMLIB_TRUE@	$(LIBTOOL) --tag CXX --mode=compile \
+-@BUILD_PIMLIB_TRUE@                   $(CXX) -c -I$(srcdir) $(CXXFLAGS) $(LIBCFLAGS) \
+-@BUILD_PIMLIB_TRUE@                   $(libm2pim_la_CFLAGS) $< -o $@
++@BUILD_PIMLIB_TRUE@	$(LIBTOOL) --tag=CXX --mode=compile $(CXX) -c -I$(srcdir) \
++@BUILD_PIMLIB_TRUE@                   $(CXXFLAGS) $(LIBCFLAGS) $(libm2pim_la_CFLAGS) $< -o $@
+ 
+ @BUILD_PIMLIB_TRUE@install-data-local: force
+ @BUILD_PIMLIB_TRUE@	mkdir -p $(DESTDIR)$(inst_libdir)/$(M2LIBDIR)
+
+base-commit: 9056e455be6aae7936899ae03cf5b07beff0162b
+-- 
+2.55.0
+
