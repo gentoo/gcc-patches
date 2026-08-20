@@ -1,3 +1,107 @@
+From 145e044203d1fe4e8561bcf29c75d5e0802ac419 Mon Sep 17 00:00:00 2001
+Message-ID: <145e044203d1fe4e8561bcf29c75d5e0802ac419.1787215360.git.sam@gentoo.org>
+From: Sam James <sam@gentoo.org>
+Date: Thu, 20 Aug 2026 09:42:21 +0100
+Subject: [PATCH 1/2] Revert "PR modula2/126911: Tidyup removing files"
+
+This reverts commit e8de2a38c2c9bce2e1b8f94c5f263da57fefba79.
+---
+ gcc/m2/tools-src/mktargetsrc.py | 11 +++--------
+ 1 file changed, 3 insertions(+), 8 deletions(-)
+
+diff --git a/gcc/m2/tools-src/mktargetsrc.py b/gcc/m2/tools-src/mktargetsrc.py
+index b91ee7a299b8..34c19233043e 100644
+--- a/gcc/m2/tools-src/mktargetsrc.py
++++ b/gcc/m2/tools-src/mktargetsrc.py
+@@ -38,12 +38,6 @@ def printf (format, *args):
+     print(str(format) % args, end=' ')
+ 
+ 
+-def safeRemove(filename):
+-    # Remove filename if the name is not None and the filename exists.
+-    if (filename != None) and os.path.exists(filename):
+-        os.remove(filename)
+-
+-
+ def quietSystem(args, commandLine, temporaryFile):
+     # Execute commandline and exit if unsuccessful.  It will run
+     # gdb on the command line if --gdb is set in args.
+@@ -52,8 +46,9 @@ def quietSystem(args, commandLine, temporaryFile):
+     else:
+         result = os.system(commandLine + " 2>&1 /dev/null")
+     if result != 0:
+-        safeRemove(temporaryFile)
+-        safeRemove(args.outputfile)
++        os.remove(temporaryFile)
++        if (args.outputfile != None) and os.path.exists(args.outputfile):
++            os.remove(args.outputfile)
+         printf("failed to execute: %s with an exit code: %d\n",
+                commandLine, result)
+         sys.exit(result)
+
+base-commit: 579349b0f12681ffcbfd14eafe6efdc8da67a1f2
+-- 
+2.55.0
+
+From 90d7f2107d4a9abb8c40dc326e65da4dc735f587 Mon Sep 17 00:00:00 2001
+Message-ID: <90d7f2107d4a9abb8c40dc326e65da4dc735f587.1787215360.git.sam@gentoo.org>
+In-Reply-To: <145e044203d1fe4e8561bcf29c75d5e0802ac419.1787215360.git.sam@gentoo.org>
+References: <145e044203d1fe4e8561bcf29c75d5e0802ac419.1787215360.git.sam@gentoo.org>
+From: Sam James <sam@gentoo.org>
+Date: Thu, 20 Aug 2026 09:42:32 +0100
+Subject: [PATCH 2/2] Revert "PR modula2/126911: Build fix to prevent Python
+ hanging"
+
+This reverts commit dc80afc49b7a0eddaf2152379971e36d4d2bf953.
+---
+ gcc/m2/tools-src/mktargetsrc.py | 13 +++++--------
+ 1 file changed, 5 insertions(+), 8 deletions(-)
+
+diff --git a/gcc/m2/tools-src/mktargetsrc.py b/gcc/m2/tools-src/mktargetsrc.py
+index 34c19233043e..cd61ecec87cf 100644
+--- a/gcc/m2/tools-src/mktargetsrc.py
++++ b/gcc/m2/tools-src/mktargetsrc.py
+@@ -38,7 +38,7 @@ def printf (format, *args):
+     print(str(format) % args, end=' ')
+ 
+ 
+-def quietSystem(args, commandLine, temporaryFile):
++def quietSystem(args, commandLine):
+     # Execute commandline and exit if unsuccessful.  It will run
+     # gdb on the command line if --gdb is set in args.
+     if args.gdb:
+@@ -46,9 +46,6 @@ def quietSystem(args, commandLine, temporaryFile):
+     else:
+         result = os.system(commandLine + " 2>&1 /dev/null")
+     if result != 0:
+-        os.remove(temporaryFile)
+-        if (args.outputfile != None) and os.path.exists(args.outputfile):
+-            os.remove(args.outputfile)
+         printf("failed to execute: %s with an exit code: %d\n",
+                commandLine, result)
+         sys.exit(result)
+@@ -400,14 +397,14 @@ def determineBuiltins(args, includePath):
+     if args.fiso or (not args.fpim):
+         dialect = '-fiso'
+     compiler = stripBackslash(args.compiler)
+-    commandLine = "%s %s %s %s -S -fdump-system-exports -o /dev/null %s > %s" % (
++    commandLine = "%s %s %s %s -c -fdump-system-exports -o /dev/null %s > %s" % (
+         compiler, dialect, includePath, minimalCommandLine,
+         args.modinputfile, temporaryFile)
+-    quietSystem(args, commandLine, temporaryFile)
+-    commandLine = "%s %s %s %s -S -fdump-builtins %s >> %s" % (
++    quietSystem(args, commandLine)
++    commandLine = "%s %s %s %s -c -fdump-builtins %s >> %s" % (
+         compiler, dialect, includePath, minimalCommandLine,
+         args.modinputfile, temporaryFile)
+-    quietSystem(args, commandLine, temporaryFile)
++    quietSystem(args, commandLine)
+     generateSource(args, temporaryFile)
+     os.remove(temporaryFile)
+ 
+-- 
+2.55.0
+
 From 806d3f58b2899f09841272bbcca58e04f73d2618 Mon Sep 17 00:00:00 2001
 Message-ID: <806d3f58b2899f09841272bbcca58e04f73d2618.1786838930.git.sam@gentoo.org>
 From: Sam James <sam@gentoo.org>

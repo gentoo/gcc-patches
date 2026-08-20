@@ -1,12 +1,5 @@
-13	18 August 2026
-
-	- 87_all_toplevel-do-not-make-libstdc-configure-wait-for-libg.patch
-	- 88_all_libstdc-build-the-source-directories-in-parallel.patch
-
 12	????
 
-	+ 87_all_toplevel-do-not-make-libstdc-configure-wait-for-libg.patch
-	+ 88_all_libstdc-build-the-source-directories-in-parallel.patch
 	+ 89_all_Revert-PR-modula2-125129-Many-tests-fail-to-link-on-.patch
 
 11	9 August 2026
