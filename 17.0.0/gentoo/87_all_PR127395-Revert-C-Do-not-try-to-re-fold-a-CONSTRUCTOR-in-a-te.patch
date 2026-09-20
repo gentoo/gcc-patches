@@ -1,0 +1,82 @@
+From b28efa947477d8335f72cea67d14be8b702aec96 Mon Sep 17 00:00:00 2001
+Message-ID: <b28efa947477d8335f72cea67d14be8b702aec96.1789945141.git.sam@gentoo.org>
+From: Sam James <sam@gentoo.org>
+Date: Sun, 20 Sep 2026 23:57:39 +0100
+Subject: [PATCH] Revert "C++: Do not try to re-fold a CONSTRUCTOR in a
+ template [PR126811]."
+
+This reverts commit dad7275f7cc570fe222777285d8e8dbf274bb772.
+
+Bug: https://gcc.gnu.org/PR127395
+Bug: https://gcc.gnu.org/PR127439
+---
+ gcc/cp/typeck2.cc                             | 11 +++-----
+ gcc/testsuite/g++.dg/cpp0x/nsdmi-template27.C | 25 -------------------
+ 2 files changed, 4 insertions(+), 32 deletions(-)
+ delete mode 100644 gcc/testsuite/g++.dg/cpp0x/nsdmi-template27.C
+
+diff --git a/gcc/cp/typeck2.cc b/gcc/cp/typeck2.cc
+index 6f17ce8c1bc9..1aea0fde5498 100644
+--- a/gcc/cp/typeck2.cc
++++ b/gcc/cp/typeck2.cc
+@@ -456,7 +456,7 @@ cxx_incomplete_type_inform (const_tree type)
+ 		    else
+ 		      cand = TYPE_NAME (t);
+ 		  }
+-
++		
+ 		if (!COMPLETE_TYPE_P (TREE_TYPE (cand)))
+ 		  continue;
+ 
+@@ -1076,12 +1076,9 @@ store_init_value (tree decl, tree init, vec<tree, va_gc>** cleanups, int flags)
+ 	  || (DECL_IN_AGGR_P (decl)
+ 	      && DECL_INITIALIZED_IN_CLASS_P (decl)))
+ 	{
+-	  /* As in massage_init_elt, do not fold a CONSTRUCTOR in a template
+-	     it has already been folded c++/126811.  */
+-	  if (!(processing_template_decl && TREE_CODE (value) == CONSTRUCTOR))
+-	    value = fold_non_dependent_expr (value, tf_warning_or_error,
+-					     /*manifestly_const_eval=*/true,
+-					     decl);
++	  value = fold_non_dependent_expr (value, tf_warning_or_error,
++					   /*manifestly_const_eval=*/true,
++					   decl);
+ 	  if (value == error_mark_node)
+ 	    ;
+ 	  /* Diagnose a non-constant initializer for constexpr variable or
+diff --git a/gcc/testsuite/g++.dg/cpp0x/nsdmi-template27.C b/gcc/testsuite/g++.dg/cpp0x/nsdmi-template27.C
+deleted file mode 100644
+index 8c2197a7b512..000000000000
+--- a/gcc/testsuite/g++.dg/cpp0x/nsdmi-template27.C
++++ /dev/null
+@@ -1,25 +0,0 @@
+-// PR c++/126811
+-// { dg-do compile { target c++11 } }
+-
+-struct M { constexpr M () : x (0) {} int x; };
+-
+-struct A { double m = 1; };			// FLOAT_EXPR
+-struct B { int m = 1.0; };			// FIX_TRUNC_EXPR
+-struct C { __complex__ double c = 1; };		// COMPLEX_EXPR
+-struct D { double a = 1; double m = a; };	// PLACEHOLDER_EXPR
+-struct E { M m = M (); };			// TARGET_EXPR
+-
+-// The initializers must still be constant-evaluated.
+-template<class T> void g ()
+-{
+-  constexpr A a = {};
+-  static_assert (a.m == 1.0, "");
+-  constexpr B b = {};
+-  static_assert (b.m == 1, "");
+-  constexpr C c = {};
+-  static_assert (__real__ c.c == 1.0, "");
+-  constexpr D d = {};
+-  static_assert (d.m == 1.0, "");
+-  constexpr E e = {};
+-  static_assert (e.m.x == 0, "");
+-}
+
+base-commit: 549ec717abb79c26186af06e01c937b4613c79ba
+-- 
+2.55.0
+
