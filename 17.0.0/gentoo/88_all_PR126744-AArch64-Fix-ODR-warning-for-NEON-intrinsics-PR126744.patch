@@ -1,0 +1,51 @@
+From fb30bb74a486c12408415afb817c1d7e5e1a775b Mon Sep 17 00:00:00 2001
+Message-ID: <fb30bb74a486c12408415afb817c1d7e5e1a775b.1791328630.git.sam@gentoo.org>
+From: Karl Meakin <karl.meakin@arm.com>
+Date: Wed, 30 Sep 2026 14:57:38 +0000
+Subject: [PATCH] AArch64: Fix ODR warning for NEON intrinsics [PR126744]
+
+The `_shape` objects were declared in `aarch64-neon-builtins-shapes.h`
+as pointer-to-const, but were defined in
+`aarch64-neon-builtins-shapes.cc` as pointer-to-non-const. This
+triggered an `-Wodr` warning when building with LTO, which broke
+bootstrap when compiling with `-Werror`. Fix by const-qualifying the
+pointer at the definition site.
+
+Fixes PR126744.
+
+gcc/ChangeLog:
+
+PR target/126744
+	* config/aarch64/aarch64-neon-builtins-shapes.cc
+	(DEF_NEON_FUNCTION): Include `aarch64-neon-builtins-shapes.h`
+	and const-qualify the pointer types of the `_shape` objects.
+---
+ gcc/config/aarch64/aarch64-neon-builtins-shapes.cc | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/gcc/config/aarch64/aarch64-neon-builtins-shapes.cc b/gcc/config/aarch64/aarch64-neon-builtins-shapes.cc
+index c50fb4d4f8c5..d4aa352f13e4 100644
+--- a/gcc/config/aarch64/aarch64-neon-builtins-shapes.cc
++++ b/gcc/config/aarch64/aarch64-neon-builtins-shapes.cc
+@@ -32,6 +32,7 @@
+ #include "insn-codes.h"
+ #include "optabs.h"
+ #include "aarch64-acle-builtins.h"
++#include "aarch64-neon-builtins-shapes.h"
+ #include "aarch64-sve-builtins-shapes.h"
+ #include "aarch64-builtins.h"
+ 
+@@ -129,7 +130,7 @@ namespace aarch64_acle {
+   namespace shapes {
+ #define DEF_NEON_FUNCTION(NAME, TYPES, SHAPE_ARGS)			\
+     static constexpr const neon_shape OBJ_NAME (NAME, TYPES) SHAPE_ARGS;\
+-    const aarch64_acle::function_shape *SHAPE_NAME (NAME, TYPES)	\
++    const aarch64_acle::function_shape *const SHAPE_NAME (NAME, TYPES)	\
+       = &OBJ_NAME (NAME, TYPES);
+ #include "aarch64-neon-builtins.def"
+   }
+
+base-commit: eeae43a4c615c08ce13ffbd8e882fcf1871a996d
+-- 
+2.56.0
+
