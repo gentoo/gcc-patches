@@ -1,5 +1,5 @@
-From 8bc449a063d7f3d0929740f179b58239aadbcf21 Mon Sep 17 00:00:00 2001
-Message-ID: <8bc449a063d7f3d0929740f179b58239aadbcf21.1764773217.git.sam@gentoo.org>
+From 18ec577c1574a1f9bf06b2f50c88bb678fae3364 Mon Sep 17 00:00:00 2001
+Message-ID: <18ec577c1574a1f9bf06b2f50c88bb678fae3364.1791634183.git.sam@gentoo.org>
 From: Daniil Frolov <exactlywb@ispras.ru>
 Date: Fri, 22 Dec 2023 17:10:38 +0300
 Subject: [PATCH] object lifetime instrumentation for Valgrind [PR66487]
@@ -61,21 +61,21 @@ Co-authored-by: Alexander Monakov <amonakov@ispras.ru>
  gcc/tree-pass.h                               |   1 +
  libgcc/Makefile.in                            |   3 +
  libgcc/config.in                              |   6 +
- libgcc/configure                              |  22 ++-
- libgcc/configure.ac                           |  15 ++-
+ libgcc/configure                              |  21 ++-
+ libgcc/configure.ac                           |  14 +-
  libgcc/libgcc2.h                              |   2 +
  libgcc/valgrind-interop.c                     |  40 ++++++
- 16 files changed, 287 insertions(+), 2 deletions(-)
+ 16 files changed, 285 insertions(+), 2 deletions(-)
  create mode 100644 gcc/gimple-valgrind-interop.cc
  create mode 100644 gcc/testsuite/g++.dg/valgrind-annotations-1.C
  create mode 100644 gcc/testsuite/g++.dg/valgrind-annotations-2.C
  create mode 100644 libgcc/valgrind-interop.c
 
 diff --git a/gcc/Makefile.in b/gcc/Makefile.in
-index 8ecef4ccdc7..e4d803c856f 100644
+index 83cb4884eb13..ccc5cbfb7a76 100644
 --- a/gcc/Makefile.in
 +++ b/gcc/Makefile.in
-@@ -1547,6 +1547,7 @@ OBJS = \
+@@ -1562,6 +1562,7 @@ OBJS = \
  	gimple-ssa-warn-restrict.o \
  	gimple-streamer-in.o \
  	gimple-streamer-out.o \
@@ -84,10 +84,10 @@ index 8ecef4ccdc7..e4d803c856f 100644
  	gimple-warn-recursion.o \
  	gimplify.o \
 diff --git a/gcc/builtins.def b/gcc/builtins.def
-index 8ab0599b17f..98c0563e35f 100644
+index 4adeb440ed9d..3427d5450943 100644
 --- a/gcc/builtins.def
 +++ b/gcc/builtins.def
-@@ -1271,6 +1271,9 @@ DEF_GCC_BUILTIN (BUILT_IN_LINE, "LINE", BT_FN_INT, ATTR_NOTHROW_LEAF_LIST)
+@@ -1281,6 +1281,9 @@ DEF_GCC_BUILTIN (BUILT_IN_LINE, "LINE", BT_FN_INT, ATTR_NOTHROW_LEAF_LIST)
  /* Control Flow Redundancy hardening out-of-line checker.  */
  DEF_BUILTIN_STUB (BUILT_IN___HARDCFR_CHECK, "__builtin___hardcfr_check")
  
@@ -98,10 +98,10 @@ index 8ab0599b17f..98c0563e35f 100644
  #include "sync-builtins.def"
  
 diff --git a/gcc/common.opt b/gcc/common.opt
-index 5d0e255a40d..a08811122d0 100644
+index 69a55b8d40d6..714245ef7c57 100644
 --- a/gcc/common.opt
 +++ b/gcc/common.opt
-@@ -3574,6 +3574,10 @@ Enum(auto_init_type) String(pattern) Value(AUTO_INIT_PATTERN)
+@@ -3596,6 +3596,10 @@ Enum(auto_init_type) String(pattern) Value(AUTO_INIT_PATTERN)
  EnumValue
  Enum(auto_init_type) String(zero) Value(AUTO_INIT_ZERO)
  
@@ -113,10 +113,10 @@ index 5d0e255a40d..a08811122d0 100644
  ; the generated assembly code (to make it more readable).  This option
  ; is generally only of use to those who actually need to read the
 diff --git a/gcc/doc/install.texi b/gcc/doc/install.texi
-index 001d16fe67a..7ec45913f92 100644
+index ff42549fb080..25d08b27c717 100644
 --- a/gcc/doc/install.texi
 +++ b/gcc/doc/install.texi
-@@ -1708,6 +1708,11 @@ Disable TM clone registry in libgcc. It is enabled in libgcc by default.
+@@ -1712,6 +1712,11 @@ Disable TM clone registry in libgcc. It is enabled in libgcc by default.
  This option helps to reduce code size for embedded targets which do
  not use transactional memory.
  
@@ -129,10 +129,10 @@ index 001d16fe67a..7ec45913f92 100644
  @itemx --with-cpu-32=@var{cpu}
  @itemx --with-cpu-64=@var{cpu}
 diff --git a/gcc/doc/invoke.texi b/gcc/doc/invoke.texi
-index 9207a021e64..79a4836b00a 100644
+index 66d80f17e740..23dc8096e309 100644
 --- a/gcc/doc/invoke.texi
 +++ b/gcc/doc/invoke.texi
-@@ -720,6 +720,7 @@ Objective-C and Objective-C++ Dialects}.
+@@ -725,6 +725,7 @@ Objective-C and Objective-C++ Dialects}.
  -fno-stack-limit  -fsplit-stack
  -fstrub=disable  -fstrub=strict  -fstrub=relaxed
  -fstrub=all  -fstrub=at-calls  -fstrub=internal
@@ -140,7 +140,7 @@ index 9207a021e64..79a4836b00a 100644
  -fvtable-verify=@r{[}std@r{|}preinit@r{|}none@r{]}
  -fvtv-counts  -fvtv-debug
  -finstrument-functions  -finstrument-functions-once
-@@ -14204,6 +14205,9 @@ can use @option{-flifetime-dse=1}.  The default behavior can be
+@@ -14423,6 +14424,9 @@ can use @option{-flifetime-dse=1}.  The default behavior can be
  explicitly selected with @option{-flifetime-dse=2}.
  @option{-flifetime-dse=0} is equivalent to @option{-fno-lifetime-dse}.
  
@@ -150,7 +150,7 @@ index 9207a021e64..79a4836b00a 100644
  @opindex flive-range-shrinkage
  @opindex fno-live-range-shrinkage
  @item -flive-range-shrinkage
-@@ -18083,6 +18087,29 @@ function attributes that tell which mode was selected for each function.
+@@ -18298,6 +18302,29 @@ function attributes that tell which mode was selected for each function.
  The primary use of this option is for testing, to exercise thoroughly
  the @code{strub} machinery.
  
@@ -182,7 +182,7 @@ index 9207a021e64..79a4836b00a 100644
  This option is only available when compiling C++ code.
 diff --git a/gcc/gimple-valgrind-interop.cc b/gcc/gimple-valgrind-interop.cc
 new file mode 100644
-index 00000000000..05d9bdc6602
+index 000000000000..05d9bdc66027
 --- /dev/null
 +++ b/gcc/gimple-valgrind-interop.cc
 @@ -0,0 +1,125 @@
@@ -312,7 +312,7 @@ index 00000000000..05d9bdc6602
 +  return new pass_instrument_valgrind (ctxt);
 +}
 diff --git a/gcc/passes.def b/gcc/passes.def
-index cdddb87302f..52d6e22e06f 100644
+index 9095c134f49d..c528197f6353 100644
 --- a/gcc/passes.def
 +++ b/gcc/passes.def
 @@ -57,6 +57,7 @@ along with GCC; see the file COPYING3.  If not see
@@ -325,7 +325,7 @@ index cdddb87302f..52d6e22e06f 100644
        NEXT_PASS (pass_warn_nonnull_compare);
 diff --git a/gcc/testsuite/g++.dg/valgrind-annotations-1.C b/gcc/testsuite/g++.dg/valgrind-annotations-1.C
 new file mode 100644
-index 00000000000..49dc5a9cf13
+index 000000000000..49dc5a9cf135
 --- /dev/null
 +++ b/gcc/testsuite/g++.dg/valgrind-annotations-1.C
 @@ -0,0 +1,22 @@
@@ -353,7 +353,7 @@ index 00000000000..49dc5a9cf13
 +/* { dg-final { scan-tree-dump-times "__builtin___gcc_vgmc_make_mem_undefined" 1 "optimized" } } */
 diff --git a/gcc/testsuite/g++.dg/valgrind-annotations-2.C b/gcc/testsuite/g++.dg/valgrind-annotations-2.C
 new file mode 100644
-index 00000000000..a8b646d0765
+index 000000000000..a8b646d07650
 --- /dev/null
 +++ b/gcc/testsuite/g++.dg/valgrind-annotations-2.C
 @@ -0,0 +1,12 @@
@@ -370,10 +370,10 @@ index 00000000000..a8b646d0765
 +
 +/* { dg-final { scan-tree-dump-times "__builtin___gcc_vgmc_make_mem_undefined" 1 "optimized" } } */
 diff --git a/gcc/tree-pass.h b/gcc/tree-pass.h
-index b3c97658a8f..d26fb67336b 100644
+index a3b35e009e08..3b146d0478ea 100644
 --- a/gcc/tree-pass.h
 +++ b/gcc/tree-pass.h
-@@ -444,6 +444,7 @@ extern gimple_opt_pass *make_pass_omp_device_lower (gcc::context *ctxt);
+@@ -443,6 +443,7 @@ extern gimple_opt_pass *make_pass_omp_device_lower (gcc::context *ctxt);
  extern gimple_opt_pass *make_pass_object_sizes (gcc::context *ctxt);
  extern gimple_opt_pass *make_pass_early_object_sizes (gcc::context *ctxt);
  extern gimple_opt_pass *make_pass_warn_access (gcc::context *ctxt);
@@ -382,10 +382,10 @@ index b3c97658a8f..d26fb67336b 100644
  extern gimple_opt_pass *make_pass_warn_recursion (gcc::context *ctxt);
  extern gimple_opt_pass *make_pass_strlen (gcc::context *ctxt);
 diff --git a/libgcc/Makefile.in b/libgcc/Makefile.in
-index 8b8fe6e9a28..e2743a710c6 100644
+index 59df657e282e..aeb17b6c353a 100644
 --- a/libgcc/Makefile.in
 +++ b/libgcc/Makefile.in
-@@ -442,6 +442,9 @@ LIB2ADD += $(srcdir)/hardcfr.c
+@@ -441,6 +441,9 @@ LIB2ADD += $(srcdir)/hardcfr.c
  # Stack scrubbing infrastructure.
  @HAVE_STRUB_SUPPORT@LIB2ADD += $(srcdir)/strub.c
  
@@ -396,7 +396,7 @@ index 8b8fe6e9a28..e2743a710c6 100644
  # instead of LIB2ADD because that's the way to be sure on some targets
  # (e.g. *-*-darwin*) only one copy of it is linked.
 diff --git a/libgcc/config.in b/libgcc/config.in
-index a8b6f91610e..5d82224cd9e 100644
+index 8780b5d47185..1a68d7ab0883 100644
 --- a/libgcc/config.in
 +++ b/libgcc/config.in
 @@ -3,6 +3,9 @@
@@ -420,10 +420,10 @@ index a8b6f91610e..5d82224cd9e 100644
  #undef HAVE___GETAUXVAL
  
 diff --git a/libgcc/configure b/libgcc/configure
-index f2bee6d90fe..4dcf17fab00 100755
+index 781f81f8ed09..6c26dcdb6b7d 100755
 --- a/libgcc/configure
 +++ b/libgcc/configure
-@@ -719,6 +719,7 @@ with_system_libunwind
+@@ -718,6 +718,7 @@ with_system_libunwind
  enable_cet
  enable_explicit_exception_frame_registration
  enable_tm_clone_registry
@@ -431,7 +431,7 @@ index f2bee6d90fe..4dcf17fab00 100755
  with_glibc_version
  enable_tls
  with_gcc_major_version_only
-@@ -1364,6 +1365,8 @@ Optional Features:
+@@ -1363,6 +1364,8 @@ Optional Features:
                            start, for use e.g. for compatibility with
                            installations without PT_GNU_EH_FRAME support
    --disable-tm-clone-registry    disable TM clone registry
@@ -440,17 +440,16 @@ index f2bee6d90fe..4dcf17fab00 100755
    --enable-tls            Use thread-local storage [default=yes]
    --enable-werror         build with -Werror for selected targets
  
-@@ -4472,7 +4475,8 @@ as_fn_arith $ac_cv_sizeof_long_double \* 8 && long_double_type_size=$as_val
+@@ -4471,7 +4474,7 @@ as_fn_arith $ac_cv_sizeof_long_double \* 8 && long_double_type_size=$as_val
  
  for ac_header in inttypes.h stdint.h stdlib.h ftw.h \
  	unistd.h sys/stat.h sys/types.h \
 -	string.h strings.h memory.h sys/auxv.h sys/mman.h
-+	string.h strings.h memory.h sys/auxv.h sys/mman.h \
-+	valgrind/memcheck.h
++	string.h strings.h memory.h sys/auxv.h sys/mman.h valgrind/memcheck.h
  do :
    as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
  ac_fn_c_check_header_preproc "$LINENO" "$ac_header" "$as_ac_Header"
-@@ -5064,6 +5068,22 @@ fi
+@@ -4821,6 +4824,22 @@ fi
  
  
  
@@ -470,24 +469,23 @@ index f2bee6d90fe..4dcf17fab00 100755
 +
 +fi
 +
- { $as_echo "$as_me:${as_lineno-$LINENO}: checking if the linker ($LD) is GNU ld" >&5
- $as_echo_n "checking if the linker ($LD) is GNU ld... " >&6; }
- if ${acl_cv_prog_gnu_ld+:} false; then :
+ { $as_echo "$as_me:${as_lineno-$LINENO}: checking for grep that handles long lines and -e" >&5
+ $as_echo_n "checking for grep that handles long lines and -e... " >&6; }
+ if ${ac_cv_path_GREP+:} false; then :
 diff --git a/libgcc/configure.ac b/libgcc/configure.ac
-index 72d23b427d0..40fafa45adf 100644
+index 97dc1489257a..4e4ce0581049 100644
 --- a/libgcc/configure.ac
 +++ b/libgcc/configure.ac
-@@ -231,7 +231,8 @@ AC_SUBST(long_double_type_size)
+@@ -231,7 +231,7 @@ AC_SUBST(long_double_type_size)
  
  AC_CHECK_HEADERS(inttypes.h stdint.h stdlib.h ftw.h \
  	unistd.h sys/stat.h sys/types.h \
 -	string.h strings.h memory.h sys/auxv.h sys/mman.h)
-+	string.h strings.h memory.h sys/auxv.h sys/mman.h \
-+	valgrind/memcheck.h)
- AC_HEADER_STDC
++	string.h strings.h memory.h sys/auxv.h sys/mman.h valgrind/memcheck.h)
  
  # Check for decimal float support.
-@@ -317,6 +318,18 @@ esac
+ AC_CACHE_CHECK([whether decimal floating point is supported], [libgcc_cv_dfp],
+@@ -316,6 +316,18 @@ esac
  ])
  AC_SUBST([use_tm_clone_registry])
  
@@ -507,7 +505,7 @@ index 72d23b427d0..40fafa45adf 100644
  
  GCC_AC_THREAD_MODEL
 diff --git a/libgcc/libgcc2.h b/libgcc/libgcc2.h
-index 79185d8e880..9e23a19ebeb 100644
+index 79185d8e880a..9e23a19ebeb7 100644
 --- a/libgcc/libgcc2.h
 +++ b/libgcc/libgcc2.h
 @@ -560,6 +560,8 @@ extern void __strub_enter (void **);
@@ -521,7 +519,7 @@ index 79185d8e880..9e23a19ebeb 100644
  #endif
 diff --git a/libgcc/valgrind-interop.c b/libgcc/valgrind-interop.c
 new file mode 100644
-index 00000000000..fdb8d41bc56
+index 000000000000..fdb8d41bc567
 --- /dev/null
 +++ b/libgcc/valgrind-interop.c
 @@ -0,0 +1,40 @@
@@ -565,3 +563,7 @@ index 00000000000..fdb8d41bc56
 +  VALGRIND_MAKE_MEM_UNDEFINED (addr, size);
 +}
 +#endif
+
+base-commit: 415316f432cd03755735f13f226d5193785ea8a9
+-- 
+2.56.0
