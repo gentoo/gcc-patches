@@ -1,0 +1,132 @@
+From 87a4c95bc518375f61e23e9e30b628e6b3f0ce40 Mon Sep 17 00:00:00 2001
+Message-ID: <87a4c95bc518375f61e23e9e30b628e6b3f0ce40.1791927181.git.sam@gentoo.org>
+From: Jakub Jelinek <jakub@redhat.com>
+Date: Tue, 13 Oct 2026 09:42:51 +0200
+Subject: [PATCH] gimple-fold: Fix/workaround C++ PMF types in
+ accumulate_range_from_component_ref [PR127685]
+
+Hi!
+
+The recent gimple-range-fold.cc changes broke various C++ projects.
+The problem is that the C++ FE tends to create different RECORD_TYPEs
+for pointer-to-member functions types, each time it is a type with
+__pfn and __delta members, the latter always ptrdiff_t type, the
+former some pointer to METHOD_TYPE.
+Now, accumulate_range_from_component_ref searches for exact FIELD_DECL
+pointer equality, if it doesn't find it, it punts.  With the C++ FE
+possibly creating more types like that, we can run into mismatches,
+where the CONSTRUCTOR uses one of the types and the fld FIELD_DECL
+is from a different RECORD_TYPE.  Most of the GIMPLE opts can deal with
+it just fine, e.g. gimple-fold.cc fold_ctor* etc. just rely on offsets
+and sizes.  Now, in the C++ case, the different types even have the
+same TYPE_CANONICAL, so they are considered equivalent by the middle-end.
+Thus, the following patch keeps using FIELD_DECL pointer equality for
+the common case where the CONSTRUCTOR and fld agree on the same
+RECORD_TYPE/UNION_TYPE/QUAL_UNION_TYPE, if they are different but
+have the same TYPE_CANONICAL, it falls back to using bit offset/bit size
+comparison (and punts on variable length structures, too complicated to
+verify that), and if even TYPE_CANONICAL is different, punts as well.
+
+Bootstrapped/regtested on x86_64-linux and i686-linux, ok for trunk?
+
+2026-10-13  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/127685
+	* gimple-range-fold.cc
+	(ctor_ref_range::accumulate_range_from_component_ref): Workaround
+	for the case where the fld FIELD_DECL isn't from the same aggregate
+	type as the CONSTRUCTOR, but a canonically compatible one - fallback
+	to bit offset/size comparisons.
+
+* g++.dg/torture/pr127685.C: New test.
+---
+ gcc/gimple-range-fold.cc                | 38 ++++++++++++++++++++++---
+ gcc/testsuite/g++.dg/torture/pr127685.C | 23 +++++++++++++++
+ 2 files changed, 57 insertions(+), 4 deletions(-)
+ create mode 100644 gcc/testsuite/g++.dg/torture/pr127685.C
+
+diff --git a/gcc/gimple-range-fold.cc b/gcc/gimple-range-fold.cc
+index a66993a0ab0a..3391916ff0db 100644
+--- a/gcc/gimple-range-fold.cc
++++ b/gcc/gimple-range-fold.cc
+@@ -1112,12 +1112,42 @@ ctor_ref_range::accumulate_range_from_component_ref (tree init, unsigned i,
+ {
+   unsigned ix;
+   tree index, val;
+-  FOR_EACH_CONSTRUCTOR_ELT (CONSTRUCTOR_ELTS (init), ix, index, val)
++  if (TYPE_MAIN_VARIANT (TREE_TYPE (init)) == DECL_CONTEXT (fld))
++    FOR_EACH_CONSTRUCTOR_ELT (CONSTRUCTOR_ELTS (init), ix, index, val)
++      {
++	if (index != fld)
++	  continue;
++	return accumulate_range (val, i);
++      }
++  else if (TYPE_CANONICAL (TYPE_MAIN_VARIANT (TREE_TYPE (init)))
++	   == TYPE_CANONICAL (DECL_CONTEXT (fld)))
+     {
+-      if (index != fld)
+-	continue;
+-      return accumulate_range (val, i);
++      // If fld is from a different record/union than the CONSTRUCTOR,
++      // fallback to bit offset/size comparison.  This happens e.g.
++      // with C++ pointer-to-members, where we can get different
++      // __ptrmemfunc_type RECORD_TYPEs with __pfn and __delta
++      // FIELD_DECLs at the same offsets.
++      tree off = bit_position (fld);
++      tree sz = DECL_SIZE (fld);
++      if (TREE_CODE (off) != INTEGER_CST
++	  || TREE_CODE (sz) != INTEGER_CST
++	  || int_size_in_bytes (TREE_TYPE (init)) == -1)
++	return false;
++      offset_int woff = wi::to_offset (off);
++      offset_int wsz = wi::to_offset (sz);
++      FOR_EACH_CONSTRUCTOR_ELT (CONSTRUCTOR_ELTS (init), ix, index, val)
++	{
++	  off = bit_position (index);
++	  sz = DECL_SIZE (index);
++	  if (TREE_CODE (off) != INTEGER_CST || TREE_CODE (sz) != INTEGER_CST)
++	    return false;
++	  if (wi::to_offset (off) != woff || wi::to_offset (sz) != wsz)
++	    continue;
++	  return accumulate_range (val, i);
++	}
+     }
++  else
++    return false;
+   if (TREE_CODE (TREE_TYPE (init)) == RECORD_TYPE)
+     {
+       accumulate_range_from_missing_constructor_elt ();
+diff --git a/gcc/testsuite/g++.dg/torture/pr127685.C b/gcc/testsuite/g++.dg/torture/pr127685.C
+new file mode 100644
+index 000000000000..bcffa98a4130
+--- /dev/null
++++ b/gcc/testsuite/g++.dg/torture/pr127685.C
+@@ -0,0 +1,23 @@
++// PR c++/127685
++// { dg-do run }
++
++struct C {
++  bool foo (bool) { return false; }
++  bool bar (bool) { return false; }
++  bool baz (bool);
++};
++
++__attribute__ ((noipa))
++bool
++C::baz (bool b)
++{
++  static bool (C::*A[]) (bool) = { &C::foo, &C::bar, };
++  return (this->*A[(int) b]) (b);
++}
++
++int
++main ()
++{
++  C o;
++  o.baz (false);
++}
+
+base-commit: 0a3124969d7cf120d26d7044deec17a7f23d169e
+-- 
+2.56.0
+
