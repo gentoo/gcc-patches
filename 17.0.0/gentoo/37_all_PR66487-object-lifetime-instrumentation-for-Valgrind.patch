@@ -1,5 +1,5 @@
-From 18ec577c1574a1f9bf06b2f50c88bb678fae3364 Mon Sep 17 00:00:00 2001
-Message-ID: <18ec577c1574a1f9bf06b2f50c88bb678fae3364.1791634183.git.sam@gentoo.org>
+From 8e1dcb22a8ba18bd42971efce3bd2f69fa2de07c Mon Sep 17 00:00:00 2001
+Message-ID: <8e1dcb22a8ba18bd42971efce3bd2f69fa2de07c.1792293572.git.sam@gentoo.org>
 From: Daniil Frolov <exactlywb@ispras.ru>
 Date: Fri, 22 Dec 2023 17:10:38 +0300
 Subject: [PATCH] object lifetime instrumentation for Valgrind [PR66487]
@@ -396,7 +396,7 @@ index 59df657e282e..aeb17b6c353a 100644
  # instead of LIB2ADD because that's the way to be sure on some targets
  # (e.g. *-*-darwin*) only one copy of it is linked.
 diff --git a/libgcc/config.in b/libgcc/config.in
-index 8780b5d47185..1a68d7ab0883 100644
+index f43d9ca66dbf..4c47ed506d34 100644
 --- a/libgcc/config.in
 +++ b/libgcc/config.in
 @@ -3,6 +3,9 @@
@@ -409,9 +409,9 @@ index 8780b5d47185..1a68d7ab0883 100644
  /* Define to 1 if the assembler supports AVX. */
  #undef HAVE_AS_AVX
  
-@@ -61,6 +64,9 @@
- /* Define to 1 if you have the <unistd.h> header file. */
- #undef HAVE_UNISTD_H
+@@ -43,6 +46,9 @@
+ /* Define to 1 if you have the <sys/mman.h> header file. */
+ #undef HAVE_SYS_MMAN_H
  
 +/* Define to 1 if you have the <valgrind/memcheck.h> header file. */
 +#undef HAVE_VALGRIND_MEMCHECK_H
@@ -420,7 +420,7 @@ index 8780b5d47185..1a68d7ab0883 100644
  #undef HAVE___GETAUXVAL
  
 diff --git a/libgcc/configure b/libgcc/configure
-index 781f81f8ed09..6c26dcdb6b7d 100755
+index a3f6a4a9650b..146574bfec83 100755
 --- a/libgcc/configure
 +++ b/libgcc/configure
 @@ -718,6 +718,7 @@ with_system_libunwind
@@ -440,16 +440,16 @@ index 781f81f8ed09..6c26dcdb6b7d 100755
    --enable-tls            Use thread-local storage [default=yes]
    --enable-werror         build with -Werror for selected targets
  
-@@ -4471,7 +4474,7 @@ as_fn_arith $ac_cv_sizeof_long_double \* 8 && long_double_type_size=$as_val
+@@ -4481,7 +4484,7 @@ _ACEOF
+ fi
+ done
  
- for ac_header in inttypes.h stdint.h stdlib.h ftw.h \
- 	unistd.h sys/stat.h sys/types.h \
--	string.h strings.h memory.h sys/auxv.h sys/mman.h
-+	string.h strings.h memory.h sys/auxv.h sys/mman.h valgrind/memcheck.h
+-for ac_header in ftw.h sys/mman.h
++for ac_header in ftw.h sys/mman.h valgrind/memcheck.h
  do :
    as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
  ac_fn_c_check_header_preproc "$LINENO" "$ac_header" "$as_ac_Header"
-@@ -4821,6 +4824,22 @@ fi
+@@ -4831,6 +4834,22 @@ fi
  
  
  
@@ -473,15 +473,15 @@ index 781f81f8ed09..6c26dcdb6b7d 100755
  $as_echo_n "checking for grep that handles long lines and -e... " >&6; }
  if ${ac_cv_path_GREP+:} false; then :
 diff --git a/libgcc/configure.ac b/libgcc/configure.ac
-index 97dc1489257a..4e4ce0581049 100644
+index 0a09fd9ce423..283d769a94b7 100644
 --- a/libgcc/configure.ac
 +++ b/libgcc/configure.ac
-@@ -231,7 +231,7 @@ AC_SUBST(long_double_type_size)
+@@ -231,7 +231,7 @@ AC_SUBST(double_type_size)
+ AC_SUBST(long_double_type_size)
  
- AC_CHECK_HEADERS(inttypes.h stdint.h stdlib.h ftw.h \
- 	unistd.h sys/stat.h sys/types.h \
--	string.h strings.h memory.h sys/auxv.h sys/mman.h)
-+	string.h strings.h memory.h sys/auxv.h sys/mman.h valgrind/memcheck.h)
+ AC_CHECK_HEADERS(stdlib.h ftw.h string.h strings.h memory.h)
+-AC_CHECK_HEADERS(ftw.h sys/mman.h)
++AC_CHECK_HEADERS(ftw.h sys/mman.h valgrind/memcheck.h)
  
  # Check for decimal float support.
  AC_CACHE_CHECK([whether decimal floating point is supported], [libgcc_cv_dfp],
@@ -564,6 +564,7 @@ index 000000000000..fdb8d41bc567
 +}
 +#endif
 
-base-commit: 415316f432cd03755735f13f226d5193785ea8a9
+base-commit: 9a00f0797c90485cd70ac86a8751c9565c3979dd
 -- 
 2.56.0
+
