@@ -1,0 +1,335 @@
+From 11bbc1974ae208526eeee8293ab3070a23c5fc32 Mon Sep 17 00:00:00 2001
+Message-ID: <11bbc1974ae208526eeee8293ab3070a23c5fc32.1792763421.git.sam@gentoo.org>
+From: Alfie Richards <alfie.richards@arm.com>
+Date: Fri, 23 Oct 2026 12:34:08 +0000
+Subject: [PATCH] vect: Fix final iterations counts and latch values for peeled
+ early break [PR 127805]
+
+Hi all,
+
+Sorry for the delay on this fix, it really sent me on a whole journey,
+but I learnt a lot! For instance I learnt my understanding of the
+early break peeling and how it interacts with niters and final_iv was
+completely off :)
+
+I'm pretty sure this is now correct, and cleans up some of the weirdness
+in the code.
+
+Unfortunately we stil have pretty poor test coverage for early break and
+especially early-break peeled.  However the gmp test suite serves as a
+pretty excellent test of it in my expereince now!
+
+Bootstrapped and regr-tested on x86_64-linux-gnu and aarch64-linux-gnu.
+
+GMP testsuite run with a bunch of different vectorization settings
+for x86_64 and aarch64.
+
+Okay for master?
+Alfie Richards
+---
+ .../vect/vect-early-break_147-pr128028.c      | 117 ++++++++++++++++++
+ gcc/tree-vect-loop-manip.cc                   |  88 +++++--------
+ gcc/tree-vect-loop.cc                         |   5 +-
+ 3 files changed, 151 insertions(+), 59 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.dg/vect/vect-early-break_147-pr128028.c
+
+diff --git a/gcc/testsuite/gcc.dg/vect/vect-early-break_147-pr128028.c b/gcc/testsuite/gcc.dg/vect/vect-early-break_147-pr128028.c
+new file mode 100644
+index 000000000000..c7b1c3ad4b2b
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/vect/vect-early-break_147-pr128028.c
+@@ -0,0 +1,117 @@
++/* PR tree-optimization/126778 */
++/* { dg-do run } */
++/* { dg-add-options vect_early_break } */
++/* { dg-require-effective-target vect_early_break_hw } */
++/* { dg-require-effective-target vect_int } */
++
++#define N 64
++
++/* The counting exit is tested before the early exit, so the loop body runs
++   one time less than the loop header.  The vector loop must not process a
++   lane for the iteration that only tests the counter, as that lane reads the
++   element next to the arrays.  */
++
++__attribute__((optimize("no-tree-vectorize")))
++__attribute__ ((noipa)) int
++differs (const long *a, const long *b, unsigned long n)
++{
++  while (n != 0)
++    {
++      n--;
++      if (a[n] != b[n])
++       return 1;
++    }
++  return 0;
++}
++__attribute__((optimize("no-tree-vectorize")))
++__attribute__ ((noipa)) int
++differs_signed (const long *a, const long *b, long n)
++{
++  if (n < 0)
++    return 2;
++  while (--n >= 0)
++    {
++      if (a[n] != b[n])
++       return 1;
++    }
++  return 0;
++}
++
++__attribute__ ((noipa)) int
++differs_up (const long *a, const long *b, unsigned long n)
++{
++  unsigned long i = 0;
++  while (i != n)
++    {
++      unsigned long j = i;
++      i++;
++      if (a[j] != b[j])
++       return 1;
++    }
++  return 0;
++}
++
++/* The store before the early exit must not write the extra lane and must run
++   once for every element.  */
++
++__attribute__((optimize("no-tree-vectorize")))
++__attribute__ ((noipa)) int
++bump (const long *restrict a, const long *restrict b, long *restrict c,
++      unsigned long n)
++{
++  while (n != 0)
++    {
++      n--;
++      c[n] += 1;
++      if (a[n] != b[n])
++       return 1;
++    }
++  return 0;
++}
++static long abuf[N + 16] __attribute__ ((aligned (64)));
++static long bbuf[N + 16] __attribute__ ((aligned (64)));
++static long cbuf[N + 16] __attribute__ ((aligned (64)));
++
++__attribute__((optimize("no-tree-vectorize")))
++int
++main (void)
++{
++
++  for (unsigned long n = 0; n <= N; n++)
++    for (int off = 0; off < 8; off++)
++      {
++       /* Start the arrays at every alignment of a 64 byte vector and give
++          the elements around them different values.  */
++       long *a = abuf + 8 + off;
++       long *b = bbuf + 8 + off;
++       long *c = cbuf + 8 + off;
++       for (unsigned long i = 0; i < n; i++)
++         a[i] = b[i] = c[i] = i * 3 + 1;
++       a[-1] = 1;
++       b[-1] = 2;
++       c[-1] = 5;
++       a[n] = 3;
++       b[n] = 4;
++       c[n] = 6;
++
++       if (differs (a, b, n) != 0 || differs_signed (a, b, n) != 0
++           || differs_up (a, b, n) != 0)
++         __builtin_abort ();
++
++       if (bump (a, b, c, n) != 0 || c[-1] != 5 || c[n] != 6)
++         __builtin_abort ();
++       for (unsigned long i = 0; i < n; i++)
++         if (c[i] != i * 3 + 2)
++           __builtin_abort ();
++
++       if (n > 0)
++         {
++           b[n / 2]++;
++           if (differs (a, b, n) != 1 || differs_signed (a, b, n) != 1
++               || differs_up (a, b, n) != 1)
++             __builtin_abort ();
++         }
++      }
++
++  return 0;
++}
+diff --git a/gcc/tree-vect-loop-manip.cc b/gcc/tree-vect-loop-manip.cc
+index 4dfef69de876..1154b6edf50a 100644
+--- a/gcc/tree-vect-loop-manip.cc
++++ b/gcc/tree-vect-loop-manip.cc
+@@ -789,13 +789,6 @@ vect_set_loop_controls_directly (class loop *loop, loop_vec_info loop_vinfo,
+ 					  bias_tree);
+ 	}
+ 
+-      /* A do-while loop always executes the body once, as such the limit
+-	 the end counter should be lowered by 1 iteration.  */
+-      if (LOOP_VINFO_EARLY_BREAKS_VECT_PEELED (loop_vinfo))
+-	this_test_limit = gimple_build (preheader_seq, MINUS_EXPR,
+-					compare_type, this_test_limit,
+-					build_one_cst (compare_type));
+-
+       /* Create the initial control.  First include all items that
+ 	 are within the loop limit.  */
+       tree init_ctrl = NULL_TREE;
+@@ -1097,17 +1090,7 @@ vect_set_loop_condition_partial_vectors (class loop *loop, edge exit_edge,
+   if (final_iv)
+     {
+       gassign *assign;
+-      /* If vectorizing an inverted early break loop we have to restart the
+-	 scalar loop at niters - vf.  This matches what we do in
+-	 vect_gen_vector_loop_niters_mult_vf for non-masked loops.  */
+-      if (LOOP_VINFO_EARLY_BREAKS_VECT_PEELED (loop_vinfo))
+-	{
+-	  tree ftype = TREE_TYPE (orig_niters);
+-	  tree vf = build_int_cst (ftype, LOOP_VINFO_VECT_FACTOR (loop_vinfo));
+-	  assign = gimple_build_assign (final_iv, MINUS_EXPR, orig_niters, vf);
+-	}
+-       else
+-	assign = gimple_build_assign (final_iv, orig_niters);
++      assign = gimple_build_assign (final_iv, orig_niters);
+       gsi_insert_on_edge_immediate (LOOP_VINFO_MAIN_EXIT (loop_vinfo), assign);
+     }
+ 
+@@ -1354,19 +1337,8 @@ vect_set_loop_condition_partial_vectors_avx512 (class loop *loop,
+ 
+   if (final_iv)
+     {
+-      gassign *assign;
+-      /* If vectorizing an inverted early break loop we have to restart the
+-	 scalar loop at niters - vf.  This matches what we do in
+-	 vect_gen_vector_loop_niters_mult_vf for non-masked loops.  */
+-      if (LOOP_VINFO_EARLY_BREAKS_VECT_PEELED (loop_vinfo))
+-	{
+-	  tree ftype = TREE_TYPE (orig_niters);
+-	  tree vf = build_int_cst (ftype, LOOP_VINFO_VECT_FACTOR (loop_vinfo));
+-	  assign = gimple_build_assign (final_iv, MINUS_EXPR, orig_niters, vf);
+-	}
+-       else
+-	assign = gimple_build_assign (final_iv, orig_niters);
+-       gsi_insert_on_edge_immediate (LOOP_VINFO_MAIN_EXIT (loop_vinfo), assign);
++      gassign *assign = gimple_build_assign (final_iv, orig_niters);
++      gsi_insert_on_edge_immediate (LOOP_VINFO_MAIN_EXIT (loop_vinfo), assign);
+     }
+ 
+   return cond_stmt;
+@@ -1499,29 +1471,27 @@ vect_set_loop_condition_normal (loop_vec_info loop_vinfo, edge exit_edge,
+ 
+   if (final_iv)
+     {
++      /* If we are using step=1 catch=niters/vf then we should be using the
++         logic in vect_gen_vector_loop_niters_mult_vf for the final iv and this
++         branch should never be taken.  */
++      gcc_assert (!integer_onep (step));
++
+       gassign *assign;
+-      tree phi_dest
+-	= integer_zerop (init) ? final_iv : copy_ssa_name (indx_after_incr);
++      tree iv_end = LOOP_VINFO_EARLY_BREAKS_VECT_PEELED (loop_vinfo)
++		      ? indx_before_incr
++		      : indx_after_incr;
++
++      tree phi_dest = integer_zerop (init) ? final_iv : copy_ssa_name (iv_end);
++
+       /* Make sure to maintain LC SSA form here and elide the subtraction
+ 	 if the value is zero.  */
+       gphi *phi = create_phi_node (phi_dest, exit_edge->dest);
+-      add_phi_arg (phi, indx_after_incr, exit_edge, UNKNOWN_LOCATION);
++      add_phi_arg (phi, iv_end, exit_edge, UNKNOWN_LOCATION);
++
+       if (!integer_zerop (init))
+ 	{
+-	  /* If vectorizing an inverted early break loop we have to restart the
+-	     scalar loop at niters - vf.  This matches what we do in
+-	     vect_gen_vector_loop_niters_mult_vf for non-masked loops.  */
+-	  if (LOOP_VINFO_EARLY_BREAKS_VECT_PEELED (loop_vinfo))
+-	    {
+-	      tree ftype = TREE_TYPE (final_iv);
+-	      tree vf
+-		= build_int_cst (ftype, LOOP_VINFO_VECT_FACTOR (loop_vinfo));
+-	      assign = gimple_build_assign (final_iv, MINUS_EXPR, init, vf);
+-	    }
+-	  else
+-	    assign = gimple_build_assign (final_iv, MINUS_EXPR, phi_dest, init);
+-	  gimple_stmt_iterator gsi
+-	    = gsi_after_labels (LOOP_VINFO_MAIN_EXIT (loop_vinfo)->dest);
++	  gimple_stmt_iterator gsi = gsi_after_labels (LOOP_VINFO_MAIN_EXIT (loop_vinfo)->dest);
++	  assign = gimple_build_assign (final_iv, MINUS_EXPR, phi_dest, init);
+ 	  gsi_insert_before (&gsi, assign, GSI_SAME_STMT);
+ 	}
+     }
+@@ -3110,8 +3080,12 @@ vect_gen_vector_loop_niters (loop_vec_info loop_vinfo, tree niters,
+ 
+   /* If epilogue loop is required because of data accesses with gaps, we
+      subtract one iteration from the total number of iterations here for
+-     correct calculation of RATIO.  */
+-  if (LOOP_VINFO_PEELING_FOR_GAPS (loop_vinfo))
++     correct calculation of RATIO.
++
++     Alternatively, if we are peeled for early breaks, then loop niters
++     is 1 too large as we convert the loop into a do-loop.  */
++  if (LOOP_VINFO_PEELING_FOR_GAPS (loop_vinfo)
++      || LOOP_VINFO_EARLY_BREAKS_VECT_PEELED (loop_vinfo))
+     {
+       ni_minus_gap = fold_build2 (MINUS_EXPR, type, niters,
+ 				  build_one_cst (type));
+@@ -3250,12 +3224,6 @@ vect_gen_vector_loop_niters_mult_vf (loop_vec_info loop_vinfo,
+   tree niters_vector_mult_vf = fold_build2 (MULT_EXPR, type,
+ 					    niters_vector, tree_vf);
+ 
+-  /* If we've peeled a vector iteration then subtract one full vector
+-     iteration.  */
+-  if (LOOP_VINFO_EARLY_BREAKS_VECT_PEELED (loop_vinfo))
+-    niters_vector_mult_vf = fold_build2 (MINUS_EXPR, type,
+-					 niters_vector_mult_vf, tree_vf);
+-
+   if (!is_gimple_val (niters_vector_mult_vf))
+     {
+       tree var = create_tmp_var (type, "niters_vector_mult_vf");
+@@ -3633,7 +3601,8 @@ vect_do_peeling (loop_vec_info loop_vinfo, tree niters, tree nitersm1,
+ 		   ? maybe_lt (LOOP_VINFO_INT_NITERS (loop_vinfo),
+ 			       bound_prolog + bound_epilog)
+ 		   : (!LOOP_VINFO_USE_VERSIONING_WITHOUT_PEELING (loop_vinfo)
+-		      || vect_epilogues));
++		     || vect_epilogues
++		     || LOOP_VINFO_EARLY_BREAKS_VECT_PEELED (loop_vinfo)));
+ 
+   /* Epilog loop must be executed if the number of iterations for epilog
+      loop is known at compile time, otherwise we need to add a check at
+@@ -4017,7 +3986,10 @@ vect_do_peeling (loop_vec_info loop_vinfo, tree niters, tree nitersm1,
+ 	    vect_update_ivs_after_vectorizer (loop_vinfo, tmp_niters_vf,
+ 					      update_e, true);
+ 	  }
+-	  if (LOOP_VINFO_EARLY_BREAKS_VECT_PEELED (loop_vinfo))
++	  /* If the loop is uncounted we do not have a loop control to set
++	     the final niters for the main exit. Therefore, we need to use
++	     the early break exit niters for all exits.  */
++	  if (LOOP_VINFO_NITERS_UNCOUNTED_P (loop_vinfo))
+ 	    vector_iters_vf = tmp_niters_vf;
+ 
+ 	  LOOP_VINFO_EARLY_BRK_NITERS_VAR (loop_vinfo) = tmp_niters_vf;
+diff --git a/gcc/tree-vect-loop.cc b/gcc/tree-vect-loop.cc
+index 7ed3f58bf238..9feea2d2e9c0 100644
+--- a/gcc/tree-vect-loop.cc
++++ b/gcc/tree-vect-loop.cc
+@@ -11529,9 +11529,12 @@ vect_transform_loop (loop_vec_info loop_vinfo, gimple *loop_vectorized_call)
+ 	  && !LOOP_VINFO_USING_PARTIAL_VECTORS_P (loop_vinfo)
+ 	  && known_eq (lowest_vf, vf))
+ 	{
++	  /* Make sure to use niters here, as if we have peeled for
++	     early break then this will be updated to remove the extra
++	     iteration for the latch.  */
+ 	  niters_vector
+ 	    = build_int_cst (TREE_TYPE (LOOP_VINFO_NITERS (loop_vinfo)),
+-			     LOOP_VINFO_INT_NITERS (loop_vinfo) / lowest_vf);
++			     TREE_INT_CST_LOW (niters) / lowest_vf);
+ 	  step_vector = build_one_cst (TREE_TYPE (niters));
+ 	}
+       else if (vect_use_loop_mask_for_alignment_p (loop_vinfo))
+
+base-commit: b0d49f34078e12b0891e2bd863b45405a7c3379e
+-- 
+2.56.0
+
