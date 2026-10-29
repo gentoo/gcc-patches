@@ -1,3 +1,8 @@
+20	????
+
+	- 89_all_PR127805-vect-Fix-final-iterations-counts-and-latch-values-fo.patch
+	+ 90_all_PR128226_Revert-IPA-support-for-outlined-.ASSUME-bodies.patch
+
 19	25 October 2026
 
 	- 89_all_PR127685-gimple-fold-Fix-workaround-C-PMF-types-in-accumulate.patch
