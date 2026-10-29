@@ -1,0 +1,1244 @@
+From be162c56c75a1007c3098238b664ad12f73be5bc Mon Sep 17 00:00:00 2001
+Message-ID: <be162c56c75a1007c3098238b664ad12f73be5bc.1793313994.git.sam@gentoo.org>
+From: Sam James <sam@gentoo.org>
+Date: Thu, 29 Oct 2026 22:46:31 +0000
+Subject: [PATCH] Revert "analyzer: add analyzer-graphs=yes|no option to SARIF
+ output"
+
+This reverts commit 4a6c15e64ea5993eee4573fbae2659b2af8395bb.
+---
+ gcc/Makefile.in                               |   1 -
+ .../analyzer-diagnostic-extensions.cc         | 144 -------------
+ gcc/analyzer/common.h                         |  10 -
+ gcc/analyzer/diagnostic-manager.cc            |  13 +-
+ gcc/analyzer/engine.cc                        | 200 +-----------------
+ gcc/analyzer/exploded-graph.h                 |   9 -
+ gcc/analyzer/known-function-manager.cc        |  44 ----
+ gcc/analyzer/known-function-manager.h         |   2 -
+ gcc/analyzer/ops.cc                           |   4 -
+ gcc/analyzer/pending-diagnostic.cc            |  11 -
+ gcc/analyzer/pending-diagnostic.h             |   2 -
+ gcc/analyzer/region-model.cc                  |  37 ----
+ gcc/analyzer/region-model.h                   |   7 -
+ gcc/analyzer/supergraph.cc                    | 189 +----------------
+ gcc/analyzer/supergraph.h                     |   3 -
+ gcc/diagnostics/sarif-sink.cc                 |  10 +-
+ gcc/doc/invoke.texi                           |   6 -
+ gcc/json.cc                                   |  11 -
+ gcc/json.h                                    |   1 -
+ gcc/opts-diagnostic.cc                        |   9 +-
+ gcc/opts-diagnostic.h                         |   3 -
+ .../gcc.dg/analyzer/sarif-analyzer-graphs.c   |  18 --
+ .../gcc.dg/analyzer/sarif-analyzer-graphs.py  |  53 -----
+ gcc/tree-diagnostic-sink-extensions.h         |   3 -
+ 24 files changed, 10 insertions(+), 780 deletions(-)
+ delete mode 100644 gcc/analyzer/analyzer-diagnostic-extensions.cc
+ delete mode 100644 gcc/testsuite/gcc.dg/analyzer/sarif-analyzer-graphs.c
+ delete mode 100644 gcc/testsuite/gcc.dg/analyzer/sarif-analyzer-graphs.py
+
+diff --git a/gcc/Makefile.in b/gcc/Makefile.in
+index 19e35f6149b8..f2a015d729df 100644
+--- a/gcc/Makefile.in
++++ b/gcc/Makefile.in
+@@ -1347,7 +1347,6 @@ ANALYZER_OBJS = \
+ 	analyzer/ana-state-to-diagnostic-state.o \
+ 	analyzer/analysis-plan.o \
+ 	analyzer/analyzer.o \
+-	analyzer/analyzer-diagnostic-extensions.o \
+ 	analyzer/analyzer-language.o \
+ 	analyzer/analyzer-logging.o \
+ 	analyzer/analyzer-pass.o \
+diff --git a/gcc/analyzer/analyzer-diagnostic-extensions.cc b/gcc/analyzer/analyzer-diagnostic-extensions.cc
+deleted file mode 100644
+index ae09ddd8a807..000000000000
+--- a/gcc/analyzer/analyzer-diagnostic-extensions.cc
++++ /dev/null
+@@ -1,144 +0,0 @@
+-/* Analyzer-specific extensions to diagnostic-handling.
+-   Copyright (C) 2026 Free Software Foundation, Inc.
+-   Contributed by David Malcolm <dmalcolm@redhat.com>.
+-
+-This file is part of GCC.
+-
+-GCC is free software; you can redistribute it and/or modify it under
+-the terms of the GNU General Public License as published by the Free
+-Software Foundation; either version 3, or (at your option) any later
+-version.
+-
+-GCC is distributed in the hope that it will be useful, but WITHOUT ANY
+-WARRANTY; without even the implied warranty of MERCHANTABILITY or
+-FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+-for more details.
+-
+-You should have received a copy of the GNU General Public License
+-along with GCC; see the file COPYING3.  If not see
+-<http://www.gnu.org/licenses/>.  */
+-
+-#include "analyzer/common.h"
+-
+-#include "diagnostics/digraphs.h"
+-#include "diagnostics/dumping.h"
+-#include "context.h"
+-#include "channels.h"
+-#include "tree-diagnostic-sink-extensions.h"
+-
+-#include "analyzer/exploded-graph.h"
+-
+-namespace { namespace analyzer_events = gcc::topics::analyzer_events; }
+-
+-#if ENABLE_ANALYZER
+-
+-namespace ana {
+-
+-class lazy_supergraph_diagnostic_digraph
+-  : public lazily_created<diagnostics::digraphs::digraph>
+-{
+-public:
+-  lazy_supergraph_diagnostic_digraph (const supergraph &sg)
+-  : m_sg (sg)
+-  {
+-  }
+-
+-  std::unique_ptr<diagnostics::digraphs::digraph>
+-  create_object () const final override
+-  {
+-    auto g = m_sg.make_diagnostics_digraph ();
+-    g->set_description ("\"supergraph\" used by '-fanalyzer'"
+-			" internally to represent the user's code");
+-    return g;
+-  }
+-
+-private:
+-  const supergraph &m_sg;
+-};
+-
+-class lazy_exploded_graph_diagnostic_digraph
+-  : public lazily_created<diagnostics::digraphs::digraph>
+-{
+-public:
+-  lazy_exploded_graph_diagnostic_digraph (const exploded_graph &eg)
+-  : m_eg (eg)
+-  {
+-  }
+-
+-  std::unique_ptr<diagnostics::digraphs::digraph>
+-  create_object () const final override
+-  {
+-    auto g = m_eg.make_diagnostics_digraph ();
+-    g->set_description ("\"exploded graph\" used by '-fanalyzer'"
+-			" internally to represent interprocedural control"
+-			" flow in the user's code along with possible states"
+-			" at each program point");
+-    return g;
+-  }
+-
+-private:
+-  const exploded_graph &m_eg;
+-};
+-
+-static void
+-report_analyzer_info (diagnostics::sink &sink,
+-		      const analyzer_events::on_ana_done &m)
+-{
+-  sink.report_global_digraph
+-    (lazy_supergraph_diagnostic_digraph (m.m_eg.get_supergraph ()));
+-
+-  sink.report_global_digraph
+-    (lazy_exploded_graph_diagnostic_digraph (m.m_eg));
+-
+-  // TODO: capture other information???
+-}
+-
+-} // namespace ana
+-
+-#endif /* #if ENABLE_ANALYZER */
+-
+-/* A diagnostics::sink::extension which subscribes to the analyzer
+-   being done and responds to it by adding internal details about the
+-   analysis to the diagnostic sink.  */
+-
+-class analyzer_sink_extension : public diagnostics::sink::extension
+-{
+-public:
+-  analyzer_sink_extension (diagnostics::sink &sink)
+-  : extension (sink),
+-    m_event_subscriber (sink)
+-  {
+-    auto &channel = g->get_channels ().analyzer_events_channel;
+-    channel.add_subscriber (m_event_subscriber);
+-  }
+-
+-  void
+-  dump (FILE *out, int indent) const
+-  {
+-    diagnostics::dumping::emit_heading (out, indent, "analyzer_sink_extension");
+-  }
+-
+-private:
+-  class event_subscriber : public analyzer_events::subscriber
+-  {
+-  public:
+-    event_subscriber (diagnostics::sink &sink) : m_sink (sink) {}
+-
+-    void
+-    on_message (const analyzer_events::on_ana_done &m) final override
+-    {
+-#if ENABLE_ANALYZER
+-      report_analyzer_info (m_sink, m);
+-#endif
+-    }
+-
+-  private:
+-    diagnostics::sink &m_sink;
+-  } m_event_subscriber;
+-};
+-
+-std::unique_ptr<diagnostics::sink::extension>
+-compiler_extension_factory::make_analyzer_graphs_extension (diagnostics::sink &sink) const
+-{
+-  return std::make_unique<analyzer_sink_extension> (sink);
+-}
+diff --git a/gcc/analyzer/common.h b/gcc/analyzer/common.h
+index 3ffcebd69c03..ac66aab6c94c 100644
+--- a/gcc/analyzer/common.h
++++ b/gcc/analyzer/common.h
+@@ -713,15 +713,6 @@ struct on_frame_popped
+   ana::region_model_context *m_ctxt;
+ };
+ 
+-/* A message published by the analyzer when it has finished and is about
+-   to clean up.  */
+-
+-struct on_ana_done
+-{
+-  const ana::engine &m_engine;
+-  const ana::exploded_graph &m_eg;
+-};
+-
+ struct subscriber {
+ 
+   virtual ~subscriber () = default;
+@@ -729,7 +720,6 @@ struct subscriber {
+   virtual void on_message (const on_tu_finished &) {}
+   virtual void on_message (const on_ana_init &) {}
+   virtual void on_message (const on_frame_popped &) {}
+-  virtual void on_message (const on_ana_done &) {}
+ };
+ 
+ } // namespace gcc::topics::analyzer_events
+diff --git a/gcc/analyzer/diagnostic-manager.cc b/gcc/analyzer/diagnostic-manager.cc
+index 2e7acba09109..41b4c2a75a9f 100644
+--- a/gcc/analyzer/diagnostic-manager.cc
++++ b/gcc/analyzer/diagnostic-manager.cc
+@@ -767,19 +767,8 @@ saved_diagnostic::to_json () const
+     sd_obj->set ("state", m_state->to_json ());
+   if (m_best_epath)
+     sd_obj->set_integer ("path_length", get_epath_length ());
+-  sd_obj->set<json::object> ("pending_diagnostic", m_d->to_json ());
++  sd_obj->set_string ("pending_diagnostic", m_d->get_kind ());
+   sd_obj->set_integer ("idx", m_idx);
+-  if (m_problem)
+-    sd_obj->set<json::object> ("feasibility_problem", m_problem->to_json ());
+-  if (!m_duplicates.is_empty ())
+-    {
+-      auto arr = std::make_unique<json::array> ();
+-
+-      for (auto &dup : m_duplicates)
+-	arr->append (std::make_unique <json::integer_number> (dup->m_idx));
+-
+-      sd_obj->set<json::array> ("duplicates", std::move (arr));
+-    }
+ 
+   return sd_obj;
+ }
+diff --git a/gcc/analyzer/engine.cc b/gcc/analyzer/engine.cc
+index a42350531b4b..c8a7dcef730e 100644
+--- a/gcc/analyzer/engine.cc
++++ b/gcc/analyzer/engine.cc
+@@ -1915,181 +1915,6 @@ exploded_edge::maybe_get_op () const
+   return m_sedge->get_op ();
+ }
+ 
+-/* A way to export the exploded_graph as a diagnostics::digraphs::digraph,
+-   and thus to export it to SARIF diagnostic sinks.  */
+-
+-class exploded_graph_diagnostic_digraph : public diagnostics::digraphs::digraph
+-{
+-public:
+-  exploded_graph_diagnostic_digraph (const exploded_graph &eg)
+-  : m_eg (eg)
+-  {
+-    set_graph_kind ("exploded_graph");
+-
+-    int i;
+-    exploded_node *n;
+-    FOR_EACH_VEC_ELT (m_eg.m_nodes, i, n)
+-      add_node_for_enode (*n);
+-
+-    exploded_edge *e;
+-    FOR_EACH_VEC_ELT (m_eg.m_edges, i, e)
+-      add_edge_for_eedge (*e);
+-
+-    const json::json_property worklist_prop
+-      ("gcc/analyzer/exploded_graph/worklist");
+-    set_property (worklist_prop,
+-		  m_eg.get_worklist ().to_json ());
+-
+-    /* The following are global, rather than part of the
+-       exploded graph; we add them as part of the exploded graph's
+-       diagnostic digraph for convenience.  */
+-
+-    // TODO: analysis_plan
+-
+-    const json::json_property diagnostic_manager_prop
+-      ("gcc/analyzer/diagnostic_manager");
+-    set_property (diagnostic_manager_prop,
+-		  m_eg.get_diagnostic_manager ().to_json ());
+-
+-    auto model_mgr = m_eg.get_ext_state ().get_model_manager ();
+-
+-    const json::json_property known_functions_prop
+-      ("gcc/analyzer/known_functions");
+-    set_property (known_functions_prop,
+-		  model_mgr->get_known_function_manager ()->to_json ());
+-
+-    const json::json_property ext_state_prop
+-      ("gcc/analyzer/extrinsic_state");
+-    set_property (ext_state_prop,
+-		  m_eg.get_ext_state ().to_json ());
+-  }
+-
+-private:
+-  void
+-  add_node_for_enode (const exploded_node &enode)
+-  {
+-    pretty_printer pp;
+-    enode.dump_dot_id (&pp);
+-    auto node_for_enode
+-      = std::make_unique<diagnostics::digraphs::node> (*this,
+-						       pp_formatted_text (&pp));
+-
+-    if (auto fun = enode.get_function ())
+-      node_for_enode->set_logical_loc
+-	(tree_logical_location_manager::key_from_tree (fun->decl));
+-    node_for_enode->set_physical_loc (enode.get_location ());
+-
+-    auto &point = enode.get_point ();
+-    if (auto snode = point.get_supernode ())
+-      {
+-	const json::string_property enode_prop_supernode
+-	  ("gcc/analyzer/exploded_node/supernode");
+-	pretty_printer pp;
+-	snode->dump_dot_id (&pp);
+-	node_for_enode->set_property
+-	  (enode_prop_supernode,
+-	   pp_formatted_text (&pp));
+-      }
+-
+-    auto &cs = point.get_call_string ();
+-    auto cs_arr = std::make_unique<json::array> ();
+-    for (int i = 0; i < cs.length (); ++i)
+-      {
+-	auto e = cs[i];
+-	auto obj = std::make_unique<json::object> ();
+-
+-	{
+-	  pretty_printer pp;
+-	  e.m_call_sedge->m_src->dump_dot_id (&pp);
+-	  obj->set_string ("source supernode", pp_formatted_text (&pp));
+-	}
+-	{
+-	  pretty_printer pp;
+-	  e.m_call_sedge->m_dest->dump_dot_id (&pp);
+-	  obj->set_string ("destination supernode", pp_formatted_text (&pp));
+-	}
+-	{
+-	  pretty_printer pp;
+-	  pp_format_decoder (&pp) = default_tree_printer;
+-	  e.m_call_op->print_as_edge_label (&pp, false);
+-	  obj->set_string ("call operation", pp_formatted_text (&pp));
+-	}
+-	cs_arr->append (std::move (obj));
+-      }
+-    const json::json_property enode_prop_call_string
+-      ("gcc/analyzer/exploded_node/call_string");
+-    node_for_enode->set_property (enode_prop_call_string,
+-				  std::move (cs_arr));
+-
+-    const json::json_property enode_prop_program_state
+-      ("gcc/analyzer/exploded_node/program_state");
+-    node_for_enode->set_property
+-      (enode_prop_program_state,
+-       enode.get_state ().to_json (m_eg.get_ext_state ()));
+-
+-    const json::string_property enode_prop_status
+-      ("gcc/analyzer/exploded_node/status");
+-    node_for_enode->set_property
+-      (enode_prop_status,
+-       exploded_node::status_to_str (enode.get_status ()));
+-
+-    m_node_for_enode.insert ({&enode, node_for_enode.get ()});
+-    add_node (std::move (node_for_enode));
+-  }
+-
+-  void
+-  add_edge_for_eedge (const exploded_edge &eedge)
+-  {
+-    diagnostics::digraphs::node *src_node
+-      = get_node_for_enode (eedge.m_src);
+-    diagnostics::digraphs::node *dst_node
+-      = get_node_for_enode (eedge.m_dest);
+-    auto e = std::make_unique<diagnostics::digraphs::edge> (*this,
+-							    nullptr,
+-							    *src_node,
+-							    *dst_node);
+-    if (auto *sedge = eedge.m_sedge)
+-      {
+-	const json::string_property eedge_prop_superedge
+-	  ("gcc/analyzer/exploded_edge/superedge");
+-	pretty_printer pp;
+-	pp_format_decoder (&pp) = default_tree_printer;
+-	sedge->dump_label_to_pp (&pp, false);
+-	e->set_property (eedge_prop_superedge,
+-			 pp_formatted_text (&pp));
+-      }
+-    if (auto *custom_info = eedge.m_custom_info.get ())
+-      {
+-	const json::string_property eedge_prop_custom_edge_info
+-	  ("gcc/analyzer/exploded_edge/custom_edge_info");
+-	pretty_printer pp;
+-	pp_format_decoder (&pp) = default_tree_printer;
+-	custom_info->print (&pp);
+-	e->set_property (eedge_prop_custom_edge_info,
+-			 pp_formatted_text (&pp));
+-      }
+-    add_edge (std::move (e));
+-  }
+-
+-  diagnostics::digraphs::node *
+-  get_node_for_enode (const exploded_node *enode)
+-  {
+-    auto iter = m_node_for_enode.find (enode);
+-    gcc_assert (iter != m_node_for_enode.end ());
+-    return iter->second;
+-  }
+-
+-  const exploded_graph &m_eg;
+-  std::map<const exploded_node *,
+-	   diagnostics::digraphs::node *> m_node_for_enode;
+-};
+-
+-std::unique_ptr<diagnostics::digraphs::digraph>
+-exploded_graph::make_diagnostics_digraph () const
+-{
+-  return std::make_unique<exploded_graph_diagnostic_digraph> (*this);
+-}
+-
+ /* struct stats.  */
+ 
+ /* stats' ctor.  */
+@@ -3956,20 +3781,6 @@ feasibility_problem::dump_to_pp (pretty_printer *pp) const
+     }
+ }
+ 
+-std::unique_ptr<json::object>
+-feasibility_problem::to_json () const
+-{
+-  auto obj = std::make_unique<json::object> ();
+-
+-  obj->set_integer ("eedge_idx", m_eedge_idx);
+-  obj->set_integer ("eedge src enode", m_eedge.m_src->m_index);
+-  obj->set_integer ("eedge dst enode", m_eedge.m_dest->m_index);
+-  if (m_rc)
+-    obj->set <json::object> ("rejected_constraint", m_rc->to_json ());
+-
+-  return obj;
+-}
+-
+ /* class feasibility_state.  */
+ 
+ /* Ctor for feasibility_state, at the beginning of a path.  */
+@@ -4758,11 +4569,8 @@ private:
+ 		    const char *compass_pt) const
+   {
+     if (const supernode *snode = enode.get_supernode ())
+-      {
+-	snode->dump_dot_id (pp);
+-	pp_printf (pp, ":en_%i:%s",
+-		   enode.m_index, compass_pt);
+-      }
++      pp_printf (pp, "node_%i:en_%i:%s",
++		 snode->m_id, enode.m_index, compass_pt);
+     else
+       pp_printf (pp, "en_%i:%s",
+ 		 enode.m_index, compass_pt);
+@@ -5078,10 +4886,6 @@ impl_run_checkers (logger *logger)
+   if (flag_dump_analyzer_untracked)
+     eng.get_model_manager ()->dump_untracked_regions ();
+ 
+-  if (auto channel
+-	= g->get_channels ().analyzer_events_channel.get_if_active ())
+-    channel->publish (gcc::topics::analyzer_events::on_ana_done {eng, eg});
+-
+   delete purge_map;
+ 
+   /* Free up any dominance info that we may have created.  */
+diff --git a/gcc/analyzer/exploded-graph.h b/gcc/analyzer/exploded-graph.h
+index 43166599067d..c33bd476c9d0 100644
+--- a/gcc/analyzer/exploded-graph.h
++++ b/gcc/analyzer/exploded-graph.h
+@@ -899,12 +899,6 @@ public:
+   exploded_node *find_previous_entry_to (function *top_of_stack_fun,
+ 					 exploded_node *enode) const;
+ 
+-  std::unique_ptr<diagnostics::digraphs::digraph>
+-  make_diagnostics_digraph () const;
+-
+-  const worklist &
+-  get_worklist () const { return m_worklist; }
+-
+ private:
+   void print_bar_charts (pretty_printer *pp) const;
+ 
+@@ -969,9 +963,6 @@ public:
+ 
+   void dump_to_pp (pretty_printer *pp) const;
+ 
+-  std::unique_ptr<json::object>
+-  to_json () const;
+-
+   unsigned m_eedge_idx;
+   const exploded_edge &m_eedge;
+   std::unique_ptr<rejected_constraint> m_rc;
+diff --git a/gcc/analyzer/known-function-manager.cc b/gcc/analyzer/known-function-manager.cc
+index db190eab6aa7..679fe1a70158 100644
+--- a/gcc/analyzer/known-function-manager.cc
++++ b/gcc/analyzer/known-function-manager.cc
+@@ -192,50 +192,6 @@ known_function_manager::get_by_identifier_in_std_ns (tree identifier) const
+     return nullptr;
+ }
+ 
+-static std::unique_ptr<json::array>
+-get_keys_as_json (const hash_map<tree, known_function *> &map)
+-{
+-  std::vector<std::string> vec_keys;
+-  for (const auto &iter : map)
+-    vec_keys.push_back (IDENTIFIER_POINTER (iter.first));
+-
+-  std::sort (vec_keys.begin (), vec_keys.end ());
+-
+-  auto arr = std::make_unique<json::array> ();
+-  for (auto iter : vec_keys)
+-    arr->append_string (iter.c_str ());
+-  return arr;
+-}
+-
+-std::unique_ptr<json::object>
+-known_function_manager::to_json () const
+-{
+-  auto obj = std::make_unique<json::object> ();
+-
+-  obj->set ("root_ns", get_keys_as_json (m_map_id_to_kf));
+-  obj->set ("std_ns", get_keys_as_json (m_std_ns_map_id_to_kf));
+-
+-  // Built-in functions
+-  // TODO: needs bulletproofing of combined_fn_name
+-  if (0)
+-    {
+-      std::vector<std::string> vec_keys;
+-      for (int i = 0; i < CFN_LAST; ++i)
+-	if (m_combined_fns_arr[i])
+-	  vec_keys.push_back
+-	    (combined_fn_name (static_cast<enum combined_fn> (i)));
+-
+-      std::sort (vec_keys.begin (), vec_keys.end ());
+-
+-      auto arr = std::make_unique<json::array> ();
+-      for (auto iter : vec_keys)
+-	arr->append_string (iter.c_str ());
+-      obj->set ("builtin_fns", std::move (arr));
+-    }
+-
+-  return obj;
+-}
+-
+ 
+ } // namespace ana
+ 
+diff --git a/gcc/analyzer/known-function-manager.h b/gcc/analyzer/known-function-manager.h
+index 5cc84196a797..6abcfab2b2e6 100644
+--- a/gcc/analyzer/known-function-manager.h
++++ b/gcc/analyzer/known-function-manager.h
+@@ -51,8 +51,6 @@ public:
+   const known_function *get_match (tree fndecl, const call_details &cd) const;
+   const known_function *get_internal_fn (enum internal_fn) const;
+ 
+-  std::unique_ptr<json::object> to_json () const;
+-
+ private:
+   DISABLE_COPY_AND_ASSIGN (known_function_manager);
+ 
+diff --git a/gcc/analyzer/ops.cc b/gcc/analyzer/ops.cc
+index 6d7b23b7e98f..382edf7144ef 100644
+--- a/gcc/analyzer/ops.cc
++++ b/gcc/analyzer/ops.cc
+@@ -1948,10 +1948,6 @@ public:
+   {
+     pp_printf (pp, "rejected_eh_dispatch");
+   }
+-  std::unique_ptr<json::object> to_json () const final override
+-  {
+-    return rejected_constraint::make_base_json ("rejected_eh_dispatch");
+-  }
+ };
+ 
+ static bool
+diff --git a/gcc/analyzer/pending-diagnostic.cc b/gcc/analyzer/pending-diagnostic.cc
+index 87b6060771b4..778b5baec7a8 100644
+--- a/gcc/analyzer/pending-diagnostic.cc
++++ b/gcc/analyzer/pending-diagnostic.cc
+@@ -22,7 +22,6 @@ along with GCC; see the file COPYING3.  If not see
+ 
+ #include "diagnostics/event-id.h"
+ #include "diagnostics/logging.h"
+-#include "diagnostics/sarif-sink.h"
+ #include "cpplib.h"
+ #include "digraph.h"
+ #include "ordered-hash-map.h"
+@@ -153,16 +152,6 @@ diagnostic_emission_context::inform (const char *gmsgid, ...)
+   va_end (ap);
+ }
+ 
+-std::unique_ptr<json::object>
+-pending_diagnostic::to_json () const
+-{
+-  /* maybe_add_sarif_properties assumes a sarif_object, so use one here.  */
+-  auto obj = std::make_unique<diagnostics::sarif_object> ();
+-  obj->set_string ("kind", get_kind ());
+-  maybe_add_sarif_properties (*obj);
+-  return obj;
+-}
+-
+ /* Return true if T1 and T2 are "the same" for the purposes of
+    diagnostic deduplication.  */
+ 
+diff --git a/gcc/analyzer/pending-diagnostic.h b/gcc/analyzer/pending-diagnostic.h
+index f97e995339c8..900a229c19dc 100644
+--- a/gcc/analyzer/pending-diagnostic.h
++++ b/gcc/analyzer/pending-diagnostic.h
+@@ -276,8 +276,6 @@ class pending_diagnostic
+   /* Hand-coded RTTI: get an ID for the subclass.  */
+   virtual const char *get_kind () const = 0;
+ 
+-  virtual std::unique_ptr<json::object> to_json () const;
+-
+   /* A vfunc for identifying "use of uninitialized value".  */
+   virtual bool use_of_uninit_p () const { return false; }
+ 
+diff --git a/gcc/analyzer/region-model.cc b/gcc/analyzer/region-model.cc
+index 361b06073474..09c3eb5aead8 100644
+--- a/gcc/analyzer/region-model.cc
++++ b/gcc/analyzer/region-model.cc
+@@ -7495,17 +7495,6 @@ debug (const region_model &rmodel)
+   rmodel.dump (false);
+ }
+ 
+-// class rejected_constraint
+-
+-std::unique_ptr<json::object>
+-rejected_constraint::make_base_json (const char *kind) const
+-{
+-  auto obj = std::make_unique<json::object> ();
+-  obj->set_string ("kind", kind);
+-  obj->set<json::object> ("region_model", m_model.to_json ());
+-  return obj;
+-}
+-
+ /* class rejected_op_constraint : public rejected_constraint.  */
+ 
+ void
+@@ -7517,16 +7506,6 @@ rejected_op_constraint::dump_to_pp (pretty_printer *pp) const
+   m_rhs->dump_to_pp (pp, true);
+ }
+ 
+-std::unique_ptr<json::object>
+-rejected_op_constraint::to_json () const
+-{
+-  auto obj = rejected_constraint::make_base_json ("rejected_op_constraint");
+-  obj->set<json::value> ("lhs", m_lhs->to_json ());
+-  obj->set_string ("op", op_symbol_code (m_op));
+-  obj->set<json::value> ("rhs", m_rhs->to_json ());
+-  return obj;
+-}
+-
+ /* class rejected_default_case : public rejected_constraint.  */
+ 
+ void
+@@ -7535,12 +7514,6 @@ rejected_default_case::dump_to_pp (pretty_printer *pp) const
+   pp_string (pp, "implicit default for enum");
+ }
+ 
+-std::unique_ptr<json::object>
+-rejected_default_case::to_json () const
+-{
+-  return rejected_constraint::make_base_json ("rejected_default_case");
+-}
+-
+ /* class rejected_ranges_constraint : public rejected_constraint.  */
+ 
+ void
+@@ -7553,16 +7526,6 @@ rejected_ranges_constraint::dump_to_pp (pretty_printer *pp) const
+   m_ranges->dump_to_pp (pp, true);
+ }
+ 
+-std::unique_ptr<json::object>
+-rejected_ranges_constraint::to_json () const
+-{
+-  auto obj = rejected_constraint::make_base_json ("rejected_ranges_constraint");
+-  if (m_expr)
+-    obj->set ("expr", tree_to_json (m_expr));
+-  obj->set<json::value> ("ranges", m_ranges->to_json ());
+-  return obj;
+-}
+-
+ /* class engine.  */
+ 
+ /* engine's ctor.  */
+diff --git a/gcc/analyzer/region-model.h b/gcc/analyzer/region-model.h
+index 90aed12d0769..22a57a847357 100644
+--- a/gcc/analyzer/region-model.h
++++ b/gcc/analyzer/region-model.h
+@@ -1261,7 +1261,6 @@ class rejected_constraint
+ public:
+   virtual ~rejected_constraint () {}
+   virtual void dump_to_pp (pretty_printer *pp) const = 0;
+-  virtual std::unique_ptr<json::object> to_json () const = 0;
+ 
+   const region_model &get_model () const { return m_model; }
+ 
+@@ -1270,9 +1269,6 @@ protected:
+   : m_model (model)
+   {}
+ 
+-  std::unique_ptr<json::object>
+-  make_base_json (const char *kind) const;
+-
+   region_model m_model;
+ };
+ 
+@@ -1286,7 +1282,6 @@ public:
+   {}
+ 
+   void dump_to_pp (pretty_printer *pp) const final override;
+-  std::unique_ptr<json::object> to_json () const final override;
+ 
+   const svalue *m_lhs;
+   enum tree_code m_op;
+@@ -1301,7 +1296,6 @@ public:
+   {}
+ 
+   void dump_to_pp (pretty_printer *pp) const final override;
+-  std::unique_ptr<json::object> to_json () const final override;
+ };
+ 
+ class rejected_ranges_constraint : public rejected_constraint
+@@ -1314,7 +1308,6 @@ public:
+   {}
+ 
+   void dump_to_pp (pretty_printer *pp) const final override;
+-  std::unique_ptr<json::object> to_json () const final override;
+ 
+ private:
+   tree m_expr;
+diff --git a/gcc/analyzer/supergraph.cc b/gcc/analyzer/supergraph.cc
+index b9b5e70795a1..81b337fd7ff1 100644
+--- a/gcc/analyzer/supergraph.cc
++++ b/gcc/analyzer/supergraph.cc
+@@ -31,10 +31,8 @@ along with GCC; see the file COPYING3.  If not see
+ #include "tree-cfg.h"
+ #include "cfganal.h"
+ #include "except.h"
+-#include "tree-logical-location.h"
+ 
+ #include "diagnostics/file-cache.h"
+-#include "diagnostics/digraphs.h"
+ 
+ #include "analyzer/supergraph.h"
+ #include "analyzer/analyzer-logging.h"
+@@ -556,191 +554,6 @@ supergraph::dump_dot (const char *path, const dump_args_t &dump_args) const
+   fclose (fp);
+ }
+ 
+-/* A way to export the supergraph as a diagnostics::digraphs::digraph, and thus
+-   to export it to SARIF diagnostic sinks.  */
+-
+-class supergraph_diagnostic_digraph : public diagnostics::digraphs::digraph
+-{
+-public:
+-  supergraph_diagnostic_digraph (const supergraph &sg)
+-  : m_sg (sg)
+-  {
+-    set_graph_kind ("supergraph");
+-
+-    /* TODO: maybe (optionally) sub-subdivide by TU, for LTO; see also:
+-       https://gcc-python-plugin.readthedocs.io/en/latest/_images/sample-supergraph.png
+-    */
+-
+-    /* Break out the supernodes into clusters by function.  */
+-    {
+-      cgraph_node *node;
+-      FOR_EACH_FUNCTION_WITH_GIMPLE_BODY (node)
+-	{
+-	  function *fun = node->get_fun ();
+-	  gcc_assert (fun);
+-	  auto_cfun sentinel (fun);
+-	  const char *funcname = function_name (fun);
+-	  pretty_printer pp;
+-	  pp_printf (&pp, "cluster for %s", funcname);
+-	  std::string id = pp_formatted_text (&pp);
+-
+-	  auto diag_node_for_func
+-	    = std::make_unique<diagnostics::digraphs::node> (*this, id);
+-	  diag_node_for_func->set_logical_loc
+-	    (tree_logical_location_manager::key_from_tree (fun->decl));
+-
+-	  if (loops_for_fn (fun))
+-	    add_nodes_for_loop (diag_node_for_func.get (),
+-				get_loop (fun, 0),
+-				fun);
+-	  else
+-	    {
+-	      basic_block bb;
+-	      FOR_ALL_BB_FN (bb, fun)
+-		add_nodes_for_bb (*diag_node_for_func, bb, fun);
+-	    }
+-
+-	  add_node (std::move (diag_node_for_func));
+-	}
+-    }
+-
+-    /* Superedges.  */
+-    int i;
+-    superedge *e;
+-    FOR_EACH_VEC_ELT (m_sg.m_edges, i, e)
+-      add_edge_for_superedge (*e);
+-  }
+-
+-private:
+-  /* Recursively add nodes into PARENT for all the snodes within LOOP
+-     and the loops within it.  */
+-  void
+-  add_nodes_for_loop (diagnostics::digraphs::node *parent,
+-		      class loop *loop,
+-		      function *fun)
+-  {
+-    gcc_assert (parent);
+-    gcc_assert (loop);
+-    gcc_assert (fun);
+-
+-    basic_block *body;
+-    unsigned int i;
+-
+-    if (loop->header != NULL
+-	&& loop->latch != EXIT_BLOCK_PTR_FOR_FN (cfun))
+-      {
+-	pretty_printer pp;
+-	pp_printf (&pp, "cluster for loop %d of %d",
+-		   loop->num, fun->funcdef_no);
+-
+-	auto loop_node
+-	  = std::make_unique<diagnostics::digraphs::node> (*this,
+-							   pp_formatted_text (&pp));
+-	loop_node->set_logical_loc
+-	  (tree_logical_location_manager::key_from_tree (fun->decl));
+-
+-	auto new_parent = loop_node.get ();
+-	parent->add_child (std::move (loop_node));
+-	parent = new_parent;
+-      }
+-
+-    // Recurse
+-    for (class loop *inner = loop->inner; inner; inner = inner->next)
+-      add_nodes_for_loop (parent, inner, fun);
+-
+-    if (loop->header == nullptr)
+-      return;
+-
+-    if (loop->latch == EXIT_BLOCK_PTR_FOR_FN (cfun))
+-      body = get_loop_body (loop);
+-    else
+-      body = get_loop_body_in_bfs_order (loop);
+-
+-    for (i = 0; i < loop->num_nodes; i++)
+-      {
+-	basic_block bb = body[i];
+-	if (bb->loop_father == loop)
+-	  add_nodes_for_bb (*parent, bb, fun);
+-      }
+-
+-    free (body);
+-  }
+-
+-  /* Add nodes for all the snodes from BB.  */
+-  void
+-  add_nodes_for_bb (diagnostics::digraphs::node &parent,
+-		    basic_block bb,
+-		    function *fun)
+-  {
+-    pretty_printer pp;
+-    const char *funcname = function_name (fun);
+-    pp_printf (&pp, "%s_bb_%i", funcname, bb->index);
+-    auto node_for_bb
+-      = std::make_unique<diagnostics::digraphs::node> (*this,
+-						       pp_formatted_text (&pp));
+-    node_for_bb->set_logical_loc
+-      (tree_logical_location_manager::key_from_tree (fun->decl));
+-
+-    // TODO: maybe keep an index per-function/per-bb to speed this up???
+-    int i;
+-    supernode *snode;
+-    FOR_EACH_VEC_ELT (m_sg.m_nodes, i, snode)
+-      if (snode->m_fun == fun && snode->m_bb == bb)
+-	add_node_for_supernode (*node_for_bb, *snode);
+-    parent.add_child (std::move (node_for_bb));
+-  }
+-
+-  void
+-  add_node_for_supernode (diagnostics::digraphs::node &bb_node,
+-			  const supernode &snode)
+-  {
+-    pretty_printer pp;
+-    snode.dump_dot_id (&pp);
+-    auto node_for_snode
+-      = std::make_unique<diagnostics::digraphs::node> (*this,
+-						       pp_formatted_text (&pp));
+-    m_node_for_snode.insert ({&snode, node_for_snode.get ()});
+-
+-    node_for_snode->set_logical_loc
+-      (tree_logical_location_manager::key_from_tree (snode.m_fun->decl));
+-    /* TODO: if we have an m_label, it would be nice to use this as the
+-       logical location, within the function.  However SARIF doesn't support
+-       this yet (https://github.com/oasis-tcs/sarif-spec/issues/802).  */
+-
+-    node_for_snode->set_physical_loc (snode.m_loc);
+-
+-    bb_node.add_child (std::move (node_for_snode));
+-  }
+-
+-  void
+-  add_edge_for_superedge (const superedge &sedge)
+-  {
+-    diagnostics::digraphs::node *src_node
+-      = get_node_for_snode (sedge.m_src);
+-    diagnostics::digraphs::node *dst_node
+-      = get_node_for_snode (sedge.m_dest);
+-    label_text desc = sedge.get_description (false);
+-    add_edge (nullptr, *src_node, *dst_node, desc.get ());
+-  }
+-
+-  diagnostics::digraphs::node *
+-  get_node_for_snode (const supernode *snode)
+-  {
+-    auto iter = m_node_for_snode.find (snode);
+-    gcc_assert (iter != m_node_for_snode.end ());
+-    return iter->second;
+-  }
+-
+-  const supergraph &m_sg;
+-  std::map<const supernode *, diagnostics::digraphs::node *> m_node_for_snode;
+-};
+-
+-std::unique_ptr<diagnostics::digraphs::digraph>
+-supergraph::make_diagnostics_digraph () const
+-{
+-  return std::make_unique<supergraph_diagnostic_digraph> (*this);
+-}
+-
+ /* Return a new json::object of the form
+    {"nodes" : [objs for snodes],
+     "edges" : [objs for sedges]}.  */
+@@ -1085,7 +898,7 @@ supernode::dump_dot (graphviz_out *gv, const dump_args_t &args) const
+ void
+ supernode::dump_dot_id (pretty_printer *pp) const
+ {
+-  pp_printf (pp, "supernode_%i", m_id);
++  pp_printf (pp, "node_%i", m_id);
+ }
+ 
+ /* Return a new json::object of the form
+diff --git a/gcc/analyzer/supergraph.h b/gcc/analyzer/supergraph.h
+index 7936b66c166e..c90dedbaff50 100644
+--- a/gcc/analyzer/supergraph.h
++++ b/gcc/analyzer/supergraph.h
+@@ -173,9 +173,6 @@ public:
+ 
+   supernode *add_node (function *fun, basic_block bb, logger *logger);
+ 
+-  std::unique_ptr<diagnostics::digraphs::digraph>
+-  make_diagnostics_digraph () const;
+-
+ private:
+   gimple *
+   populate_for_basic_block (basic_block bb,
+diff --git a/gcc/diagnostics/sarif-sink.cc b/gcc/diagnostics/sarif-sink.cc
+index fad4e5cde8c7..834b6aec3adf 100644
+--- a/gcc/diagnostics/sarif-sink.cc
++++ b/gcc/diagnostics/sarif-sink.cc
+@@ -2971,7 +2971,7 @@ make_sarif_node (const digraphs::node &n,
+   auto result = std::make_unique<sarif_node> ();
+ 
+   // 3.40.2 id property
+-  result->set_string ("id", n.get_id ());
++  result->set_string ("id", n.get_id ().c_str ());
+ 
+   copy_any_property_bag (n, *result);
+ 
+@@ -3019,7 +3019,7 @@ make_sarif_edge (const digraphs::edge &e,
+   auto result = std::make_unique<sarif_edge> ();
+ 
+   // 3.41.2 id property
+-  result->set_string ("id", e.get_id ());
++  result->set_string ("id", e.get_id ().c_str ());
+ 
+   copy_any_property_bag (e, *result);
+ 
+@@ -3030,10 +3030,10 @@ make_sarif_edge (const digraphs::edge &e,
+ 				  builder->make_message_object (label));
+ 
+   // 3.41.4 sourceNodeId property
+-  result->set_string ("sourceNodeId", e.get_src_node ().get_id ());
++  result->set_string ("sourceNodeId", e.get_src_node ().get_id ().c_str ());
+ 
+   // 3.41.5 targetNodeId property
+-  result->set_string ("targetNodeId", e.get_dst_node ().get_id ());
++  result->set_string ("targetNodeId", e.get_dst_node ().get_id ().c_str ());
+ 
+   return result;
+ }
+@@ -3316,7 +3316,7 @@ set_string_property_escaping_braces (json::object &obj,
+ 				     const char *value)
+ {
+   std::string escaped (escape_braces (value));
+-  obj.set_string (property_name, escaped);
++  obj.set_string (property_name, escaped.c_str ());
+ }
+ 
+ /* Make a "message" object (SARIF v2.1.0 section 3.11) for MSG.  */
+diff --git a/gcc/doc/invoke.texi b/gcc/doc/invoke.texi
+index 60d7163eee35..41be82cb8a5d 100644
+--- a/gcc/doc/invoke.texi
++++ b/gcc/doc/invoke.texi
+@@ -6522,12 +6522,6 @@ This is a debugging feature and defaults to @code{no}.
+ If @code{state-graphs=yes}, then attempt to capture detailed state
+ information from @option{-fanalyzer} in the generated SARIF.
+ 
+-@item analyzer-graphs=@r{[}yes@r{|}no@r{]}
+-This is a debugging feature and defaults to @code{no}.
+-If @code{analyzer-graphs=yes}, then attempt to capture detailed
+-information about the analysis by @option{-fanalyzer} in the
+-generated SARIF.
+-
+ @end table
+ 
+ @opindex fdiagnostics-add-output=experimental-html
+diff --git a/gcc/json.cc b/gcc/json.cc
+index c776d02d3351..bff9afffb892 100644
+--- a/gcc/json.cc
++++ b/gcc/json.cc
+@@ -18,7 +18,6 @@ You should have received a copy of the GNU General Public License
+ along with GCC; see the file COPYING3.  If not see
+ <http://www.gnu.org/licenses/>.  */
+ 
+-#define INCLUDE_STRING
+ #include "config.h"
+ #include "system.h"
+ #include "coretypes.h"
+@@ -430,16 +429,6 @@ object::set_string (const char *key, const char *utf8_value)
+   return str;
+ }
+ 
+-/* As above, but taking a std::string.  */
+-
+-const json::string *
+-object::set_string (const char *key, std::string utf8_value)
+-{
+-  json::string *str = new json::string (utf8_value.c_str ());
+-  set (key, str);
+-  return str;
+-}
+-
+ /* Set value of KEY within this object to a JSON
+    integer value based on V.
+    Return a borrowed ptr to the new json::integer_number.  */
+diff --git a/gcc/json.h b/gcc/json.h
+index e32cd99d08a3..3d79e2a023cb 100644
+--- a/gcc/json.h
++++ b/gcc/json.h
+@@ -223,7 +223,6 @@ class object : public value
+   const map_t &get_map () const { return m_map; }
+ 
+   const json::string *set_string (const char *key, const char *utf8_value);
+-  const json::string *set_string (const char *key, std::string utf8_value);
+   const json::integer_number *set_integer (const char *key, long v);
+   void set_float (const char *key, double v);
+ 
+diff --git a/gcc/opts-diagnostic.cc b/gcc/opts-diagnostic.cc
+index b1ca4c610fc9..594f735a8c67 100644
+--- a/gcc/opts-diagnostic.cc
++++ b/gcc/opts-diagnostic.cc
+@@ -49,8 +49,7 @@ class gcc_extra_keys : public diagnostics::output_spec::key_handler
+ {
+ public:
+   gcc_extra_keys ()
+-  : m_analyzer_graphs (false),
+-    m_cfgs (false)
++  : m_cfgs (false)
+   {
+   }
+   enum result
+@@ -58,8 +57,6 @@ public:
+ 		   const std::string &key,
+ 		   const std::string &value) final override
+   {
+-    if (key == "analyzer-graphs")
+-      return parse_bool_value (ctxt, key, value, m_analyzer_graphs);
+     if (key == "cfgs")
+       return parse_bool_value (ctxt, key, value, m_cfgs);
+     return result::unrecognized;
+@@ -68,11 +65,9 @@ public:
+   void
+   get_keys (auto_vec<const char *> &out_known_keys) const final override
+   {
+-    out_known_keys.safe_push ("analyzer-graphs");
+     out_known_keys.safe_push ("cfgs");
+   }
+ 
+-  bool m_analyzer_graphs;
+   bool m_cfgs;
+ };
+ 
+@@ -112,8 +107,6 @@ handle_gcc_specific_keys (const gcc_extra_keys &gcc_keys,
+ {
+   if (gcc_keys.m_cfgs)
+     sink.add_extension (ext_factory.make_cfg_extension (sink));
+-  if (gcc_keys.m_analyzer_graphs)
+-    sink.add_extension (ext_factory.make_analyzer_graphs_extension (sink));
+ }
+ 
+ static std::unique_ptr<diagnostics::sink>
+diff --git a/gcc/opts-diagnostic.h b/gcc/opts-diagnostic.h
+index 224caa65e595..6c2b25d63428 100644
+--- a/gcc/opts-diagnostic.h
++++ b/gcc/opts-diagnostic.h
+@@ -73,9 +73,6 @@ public:
+   virtual std::unique_ptr<diagnostics::sink::extension>
+   make_cfg_extension (diagnostics::sink &sink) const = 0;
+ 
+-  virtual std::unique_ptr<diagnostics::sink::extension>
+-  make_analyzer_graphs_extension (diagnostics::sink &sink) const = 0;
+-
+   static const gcc_extension_factory *singleton;
+ };
+ 
+diff --git a/gcc/testsuite/gcc.dg/analyzer/sarif-analyzer-graphs.c b/gcc/testsuite/gcc.dg/analyzer/sarif-analyzer-graphs.c
+deleted file mode 100644
+index 5beeb88aeb4b..000000000000
+--- a/gcc/testsuite/gcc.dg/analyzer/sarif-analyzer-graphs.c
++++ /dev/null
+@@ -1,18 +0,0 @@
+-/* Smoketest for the "analyzer-graphs=yes" option to the sarif
+-   diagnostic sink.  */
+-
+-/* { dg-additional-options "-fdiagnostics-add-output=sarif:analyzer-graphs=yes" } */
+-
+-void double_free (int flag, void *p)
+-{
+-  if (flag)
+-    __builtin_free (p);
+-  __builtin_free (p); /* { dg-warning "double-'free' of 'p'" } */
+-}
+-
+-/* Verify that some JSON was written to a file with the expected name.  */
+-/* { dg-final { verify-sarif-file } } */
+-
+-/* Use a Python script to verify various properties about the generated
+-   .sarif file:
+-   { dg-final { run-sarif-pytest sarif-analyzer-graphs.c "sarif-analyzer-graphs.py" } } */
+diff --git a/gcc/testsuite/gcc.dg/analyzer/sarif-analyzer-graphs.py b/gcc/testsuite/gcc.dg/analyzer/sarif-analyzer-graphs.py
+deleted file mode 100644
+index 3be5fb910657..000000000000
+--- a/gcc/testsuite/gcc.dg/analyzer/sarif-analyzer-graphs.py
++++ /dev/null
+@@ -1,53 +0,0 @@
+-"""
+-Smoketest for the "analyzer-graphs=yes" option to the sarif
+-diagnostic sink.
+-"""
+-
+-from sarif import *
+-
+-import pytest
+-
+-@pytest.fixture(scope='function', autouse=True)
+-def sarif():
+-    return sarif_from_env()
+-
+-def test_supergraph(sarif):
+-    runs = sarif['runs']
+-    graphs = runs[0]['graphs']
+-
+-    sg = graphs[0]
+-    assert sg['properties']['gcc/digraphs/graph/kind'] == 'supergraph'
+-    assert sg['description']['text'] == ('"supergraph" used by \'-fanalyzer\' internally to '
+-                                         "represent the user's code")
+-    assert len(sg['nodes']) > 0
+-    assert len(sg['edges']) > 0
+-
+-def test_exploded_graph(sarif):
+-    runs = sarif['runs']
+-    graphs = runs[0]['graphs']
+-
+-    eg = graphs[1]
+-    assert eg['description']['text'] == ('"exploded graph" used by \'-fanalyzer\' internally '
+-                                         'to represent interprocedural control flow in the '
+-                                         "user's code along with possible states at each "
+-                                         'program point')
+-    assert eg['properties']['gcc/digraphs/graph/kind'] == 'exploded_graph'
+-    assert len(eg['nodes']) > 0
+-    assert len(eg['edges']) > 0
+-
+-    dm = eg['properties']['gcc/analyzer/diagnostic_manager']
+-    assert dm is not None
+-    assert len(dm['diagnostics']) == 1
+-    diag = dm['diagnostics'][0]
+-    assert diag['pending_diagnostic']['kind'] == 'double_free'
+-
+-    assert eg['properties']['gcc/analyzer/exploded_graph/worklist']['scc']
+-
+-    ext_state = eg['properties']['gcc/analyzer/extrinsic_state']
+-    assert ext_state is not None
+-    assert 'checkers' in ext_state
+-
+-    kfm = eg['properties']['gcc/analyzer/known_functions']
+-    assert kfm is not None
+-    assert 'realloc' in kfm['root_ns']
+-    assert 'strlen' in kfm['std_ns']
+diff --git a/gcc/tree-diagnostic-sink-extensions.h b/gcc/tree-diagnostic-sink-extensions.h
+index 8877b08f1b7a..b921eaa6c7f5 100644
+--- a/gcc/tree-diagnostic-sink-extensions.h
++++ b/gcc/tree-diagnostic-sink-extensions.h
+@@ -27,9 +27,6 @@ class compiler_extension_factory : public gcc_extension_factory
+ public:
+   std::unique_ptr<diagnostics::sink::extension>
+   make_cfg_extension (diagnostics::sink &sink) const final override;
+-
+-  std::unique_ptr<diagnostics::sink::extension>
+-  make_analyzer_graphs_extension (diagnostics::sink &sink) const final override;
+ };
+ 
+ #endif /* TREE_DIAGNOSTIC_SINK_EXTENSIONS_H */
+
+base-commit: 85867b0c93563e0c07e381b2e2473fb311e0dc5f
+-- 
+2.56.0
+
