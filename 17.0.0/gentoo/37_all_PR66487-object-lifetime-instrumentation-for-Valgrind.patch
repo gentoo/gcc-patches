@@ -1,5 +1,5 @@
-From 8e1dcb22a8ba18bd42971efce3bd2f69fa2de07c Mon Sep 17 00:00:00 2001
-Message-ID: <8e1dcb22a8ba18bd42971efce3bd2f69fa2de07c.1792293572.git.sam@gentoo.org>
+From fd5e7c1eb4106faed5dd716314a238dc3dc7dd96 Mon Sep 17 00:00:00 2001
+Message-ID: <fd5e7c1eb4106faed5dd716314a238dc3dc7dd96.1793824968.git.sam@gentoo.org>
 From: Daniil Frolov <exactlywb@ispras.ru>
 Date: Fri, 22 Dec 2023 17:10:38 +0300
 Subject: [PATCH] object lifetime instrumentation for Valgrind [PR66487]
@@ -72,10 +72,10 @@ Co-authored-by: Alexander Monakov <amonakov@ispras.ru>
  create mode 100644 libgcc/valgrind-interop.c
 
 diff --git a/gcc/Makefile.in b/gcc/Makefile.in
-index 83cb4884eb13..ccc5cbfb7a76 100644
+index 19e35f6149b8..a3a756ed9728 100644
 --- a/gcc/Makefile.in
 +++ b/gcc/Makefile.in
-@@ -1562,6 +1562,7 @@ OBJS = \
+@@ -1563,6 +1563,7 @@ OBJS = \
  	gimple-ssa-warn-restrict.o \
  	gimple-streamer-in.o \
  	gimple-streamer-out.o \
@@ -84,7 +84,7 @@ index 83cb4884eb13..ccc5cbfb7a76 100644
  	gimple-warn-recursion.o \
  	gimplify.o \
 diff --git a/gcc/builtins.def b/gcc/builtins.def
-index 4adeb440ed9d..3427d5450943 100644
+index 1435ff3d0270..1d139dcf8064 100644
 --- a/gcc/builtins.def
 +++ b/gcc/builtins.def
 @@ -1281,6 +1281,9 @@ DEF_GCC_BUILTIN (BUILT_IN_LINE, "LINE", BT_FN_INT, ATTR_NOTHROW_LEAF_LIST)
@@ -98,10 +98,10 @@ index 4adeb440ed9d..3427d5450943 100644
  #include "sync-builtins.def"
  
 diff --git a/gcc/common.opt b/gcc/common.opt
-index 69a55b8d40d6..714245ef7c57 100644
+index c40606570e90..4622ba13d874 100644
 --- a/gcc/common.opt
 +++ b/gcc/common.opt
-@@ -3596,6 +3596,10 @@ Enum(auto_init_type) String(pattern) Value(AUTO_INIT_PATTERN)
+@@ -3600,6 +3600,10 @@ Enum(auto_init_type) String(pattern) Value(AUTO_INIT_PATTERN)
  EnumValue
  Enum(auto_init_type) String(zero) Value(AUTO_INIT_ZERO)
  
@@ -113,10 +113,10 @@ index 69a55b8d40d6..714245ef7c57 100644
  ; the generated assembly code (to make it more readable).  This option
  ; is generally only of use to those who actually need to read the
 diff --git a/gcc/doc/install.texi b/gcc/doc/install.texi
-index ff42549fb080..25d08b27c717 100644
+index 840e6553db6e..bfccaccfca5c 100644
 --- a/gcc/doc/install.texi
 +++ b/gcc/doc/install.texi
-@@ -1712,6 +1712,11 @@ Disable TM clone registry in libgcc. It is enabled in libgcc by default.
+@@ -1718,6 +1718,11 @@ Disable TM clone registry in libgcc. It is enabled in libgcc by default.
  This option helps to reduce code size for embedded targets which do
  not use transactional memory.
  
@@ -129,10 +129,10 @@ index ff42549fb080..25d08b27c717 100644
  @itemx --with-cpu-32=@var{cpu}
  @itemx --with-cpu-64=@var{cpu}
 diff --git a/gcc/doc/invoke.texi b/gcc/doc/invoke.texi
-index 66d80f17e740..23dc8096e309 100644
+index 8a2c65a861eb..1a9da562838f 100644
 --- a/gcc/doc/invoke.texi
 +++ b/gcc/doc/invoke.texi
-@@ -725,6 +725,7 @@ Objective-C and Objective-C++ Dialects}.
+@@ -726,6 +726,7 @@ Objective-C and Objective-C++ Dialects}.
  -fno-stack-limit  -fsplit-stack
  -fstrub=disable  -fstrub=strict  -fstrub=relaxed
  -fstrub=all  -fstrub=at-calls  -fstrub=internal
@@ -140,7 +140,7 @@ index 66d80f17e740..23dc8096e309 100644
  -fvtable-verify=@r{[}std@r{|}preinit@r{|}none@r{]}
  -fvtv-counts  -fvtv-debug
  -finstrument-functions  -finstrument-functions-once
-@@ -14423,6 +14424,9 @@ can use @option{-flifetime-dse=1}.  The default behavior can be
+@@ -14449,6 +14450,9 @@ can use @option{-flifetime-dse=1}.  The default behavior can be
  explicitly selected with @option{-flifetime-dse=2}.
  @option{-flifetime-dse=0} is equivalent to @option{-fno-lifetime-dse}.
  
@@ -150,7 +150,7 @@ index 66d80f17e740..23dc8096e309 100644
  @opindex flive-range-shrinkage
  @opindex fno-live-range-shrinkage
  @item -flive-range-shrinkage
-@@ -18298,6 +18302,29 @@ function attributes that tell which mode was selected for each function.
+@@ -18324,6 +18328,29 @@ function attributes that tell which mode was selected for each function.
  The primary use of this option is for testing, to exercise thoroughly
  the @code{strub} machinery.
  
@@ -370,10 +370,10 @@ index 000000000000..a8b646d07650
 +
 +/* { dg-final { scan-tree-dump-times "__builtin___gcc_vgmc_make_mem_undefined" 1 "optimized" } } */
 diff --git a/gcc/tree-pass.h b/gcc/tree-pass.h
-index a3b35e009e08..3b146d0478ea 100644
+index 48aebe41764d..4a09619403dd 100644
 --- a/gcc/tree-pass.h
 +++ b/gcc/tree-pass.h
-@@ -443,6 +443,7 @@ extern gimple_opt_pass *make_pass_omp_device_lower (gcc::context *ctxt);
+@@ -445,6 +445,7 @@ extern gimple_opt_pass *make_pass_omp_device_lower (gcc::context *ctxt);
  extern gimple_opt_pass *make_pass_object_sizes (gcc::context *ctxt);
  extern gimple_opt_pass *make_pass_early_object_sizes (gcc::context *ctxt);
  extern gimple_opt_pass *make_pass_warn_access (gcc::context *ctxt);
@@ -473,7 +473,7 @@ index a3f6a4a9650b..146574bfec83 100755
  $as_echo_n "checking for grep that handles long lines and -e... " >&6; }
  if ${ac_cv_path_GREP+:} false; then :
 diff --git a/libgcc/configure.ac b/libgcc/configure.ac
-index 0a09fd9ce423..283d769a94b7 100644
+index 479cff4b2376..1dcf87c750a8 100644
 --- a/libgcc/configure.ac
 +++ b/libgcc/configure.ac
 @@ -231,7 +231,7 @@ AC_SUBST(double_type_size)
@@ -564,7 +564,7 @@ index 000000000000..fdb8d41bc567
 +}
 +#endif
 
-base-commit: 9a00f0797c90485cd70ac86a8751c9565c3979dd
+base-commit: bec1b0a2f0c64ee462f6ba4f093803d0308d5a82
 -- 
 2.56.0
 
