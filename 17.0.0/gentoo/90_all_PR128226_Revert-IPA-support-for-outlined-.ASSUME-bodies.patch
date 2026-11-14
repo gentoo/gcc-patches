@@ -1,0 +1,1937 @@
+From d644dcbc4b77d2fa8d5e70fbf908c17e757eeffa Mon Sep 17 00:00:00 2001
+From: Kostadin Shishmanov <kostadinshishmanov@protonmail.com>
+Date: Thu, 29 Oct 2026 21:40:42 +0200
+Subject: [PATCH] Revert IPA support for outlined .ASSUME bodies
+
+This reverts the whole series adding IPA support for outlined
+IFN_ASSUME bodies, since it's causing ICEs in everything Qt and KDE
+related.
+
+Bug: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=128226
+Bug: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=128227
+
+Signed-off-by: Kostadin Shishmanov <kostadinshishmanov@protonmail.com>
+---
+ gcc/attr-callback.cc                          |  14 --
+ gcc/attr-callback.h                           |   5 -
+ gcc/callback-info.cc                          | 132 ++---------
+ gcc/callback-info.h                           |  33 +--
+ gcc/cgraph.cc                                 | 215 +++++++-----------
+ gcc/cgraph.h                                  |  29 +--
+ gcc/cgraphclones.cc                           |   1 -
+ gcc/cgraphunit.cc                             |  15 +-
+ gcc/gimple-low.cc                             |  16 +-
+ gcc/ipa-cp.cc                                 |  26 +--
+ gcc/ipa-fnsummary.cc                          |  17 +-
+ gcc/ipa-icf.cc                                |  11 +-
+ gcc/ipa-param-manipulation.cc                 |  58 +----
+ gcc/ipa-polymorphic-call.cc                   |   8 -
+ gcc/ipa-prop.cc                               |  28 +--
+ gcc/ipa-sra.cc                                | 144 ++----------
+ gcc/lto-cgraph.cc                             |   2 -
+ gcc/testsuite/g++.dg/ipa/ipa-cp-assume-2.C    |  40 ----
+ gcc/testsuite/g++.dg/ipa/ipa-cp-assume-3.C    |  51 -----
+ gcc/testsuite/g++.dg/ipa/ipa-cp-assume.C      |  26 ---
+ gcc/testsuite/g++.dg/ipa/ipa-sra-assume-2.C   |  33 ---
+ gcc/testsuite/g++.dg/ipa/ipa-sra-assume-3.C   |  34 ---
+ gcc/testsuite/g++.dg/ipa/ipa-sra-assume.C     |  37 ---
+ gcc/testsuite/g++.dg/lto/ipa-cp-assume-1_0.C  |  16 --
+ gcc/testsuite/g++.dg/lto/ipa-cp-assume-2_0.C  |  16 --
+ gcc/testsuite/g++.dg/lto/ipa-cp-assume-3_0.C  |  18 --
+ gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C    |  27 ---
+ gcc/testsuite/g++.dg/lto/ipa-cp-assume_1.C    |  13 --
+ gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C |  22 --
+ gcc/testsuite/g++.dg/lto/ipa-sra-assume-2_0.C |   6 -
+ gcc/testsuite/g++.dg/lto/ipa-sra-assume-3_0.C |   6 -
+ gcc/testsuite/g++.dg/lto/ipa-sra-assume_0.C   |  28 ---
+ gcc/testsuite/g++.dg/lto/ipa-sra-assume_1.C   |  11 -
+ gcc/tree-inline.cc                            |   1 -
+ 34 files changed, 153 insertions(+), 986 deletions(-)
+ delete mode 100644 gcc/testsuite/g++.dg/ipa/ipa-cp-assume-2.C
+ delete mode 100644 gcc/testsuite/g++.dg/ipa/ipa-cp-assume-3.C
+ delete mode 100644 gcc/testsuite/g++.dg/ipa/ipa-cp-assume.C
+ delete mode 100644 gcc/testsuite/g++.dg/ipa/ipa-sra-assume-2.C
+ delete mode 100644 gcc/testsuite/g++.dg/ipa/ipa-sra-assume-3.C
+ delete mode 100644 gcc/testsuite/g++.dg/ipa/ipa-sra-assume.C
+ delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-cp-assume-1_0.C
+ delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-cp-assume-2_0.C
+ delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-cp-assume-3_0.C
+ delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C
+ delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-cp-assume_1.C
+ delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C
+ delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-sra-assume-2_0.C
+ delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-sra-assume-3_0.C
+ delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-sra-assume_0.C
+ delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-sra-assume_1.C
+
+diff --git a/gcc/attr-callback.cc b/gcc/attr-callback.cc
+index 6496844738f..376a17e82b4 100644
+--- a/gcc/attr-callback.cc
++++ b/gcc/attr-callback.cc
+@@ -24,7 +24,6 @@
+ #include "backend.h"
+ #include "tree.h"
+ #include "gimple.h"
+-#include "fold-const.h"
+ #include "alloc-pool.h"
+ #include "cgraph.h"
+ #include "diagnostic.h"
+@@ -184,16 +183,3 @@ callback_num_args (tree attr)
+     ;
+   return res;
+ }
+-
+-/* Redirect call statement of E to the callee of E.  Used in
+-   cgraph_edge::redirect_call_stmt_to_callee.  Edge E must be a callback
+-   edge.  */
+-void
+-callback_redirect_edge (cgraph_edge *e)
+-{
+-  callback_info *ci = callback_info_sum->get (e);
+-  tree previous_arg = gimple_call_arg (e->call_stmt, ci->fn_idx);
+-  location_t loc = EXPR_LOCATION (previous_arg);
+-  tree new_addr = build_fold_addr_expr_loc (loc, e->callee->decl);
+-  gimple_call_set_arg (e->call_stmt, ci->fn_idx, new_addr);
+-}
+diff --git a/gcc/attr-callback.h b/gcc/attr-callback.h
+index b969b713a20..baefa8701b9 100644
+--- a/gcc/attr-callback.h
++++ b/gcc/attr-callback.h
+@@ -76,9 +76,4 @@ bool callback_edge_useful_p (cgraph_edge *e);
+    takes.  */
+ size_t callback_num_args (tree attr);
+ 
+-/* Redirect call statement of E to the callee of E.  Used in
+-   cgraph_edge::redirect_call_stmt_to_callee.  Edge E must be a callback
+-   edge.  */
+-void callback_redirect_edge (cgraph_edge *e);
+-
+ #endif /* ATTR_CALLBACK_H  */
+diff --git a/gcc/callback-info.cc b/gcc/callback-info.cc
+index f72339bf83e..b277f37154e 100644
+--- a/gcc/callback-info.cc
++++ b/gcc/callback-info.cc
+@@ -33,58 +33,21 @@
+ #include "attribs.h"
+ #include "symbol-summary.h"
+ #include "data-streamer.h"
+-#include "attr-callback.h"
+ #include "callback-info.h"
++#include "attr-callback.h"
+ 
+ callback_info_sum_t *callback_info_sum = NULL;
+ 
+-/* Calculates the CI->INVERTED_MAPPING field from CI->ARG_MAPPING.  */
+-static void
+-invert_arg_mapping (cgraph_edge *e, callback_info *ci)
+-{
+-  auto &mapping = ci->arg_mapping;
+-  auto &inverted_mapping = ci->inverted_mapping;
+-  unsigned num = gimple_call_num_args (e->call_stmt);
+-  inverted_mapping.reserve (num);
+-  for (unsigned i = 0; i < num; i++)
+-    inverted_mapping.quick_push (ARG_MAPPING_UNKNOWN_IDX);
+-
+-  for (unsigned i = 0; i < mapping.length (); i++)
+-    if (mapping[i] != ARG_MAPPING_UNKNOWN_IDX)
+-      inverted_mapping[mapping[i]] = i;
+-}
+-
+-/* Streams a vector into an output block, in format N ELEM_1 ... ELEM_N*/
+-static void
+-stream_vector_out (lto_simple_output_block *ob, const auto_vec<int> &v)
+-{
+-  streamer_write_uhwi_stream (ob->main_stream, v.length ());
+-  for (int elem : v)
+-    streamer_write_hwi_stream (ob->main_stream, elem);
+-}
+-
+-/* Reads a vector from an LTO input block.  The format is supposed to be the
+-   same as stream_vector_out.  */
+-static void
+-stream_vector_in (lto_input_block *ib, auto_vec<int> &v)
+-{
+-  unsigned length = streamer_read_uhwi (ib);
+-  v.reserve (length);
+-
+-  for (unsigned i = 0; i < length; i++)
+-    {
+-      int elem = streamer_read_hwi (ib);
+-      v.safe_push (elem);
+-    }
+-}
+-
+ /* Stream out callback_info.  */
+ void
+ callback_info::stream_out (lto_simple_output_block *ob) const
+ {
+   streamer_write_uhwi_stream (ob->main_stream, fn_idx);
+-  stream_vector_out (ob, arg_mapping);
+-  stream_vector_out (ob, inverted_mapping);
++  streamer_write_uhwi_stream (ob->main_stream, arg_mapping.length ());
++
++  for (int idx : arg_mapping)
++    streamer_write_hwi_stream (ob->main_stream, idx);
++
+   bitpack_d bp = bitpack_create (ob->main_stream);
+   bp_pack_value (&bp, redirected, 1);
+   streamer_write_bitpack (&bp);
+@@ -95,8 +58,15 @@ void
+ callback_info::stream_in (lto_input_block *ib)
+ {
+   fn_idx = streamer_read_uhwi (ib);
+-  stream_vector_in (ib, arg_mapping);
+-  stream_vector_in (ib, inverted_mapping);
++  unsigned length = streamer_read_uhwi (ib);
++  arg_mapping.reserve (length);
++
++  for (unsigned i = 0; i < length; i++)
++    {
++      int idx = streamer_read_hwi (ib);
++      arg_mapping.safe_push (idx);
++    }
++
+   bitpack_d bp = streamer_read_bitpack (ib);
+   redirected = bp_unpack_value (&bp, 1);
+ }
+@@ -110,38 +80,13 @@ callback_info::get_id () const
+ }
+ 
+ void
+-callback_info::init (cgraph_edge *e, unsigned fn_idx, tree attr)
++callback_info::init (unsigned fn_idx, tree attr)
+ {
+   this->fn_idx = fn_idx;
+   arg_mapping = callback_get_arg_mapping_from_attr (attr);
+-  invert_arg_mapping (e, this);
+   redirected = false;
+ }
+ 
+-/* Initialize the summary for a callback call CBE of internal function IFN.  */
+-callback_info *
+-callback_info::create_internal_summary (cgraph_edge *cbe, internal_fn ifn)
+-{
+-  callback_info_sum_t::check_create_info_sum ();
+-  callback_info *ci = callback_info_sum->get_create (cbe);
+-  switch (ifn)
+-    {
+-    case IFN_ASSUME:
+-      {
+-	ci->fn_idx = 0;
+-	unsigned n = gimple_call_num_args (cbe->call_stmt);
+-	for (unsigned i = 0; i < n - 1; i++)
+-	  ci->arg_mapping.safe_push (i + 1);
+-	invert_arg_mapping (cbe, ci);
+-	break;
+-      }
+-    default:
+-      gcc_unreachable ();
+-    }
+-  ci->redirected = false;
+-  return ci;
+-}
+-
+ /* Populates the callback_info_sum if it's NULL.  */
+ void
+ callback_info_sum_t::check_create_info_sum (void)
+@@ -168,50 +113,5 @@ callback_info_sum_t::duplicate (cgraph_edge *, cgraph_edge *,
+   /* Might need to be adjusted in the future, if argument modifications are
+      implemented.  */
+   dst_s->arg_mapping = src_s->arg_mapping.copy ();
+-  dst_s->inverted_mapping = src_s->inverted_mapping.copy ();
+   dst_s->redirected = src_s->redirected;
+ }
+-
+-/* Return the argument at IDX if CI is null, otherwise use the mapping in CI and
+-   return the remapped argument.  Presumes that the remapped index is not
+-   ARG_MAPPING_UNKNOWN_IDX.  */
+-tree
+-callback_call_arg_summary (const gimple *stmt, int idx, callback_info *ci)
+-{
+-  if (ci)
+-    idx = ci->arg_mapping[idx];
+-  gcc_checking_assert (idx != ARG_MAPPING_UNKNOWN_IDX);
+-  return gimple_call_arg (stmt, idx);
+-}
+-
+-/* Return the number of arguments of STMT if CI is null,
+-   ci->arg_mapping.length() otherwise.  */
+-unsigned
+-callback_call_num_args_summary (const gcall *stmt, callback_info *ci)
+-{
+-  if (ci)
+-    return ci->arg_mapping.length ();
+-  return gimple_call_num_args (stmt);
+-}
+-
+-/* Returns TRUE iff STMT is an internal call statement to IFN_ASSUME.  */
+-bool
+-callback_ifn_assume_call_p (const gimple *stmt)
+-{
+-  return is_gimple_call (stmt) && gimple_call_internal_p (stmt)
+-	 && (gimple_call_internal_fn (stmt) == IFN_ASSUME);
+-}
+-
+-/* Returns TRUE iff STMT is an internal call statement to IFN_ASSUME with a
+-   callback edge pointing to the outlined body.  */
+-bool
+-callback_ifn_assume_call_with_edge_p (cgraph_node *caller, gimple *stmt)
+-{
+-  /* Fast path for most cases.  */
+-  if (!callback_ifn_assume_call_p (stmt))
+-    return false;
+-
+-  cgraph_edge *cbei = caller->get_edge (stmt);
+-
+-  return cbei != nullptr;
+-}
+diff --git a/gcc/callback-info.h b/gcc/callback-info.h
+index 2a75647ab43..3eecbf6f9af 100644
+--- a/gcc/callback-info.h
++++ b/gcc/callback-info.h
+@@ -35,17 +35,10 @@ public:
+      parameter, we will need a separate id field.  */
+   unsigned fn_idx;
+ 
+-  /* Mapping from the indices of the arguments passed to the callback to their
+-     indices in the call to the dispatching function or to
+-     ARG_MAPPING_UNKNOWN_IDX if they do not correspond to any. */
++  /* Mapping from the dispatching function's arguments to the callback
++     function.  */
+   auto_vec<int> arg_mapping;
+ 
+-  /* Mapping in the opposite direction, from indices of the actual
+-     arguments of the call to the dispatcher to indices of arguments in
+-     which they are passed to the callback or to ARG_MAPPING_UNKNOWN_IDX
+-     if they are not passed to the callback.  */
+-  auto_vec<int> inverted_mapping;
+-
+   /* TRUE iff the associated callback edge was redirected.  */
+   bool redirected;
+ 
+@@ -59,11 +52,7 @@ public:
+   unsigned get_id () const;
+ 
+   /* Initializes the summary.  */
+-  void init (cgraph_edge *e, unsigned fn_idx, tree attr);
+-
+-  /* Create the summary for a callback call CBE of internal function IFN. */
+-  static callback_info *create_internal_summary (cgraph_edge *cbe,
+-						 internal_fn ifn);
++  void init (unsigned fn_idx, tree attr);
+ };
+ 
+ class callback_info_sum_t : public call_summary<callback_info *>
+@@ -86,20 +75,4 @@ public:
+ 
+ extern callback_info_sum_t *callback_info_sum;
+ 
+-/* Return the argument of STMT at IDX if CI is null, otherwise use the mapping
+-   in CI and return the remapped argument.  Presumes that the remapped index is
+-   not ARG_MAPPING_UNKNOWN_IDX.  */
+-tree callback_call_arg_summary (const gimple *stmt, int idx, callback_info *ci);
+-
+-/* Return the number of arguments of STMT if CI is null,
+-   ci->arg_mapping.length() otherwise.  */
+-unsigned callback_call_num_args_summary (const gcall *stmt, callback_info *ci);
+-
+-/* Returns TRUE iff STMT is an internal call statement to IFN_ASSUME.  */
+-bool callback_ifn_assume_call_p (const gimple *stmt);
+-
+-/* Returns TRUE iff STMT is an internal call statement to IFN_ASSUME with a
+-   callback edge pointing to the outlined body.  */
+-bool callback_ifn_assume_call_with_edge_p (cgraph_node *caller, gimple *stmt);
+-
+ #endif /* CALLBACK_INFO_H  */
+diff --git a/gcc/cgraph.cc b/gcc/cgraph.cc
+index 3448bc37714..8e349189724 100644
+--- a/gcc/cgraph.cc
++++ b/gcc/cgraph.cc
+@@ -934,7 +934,7 @@ cgraph_node::get_edge (gimple *call_stmt)
+      comes to callback edges, a call statement might have multiple callback
+      edges attached to it.  These can be easily obtained from the carrying edge
+      instead.  */
+-  if (e && e->callback_with_carrying_edge_p ())
++  if (e && e->callback)
+     e = e->get_callback_carrying_edge ();
+ 
+   if (n > 100)
+@@ -1012,8 +1012,7 @@ cgraph_edge::set_call_stmt (cgraph_edge *e, gcall *new_stmt,
+ 
+   /* When updating a callback or a callback-carrying edge, update every edge
+      involved.  */
+-  if (update_derived_edges
+-      && (e->callback_with_carrying_edge_p () || e->has_callback))
++  if (update_derived_edges && (e->callback || e->has_callback))
+     {
+       cgraph_edge *current, *next, *carrying;
+       carrying = e->has_callback ? e : e->get_callback_carrying_edge ();
+@@ -1381,42 +1380,12 @@ cgraph_edge::make_callback (cgraph_node *n2, unsigned fn_idx, tree attr)
+     e2->can_throw_external = can_throw_external;
+   e2->lto_stmt_uid = lto_stmt_uid;
+   callback_info *ci = callback_info_sum->get_create (e2);
+-  ci->init (e2, fn_idx, attr);
++  ci->init (fn_idx, attr);
+   symtab->call_edge_duplication_hooks (this, e2);
+   n2->mark_address_taken ();
+   return e2;
+ }
+ 
+-/* Create a callback edge, representing an indirect call to target
+-    passed to an internal function by argument.  As internal calls are not
+-    represented in the callgraph, the created edge won't have any associated
+-    dispatching edge.  The created callback edge will be attached to the
+-    internal call statement STMT.  Returns created callback edge.  */
+-
+-cgraph_edge *
+-cgraph_edge::make_callback_internal (cgraph_node *caller, cgraph_node *target,
+-				     gcall *call_stmt)
+-{
+-  cgraph_edge *ret;
+-
+-  ret
+-    = caller->create_edge (target, call_stmt, profile_count::uninitialized ());
+-  if (dump_file)
+-    {
+-      fprintf (dump_file,
+-	       "Created callback edge %s -> %s belonging to internal call ",
+-	       ret->caller->dump_name (), ret->callee->dump_name ());
+-      print_gimple_stmt (dump_file, call_stmt, 0);
+-    }
+-  ret->inline_failed = CIF_CALLBACK_EDGE;
+-  ret->callback = true;
+-  if (TREE_NOTHROW (target->decl))
+-    ret->can_throw_external = false;
+-  target->mark_address_taken ();
+-  callback_info::create_internal_summary (ret, IFN_ASSUME);
+-  return ret;
+-}
+-
+ /* Returns the callback_carrying edge of a callback edge on which
+    it is called on or NULL when no such edge can be found.
+ 
+@@ -1437,14 +1406,6 @@ cgraph_edge::get_callback_carrying_edge ()
+   return e;
+ }
+ 
+-/* Returns TRUE iff THIS is a callback edge with a carrying edge.  */
+-bool
+-cgraph_edge::callback_with_carrying_edge_p () const
+-{
+-  /* Callback edges are always direct, i.e. callee != NULL.  */
+-  return callback && !callee->assume_function;
+-}
+-
+ /* Returns the first callback edge in the list of callees of the caller node.
+    Note that the edges might be in arbitrary order.  Must be called on a
+    callback or callback-carrying edge.  */
+@@ -1876,21 +1837,10 @@ cgraph_edge::redirect_call_stmt_to_callee (cgraph_edge *e,
+       || decl == e->callee->decl)
+     return e->call_stmt;
+ 
+-  clone_info *callee_info = clone_info::get (e->callee);
+-  if (symtab->dump_file)
+-    {
+-      fprintf (symtab->dump_file,
+-	       "updating call of %s -> %s: ", e->caller->dump_name (),
+-	       e->callee->dump_name ());
+-      print_gimple_stmt (symtab->dump_file, e->call_stmt, 0, dump_flags);
+-      if (callee_info && callee_info->param_adjustments)
+-	callee_info->param_adjustments->dump (symtab->dump_file);
+-    }
+-
+   /* When redirecting a callback edge, all we need to do is replace
+      the original address with the address of the function we are
+      redirecting to.  */
+-  if (e->callback_with_carrying_edge_p ())
++  if (e->callback)
+     {
+       cgraph_edge *carrying = e->get_callback_carrying_edge ();
+       if (!callback_is_special_cased (carrying->callee->decl, e->call_stmt)
+@@ -1900,30 +1850,13 @@ cgraph_edge::redirect_call_stmt_to_callee (cgraph_edge *e,
+ 	   signature, as the indices wouldn't be correct anymore.  These edges
+ 	   will get cleaned up later, ignore their redirection for now.  */
+ 	return e->call_stmt;
+-      callback_redirect_edge (e);
+-      return e->call_stmt;
+-    }
+-  /* Callback calls to .ASSUME bodies might need to have their statement
+-     rebuilt.  */
+-  else if (e->callback && e->callee->assume_function)
+-    {
+-      ipa_param_adjustments *padjs
+-	= callee_info ? callee_info->param_adjustments : NULL;
+-
+-      /* If there are no param adjustments, replace the address in the call
+-	 statement.  */
+-      if (!padjs)
+-	callback_redirect_edge (e);
+-      else
+-	{
+-	  new_stmt = padjs->modify_call (e, false, killed_ssas);
+-	  gcc_checking_assert (callback_ifn_assume_call_p (new_stmt));
+-	  e->caller->set_call_stmt_including_clones (e->call_stmt, new_stmt,
+-						     false);
+-	}
++      callback_info *ci = callback_info_sum->get (e);
++      tree previous_arg = gimple_call_arg (e->call_stmt, ci->fn_idx);
++      location_t loc = EXPR_LOCATION (previous_arg);
++      tree new_addr = build_fold_addr_expr_loc (loc, e->callee->decl);
++      gimple_call_set_arg (e->call_stmt, ci->fn_idx, new_addr);
+       return e->call_stmt;
+     }
+-  gcc_checking_assert (!e->callback);
+ 
+   if (decl && ipa_saved_clone_sources)
+     {
+@@ -1943,6 +1876,16 @@ cgraph_edge::redirect_call_stmt_to_callee (cgraph_edge *e,
+ 	}
+     }
+ 
++  clone_info *callee_info = clone_info::get (e->callee);
++  if (symtab->dump_file)
++    {
++      fprintf (symtab->dump_file, "updating call of %s -> %s: ",
++	       e->caller->dump_name (), e->callee->dump_name ());
++      print_gimple_stmt (symtab->dump_file, e->call_stmt, 0, dump_flags);
++      if (callee_info && callee_info->param_adjustments)
++	callee_info->param_adjustments->dump (symtab->dump_file);
++    }
++
+   if (ipa_param_adjustments *padjs
+ 	 = callee_info ? callee_info->param_adjustments : NULL)
+     {
+@@ -2640,8 +2583,6 @@ cgraph_node::dump (FILE *f)
+     fprintf (f, " calls_comdat_local");
+   if (icf_merged)
+     fprintf (f, " icf_merged");
+-  if (assume_function)
+-    fprintf (f, " assume_function");
+   if (merged_comdat)
+     fprintf (f, " merged_comdat");
+   if (merged_extern_inline)
+@@ -4225,67 +4166,6 @@ cgraph_node::verify_node (void)
+ 	  && verify_speculative_call (e->caller, e->call_stmt, e->lto_stmt_uid,
+ 				      NULL))
+ 	error_found = true;
+-      if (e->callback && e->has_callback)
+-	{
+-	  error ("edge has both callback and has_callback set");
+-	  error_found = true;
+-	}
+-      if (e->callback)
+-	{
+-	  cgraph_edge *carrying = e->get_callback_carrying_edge ();
+-	  if (!carrying && !e->callee->assume_function)
+-	    {
+-	      error ("callback edge %s->%s has no callback-carrying edge",
+-		     identifier_to_locale (e->caller->dump_name ()),
+-		     identifier_to_locale (e->callee->dump_name ()));
+-	      error_found = true;
+-	    }
+-	  else if (carrying && e->callee->assume_function)
+-	    {
+-	      error ("internal callback edge %s->%s should not have a "
+-		     "callback-carrying edge",
+-		     identifier_to_locale (e->caller->dump_name ()),
+-		     identifier_to_locale (e->callee->dump_name ()));
+-	      error_found = true;
+-	    }
+-	}
+-      if (e->has_callback
+-	  && !callback_is_special_cased (e->callee->decl, e->call_stmt)
+-	  && !fndecl_built_in_p (e->callee->decl, BUILT_IN_UNREACHABLE))
+-	{
+-	  int ncallbacks = 0;
+-	  int nfound_edges = 0;
+-	  for (tree cb = lookup_attribute ("callback_only",
+-					   DECL_ATTRIBUTES (e->callee->decl));
+-	       cb; cb = lookup_attribute ("callback_only", TREE_CHAIN (cb)),
+-		    ncallbacks++)
+-	    ;
+-	  for (cgraph_edge *cbe = callees; cbe; cbe = cbe->next_callee)
+-	    {
+-	      if (cbe->callback && cbe->call_stmt == e->call_stmt
+-		  && cbe->lto_stmt_uid == e->lto_stmt_uid)
+-		{
+-		  nfound_edges++;
+-		}
+-	    }
+-	  if (ncallbacks < nfound_edges)
+-	    {
+-	      error ("callback edge %s->%s callback edge count mismatch, "
+-		     "expected at most %d, found %d",
+-		     identifier_to_locale (e->caller->name ()),
+-		     identifier_to_locale (e->callee->name ()), ncallbacks,
+-		     nfound_edges);
+-	    }
+-	}
+-      if (e->has_callback
+-	  && fndecl_built_in_p (e->callee->decl, BUILT_IN_UNREACHABLE))
+-	for (cgraph_edge *cbe = e->first_callback_edge (); cbe;
+-	     cbe = cbe->next_callback_edge ())
+-	  if (!fndecl_built_in_p (cbe->callee->decl, BUILT_IN_UNREACHABLE))
+-	    error ("callback-carrying edge is pointing towards "
+-		   "__builtin_unreachable, but its callback edge %s -> %s "
+-		   "is not",
+-		   cbe->caller->name (), cbe->callee->name ());
+     }
+   for (e = indirect_calls; e; e = e->next_callee)
+     {
+@@ -4511,6 +4391,63 @@ cgraph_node::verify_node (void)
+ 
+       for (e = callees; e; e = e->next_callee)
+ 	{
++	  if (e->callback && e->has_callback)
++	    {
++	      error ("edge has both callback and has_callback set");
++	      error_found = true;
++	    }
++
++	  if (e->callback)
++	    {
++	      if (!e->get_callback_carrying_edge ())
++		{
++		  error ("callback edge %s->%s has no callback-carrying",
++			 identifier_to_locale (e->caller->name ()),
++			 identifier_to_locale (e->callee->name ()));
++		  error_found = true;
++		}
++	    }
++
++	  if (e->has_callback
++	      && !callback_is_special_cased (e->callee->decl, e->call_stmt)
++	      && !fndecl_built_in_p (e->callee->decl, BUILT_IN_UNREACHABLE))
++	    {
++	      int ncallbacks = 0;
++	      int nfound_edges = 0;
++	      for (tree cb
++		   = lookup_attribute ("callback_only",
++				       DECL_ATTRIBUTES (e->callee->decl));
++		   cb; cb = lookup_attribute ("callback_only", TREE_CHAIN (cb)),
++		       ncallbacks++)
++		;
++	      for (cgraph_edge *cbe = callees; cbe; cbe = cbe->next_callee)
++		{
++		  if (cbe->callback && cbe->call_stmt == e->call_stmt
++		      && cbe->lto_stmt_uid == e->lto_stmt_uid)
++		    {
++		      nfound_edges++;
++		    }
++		}
++	      if (ncallbacks < nfound_edges)
++		{
++		  error ("callback edge %s->%s callback edge count mismatch, "
++			 "expected at most %d, found %d",
++			 identifier_to_locale (e->caller->name ()),
++			 identifier_to_locale (e->callee->name ()), ncallbacks,
++			 nfound_edges);
++		}
++	    }
++
++	  if (e->has_callback
++	      && fndecl_built_in_p (e->callee->decl, BUILT_IN_UNREACHABLE))
++	    for (cgraph_edge *cbe = e->first_callback_edge (); cbe;
++		 cbe = cbe->next_callback_edge ())
++	      if (!fndecl_built_in_p (cbe->callee->decl, BUILT_IN_UNREACHABLE))
++		error ("callback-carrying edge is pointing towards "
++		       "__builtin_unreachable, but its callback edge %s -> %s "
++		       "is not",
++		       cbe->caller->name (), cbe->callee->name ());
++
+ 	  if (!e->aux && !e->speculative && !e->callback && !e->has_callback)
+ 	    {
+ 	      error ("edge %s->%s has no corresponding call_stmt",
+diff --git a/gcc/cgraph.h b/gcc/cgraph.h
+index cad7fb3c127..d9f3d4815b0 100644
+--- a/gcc/cgraph.h
++++ b/gcc/cgraph.h
+@@ -939,8 +939,8 @@ struct GTY((tag ("SYMTAB_FUNCTION"))) cgraph_node : public symtab_node
+       only_called_at_startup (false), only_called_at_exit (false),
+       tm_clone (false), dispatcher_function (false),
+       dispatcher_resolver_function (false), is_target_clone (false),
+-      calls_comdat_local (false), icf_merged (false), assume_function (false),
+-      nonfreeing_fn (false), merged_comdat (false),
++      calls_comdat_local (false),
++      icf_merged (false), nonfreeing_fn (false), merged_comdat (false),
+       merged_extern_inline (false), parallelized_function (false),
+       split_part (false), indirect_call_target (false), local (false),
+       versionable (false), can_change_signature (false),
+@@ -1400,10 +1400,8 @@ struct GTY((tag ("SYMTAB_FUNCTION"))) cgraph_node : public symtab_node
+      API breaking optimizations are performed on it).
+ 
+      Main work done by this function is to enqueue the function for later
+-     processing to avoid need the passes to be re-entrant.
+-
+-     Returns the created node.  */
+-  static cgraph_node *add_new_function (tree fndecl, bool lowered);
++     processing to avoid need the passes to be re-entrant.  */
++  static void add_new_function (tree fndecl, bool lowered);
+ 
+   /* Return callgraph node for given symbol and check it is a function. */
+   static inline cgraph_node *get (const_tree decl)
+@@ -1415,9 +1413,8 @@ struct GTY((tag ("SYMTAB_FUNCTION"))) cgraph_node : public symtab_node
+   /* DECL has been parsed.  Take it, queue it, compile it at the whim of the
+      logic in effect.  If NO_COLLECT is true, then our caller cannot stand to
+      have the garbage collector run at the moment.  We would need to either
+-     create a new GC context, or just not compile right now.  Returns the
+-     created node.  */
+-  static cgraph_node *finalize_function (tree, bool);
++     create a new GC context, or just not compile right now.  */
++  static void finalize_function (tree, bool);
+ 
+   /* Return cgraph node assigned to DECL.  Create new one when needed.  */
+   static cgraph_node * create (tree decl);
+@@ -1539,8 +1536,6 @@ struct GTY((tag ("SYMTAB_FUNCTION"))) cgraph_node : public symtab_node
+   unsigned calls_comdat_local : 1;
+   /* True if node has been created by merge operation in IPA-ICF.  */
+   unsigned icf_merged: 1;
+-  /* True if node has been created by lowering an [[assume(...)]] statement.  */
+-  unsigned assume_function : 1;
+   /* True if call to node can't result in a call to free, munmap or
+      other operation that could make previously non-trapping memory
+      accesses trapping.  */
+@@ -1935,24 +1930,12 @@ public:
+      edge.  */
+   cgraph_edge *make_callback (cgraph_node *n2, unsigned fn_idx, tree attr);
+ 
+-  /* Create a callback edge, representing an indirect call to target
+-     passed to an internal function by argument.  As internal calls are not
+-     represented in the callgraph, the created edge won't have any associated
+-     dispatching edge.  The created callback edge will be attached to the
+-     internal call statement STMT.  Returns created callback edge.  */
+-  static cgraph_edge *make_callback_internal (cgraph_node *caller,
+-					      cgraph_node *target,
+-					      gcall *call_stmt);
+-
+   /* Returns the callback-carrying edge of a callback edge or NULL, if such edge
+      cannot be found.  An edge is considered callback-carrying, if it has it's
+      has_callback flag set and shares it's call statement with the edge
+      this method is caled on.  */
+   cgraph_edge *get_callback_carrying_edge ();
+ 
+-  /* Returns TRUE iff THIS is a callback edge with a carrying edge.  */
+-  bool callback_with_carrying_edge_p () const;
+-
+   /* Returns the first callback edge in the list of callees of the caller node.
+      Note that the edges might be in arbitrary order.  Must be called on a
+      callback or callback-carrying edge.  */
+diff --git a/gcc/cgraphclones.cc b/gcc/cgraphclones.cc
+index c5aead0c3b8..b5f2ce5ff2f 100644
+--- a/gcc/cgraphclones.cc
++++ b/gcc/cgraphclones.cc
+@@ -452,7 +452,6 @@ cgraph_node::create_clone (tree new_decl, profile_count prof_count,
+   new_node->tp_first_run = tp_first_run;
+   new_node->tm_clone = tm_clone;
+   new_node->icf_merged = icf_merged;
+-  new_node->assume_function = assume_function;
+   new_node->thunk = thunk;
+   new_node->unit_id = unit_id;
+   new_node->merged_comdat = merged_comdat;
+diff --git a/gcc/cgraphunit.cc b/gcc/cgraphunit.cc
+index b77f082757b..7a7278ace5a 100644
+--- a/gcc/cgraphunit.cc
++++ b/gcc/cgraphunit.cc
+@@ -445,10 +445,9 @@ symtab_node::referred_to_p (bool include_self)
+ /* DECL has been parsed.  Take it, queue it, compile it at the whim of the
+    logic in effect.  If NO_COLLECT is true, then our caller cannot stand to have
+    the garbage collector run at the moment.  We would need to either create
+-   a new GC context, or just not compile right now.  Returns the created
+-   node.  */
++   a new GC context, or just not compile right now.  */
+ 
+-cgraph_node *
++void
+ cgraph_node::finalize_function (tree decl, bool no_collect)
+ {
+   cgraph_node *node = cgraph_node::get_create (decl);
+@@ -512,7 +511,6 @@ cgraph_node::finalize_function (tree decl, bool no_collect)
+   if (symtab->state == CONSTRUCTION
+       && (node->needed_p () || node->referred_to_p ()))
+     enqueue_node (node);
+-  return node;
+ }
+ 
+ /* Add the function FNDECL to the call graph.
+@@ -525,11 +523,9 @@ cgraph_node::finalize_function (tree decl, bool no_collect)
+    API breaking optimizations are performed on it).
+ 
+    Main work done by this function is to enqueue the function for later
+-   processing to avoid need the passes to be re-entrant.
+-
+-   Returns the created node.  */
++   processing to avoid need the passes to be re-entrant.  */
+ 
+-cgraph_node *
++void
+ cgraph_node::add_new_function (tree fndecl, bool lowered)
+ {
+   gcc::pass_manager *passes = g->get_passes ();
+@@ -554,7 +550,7 @@ cgraph_node::add_new_function (tree fndecl, bool lowered)
+   switch (symtab->state)
+     {
+       case PARSING:
+-	node = cgraph_node::finalize_function (fndecl, false);
++	cgraph_node::finalize_function (fndecl, false);
+ 	break;
+       case CONSTRUCTION:
+ 	/* Just enqueue function to be processed at nearest occurrence.  */
+@@ -624,7 +620,6 @@ cgraph_node::add_new_function (tree fndecl, bool lowered)
+       && (function_needs_eh_personality (DECL_STRUCT_FUNCTION (fndecl))
+ 	  == eh_personality_lang))
+     DECL_FUNCTION_PERSONALITY (fndecl) = lang_hooks.eh_personality ();
+-  return node;
+ }
+ 
+ /* Analyze the function scheduled to be output.  */
+diff --git a/gcc/gimple-low.cc b/gcc/gimple-low.cc
+index f5e175387fc..ed752429854 100644
+--- a/gcc/gimple-low.cc
++++ b/gcc/gimple-low.cc
+@@ -302,7 +302,18 @@ create_assumption_fn (location_t loc)
+   DECL_EXTERNAL (decl) = 0;
+   DECL_CONTEXT (decl) = NULL_TREE;
+   DECL_INITIAL (decl) = make_node (BLOCK);
+-  DECL_ATTRIBUTES (decl) = DECL_ATTRIBUTES (current_function_decl);
++  tree attributes = DECL_ATTRIBUTES (current_function_decl);
++  if (lookup_attribute ("noipa", attributes) == NULL)
++    {
++      attributes = tree_cons (get_identifier ("noipa"), NULL, attributes);
++      if (lookup_attribute ("noinline", attributes) == NULL)
++	attributes = tree_cons (get_identifier ("noinline"), NULL, attributes);
++      if (lookup_attribute ("noclone", attributes) == NULL)
++	attributes = tree_cons (get_identifier ("noclone"), NULL, attributes);
++      if (lookup_attribute ("no_icf", attributes) == NULL)
++	attributes = tree_cons (get_identifier ("no_icf"), NULL, attributes);
++    }
++  DECL_ATTRIBUTES (decl) = attributes;
+   BLOCK_SUPERCONTEXT (DECL_INITIAL (decl)) = decl;
+   DECL_FUNCTION_SPECIFIC_OPTIMIZATION (decl)
+     = DECL_FUNCTION_SPECIFIC_OPTIMIZATION (current_function_decl);
+@@ -665,8 +676,7 @@ lower_assumption (gimple_stmt_iterator *gsi, struct lower_data *data)
+   /* The body function no longer has var. args, unset stdarg.  */
+   DECL_STRUCT_FUNCTION (lad.id.dst_fn)->stdarg = 0;
+ 
+-  cgraph_node *dst_node = cgraph_node::add_new_function (lad.id.dst_fn, false);
+-  dst_node->assume_function = 1;
++  cgraph_node::add_new_function (lad.id.dst_fn, false);
+ 
+   for (unsigned i = 0; i < sz; ++i)
+     {
+diff --git a/gcc/ipa-cp.cc b/gcc/ipa-cp.cc
+index 76d3b0decda..4ae6c7516ef 100644
+--- a/gcc/ipa-cp.cc
++++ b/gcc/ipa-cp.cc
+@@ -3459,35 +3459,15 @@ good_cloning_opportunity_p (struct cgraph_node *node, sreal time_benefit,
+   gcc_assert (count_sum.ipa () == count_sum);
+   if (count_sum.quality () == AFDO)
+     count_sum = count_sum.force_nonzero ();
+-  if (!opt_for_fn (node->decl, flag_ipa_cp_clone))
+-    {
+-      if (dump_file && (dump_flags & TDF_DETAILS))
+-	fprintf (dump_file,
+-		 "     good_cloning_opportunity_p (time: %g, "
+-		 "size: %i): Cloning is prohibited.\n",
+-		 time_benefit.to_double (), size_cost);
+-      return false;
+-    }
+-
+-  /* Assume bodies don't make it into the final binary, so they have no real
+-     size.  Special case them, as cloning them is always a good idea.  */
+-  if (node->assume_function)
+-    {
+-      if (dump_file && (dump_flags & TDF_DETAILS))
+-	fprintf (dump_file, "     good_cloning_opportunity_p: Always clone "
+-			    "assume body functions.\n");
+-      return true;
+-    }
+-
+   if (time_benefit == 0
++      || !opt_for_fn (node->decl, flag_ipa_cp_clone)
+       /* If there is no call which was executed in profiling or where
+ 	 profile is missing, we do not want to clone.  */
+       || (!called_without_ipa_profile && !count_sum.nonzero_p ()))
+     {
+       if (dump_file && (dump_flags & TDF_DETAILS))
+-	fprintf (dump_file,
+-		 "     good_cloning_opportunity_p (time: %g, "
+-		 "size: %i): Definitely not good.\n",
++	fprintf (dump_file, "     good_cloning_opportunity_p (time: %g, "
++		 "size: %i): Definitely not good or prohibited.\n",
+ 		 time_benefit.to_double (), size_cost);
+       return false;
+     }
+diff --git a/gcc/ipa-fnsummary.cc b/gcc/ipa-fnsummary.cc
+index d3225a08483..09f50846903 100644
+--- a/gcc/ipa-fnsummary.cc
++++ b/gcc/ipa-fnsummary.cc
+@@ -90,8 +90,6 @@ along with GCC; see the file COPYING3.  If not see
+ #include "symtab-clones.h"
+ #include "gimple-range.h"
+ #include "tree-dfa.h"
+-#include "attr-callback.h"
+-#include "callback-info.h"
+ 
+ /* Summaries.  */
+ fast_function_summary <ipa_fn_summary *, va_gc> *ipa_fn_summaries;
+@@ -3059,12 +3057,10 @@ analyze_function_body (struct cgraph_node *node, bool early)
+ 		       this_time);
+ 	    }
+ 
+-	  struct cgraph_edge *edge;
+ 	  if (is_gimple_call (stmt)
+-	      && (!gimple_call_internal_p (stmt)
+-		  || gimple_call_internal_fn (stmt) == IFN_ASSUME)
+-	      && (edge = node->get_edge (stmt)))
++	      && !gimple_call_internal_p (stmt))
+ 	    {
++	      struct cgraph_edge *edge = node->get_edge (stmt);
+ 	      ipa_call_summary *es = ipa_call_summaries->get_create (edge);
+ 
+ 	      /* Special case: results of BUILT_IN_CONSTANT_P will be always
+@@ -3151,15 +3147,6 @@ analyze_function_body (struct cgraph_node *node, bool early)
+ 		      es2->call_stmt_time = 0;
+ 		    }
+ 		}
+-	      /* Internal calls are not in the callgraph, so edges pointing to
+-		 .ASSUME bodies are not covered by the above branch, as the
+-		 dispatching edge doesn't exist.  */
+-	      else if (edge->callback)
+-		{
+-		  gcc_checking_assert (edge->callee->assume_function);
+-		  es->call_stmt_size = 0;
+-		  es->call_stmt_time = 0;
+-		}
+ 	    }
+ 
+ 	  /* TODO: When conditional jump or switch is known to be constant, but
+diff --git a/gcc/ipa-icf.cc b/gcc/ipa-icf.cc
+index 7aa2554f8a7..7b524bdf16b 100644
+--- a/gcc/ipa-icf.cc
++++ b/gcc/ipa-icf.cc
+@@ -295,7 +295,6 @@ sem_function::get_hash (void)
+       hstate.add_flag (DECL_CXX_CONSTRUCTOR_P (decl));
+       hstate.add_flag (DECL_CXX_DESTRUCTOR_P (decl));
+       hstate.add_flag (DECL_STATIC_CHAIN (decl));
+-      hstate.add_flag (as_a<cgraph_node *> (node)->assume_function);
+ 
+       set_hash (hstate.end ());
+     }
+@@ -539,8 +538,6 @@ sem_function::equals_wpa (sem_item *item,
+       || cnode->must_remain_in_tu_body || cnode2->must_remain_in_tu_body)
+     return return_false_with_msg ("must remain in TU");
+ 
+-  if (cnode->assume_function != cnode2->assume_function)
+-    return return_false_with_msg ("assume_function mismatch");
+   if (cnode->thunk != cnode2->thunk)
+     return return_false_with_msg ("thunk mismatch");
+   if (cnode->former_thunk_p () != cnode2->former_thunk_p ())
+@@ -892,13 +889,7 @@ sem_function::equals_private (sem_item *item)
+  if (DECL_STATIC_CHAIN (decl) != DECL_STATIC_CHAIN (m_compared_func->decl))
+     return return_false_with_msg ("static chain mismatch");
+ 
+-  cgraph_node *cnode = as_a<cgraph_node *> (node);
+-  cgraph_node *cnode2 = as_a<cgraph_node *> (m_compared_func->node);
+-
+-  if (cnode->assume_function != cnode2->assume_function)
+-    return return_false_with_msg ("assume_function mismatch");
+-
+-  if (!cnode->has_gimple_body_p ())
++  if (!dyn_cast <cgraph_node *> (node)->has_gimple_body_p ())
+     return true;
+ 
+   /* Fill-up label dictionary.  */
+diff --git a/gcc/ipa-param-manipulation.cc b/gcc/ipa-param-manipulation.cc
+index fd70274e9b8..0f384848ce5 100644
+--- a/gcc/ipa-param-manipulation.cc
++++ b/gcc/ipa-param-manipulation.cc
+@@ -50,9 +50,7 @@ along with GCC; see the file COPYING3.  If not see
+ #include "sreal.h"
+ #include "ipa-cp.h"
+ #include "ipa-prop.h"
+-#include "data-streamer.h"
+ #include "attr-callback.h"
+-#include "callback-info.h"
+ 
+ /* Actual prefixes of different newly synthesized parameters.  Keep in sync
+    with IPA_PARAM_PREFIX_* defines.  */
+@@ -721,17 +719,7 @@ ipa_param_adjustments::modify_call (cgraph_edge *cs,
+ 
+   unsigned len = vec_safe_length (m_adj_params);
+   auto_vec<tree, 16> vargs (len);
+-  /* Argument remapping has to be used in this function, because it builds the
+-     new call statement from the parameter descriptors, rather than the actual
+-     arguments, as in ipa_param_adjustments::modify_call_stmt.  */
+-  callback_info *ci = callback_info_sum->get (cs);
+-
+-  /* Callback edges should be here only if they are pointing towards .ASSUME
+-     bodies, which always have a complete argument mapping.  */
+-  if (ci)
+-    gcc_assert (cs->callee->assume_function);
+-
+-  unsigned old_nargs = callback_call_num_args_summary (stmt, ci);
++  unsigned old_nargs = gimple_call_num_args (stmt);
+   unsigned orig_nargs = mod_info ? mod_info->index_map.length () : old_nargs;
+   auto_vec<bool, 16> kept (old_nargs);
+   kept.quick_grow_cleared (old_nargs);
+@@ -740,9 +728,6 @@ ipa_param_adjustments::modify_call (cgraph_edge *cs,
+   if (update_references)
+     current_node->remove_stmt_references (stmt);
+ 
+-  if (cs->callback && cs->callee->assume_function)
+-    vargs.safe_push (build_fold_addr_expr (callee_decl));
+-
+   gimple_stmt_iterator gsi = gsi_for_stmt (stmt);
+   gimple_stmt_iterator prev_gsi = gsi;
+   gsi_prev (&prev_gsi);
+@@ -762,7 +747,7 @@ ipa_param_adjustments::modify_call (cgraph_edge *cs,
+ 	      gcc_assert (index >= 0);
+ 	    }
+ 
+-	  tree arg = callback_call_arg_summary (stmt, index, ci);
++	  tree arg = gimple_call_arg (stmt, index);
+ 
+ 	  vargs.quick_push (arg);
+ 	  kept[index] = true;
+@@ -812,7 +797,7 @@ ipa_param_adjustments::modify_call (cgraph_edge *cs,
+ 	  index = mod_info->index_map[apm->base_index];
+ 	  gcc_assert (index >= 0);
+ 	}
+-      tree base = callback_call_arg_summary (stmt, index, ci);
++      tree base = gimple_call_arg (stmt, index);
+ 
+       /* We create a new parameter out of the value of the old one, we can
+ 	 do the following kind of transformations:
+@@ -934,8 +919,6 @@ ipa_param_adjustments::modify_call (cgraph_edge *cs,
+ 	  always_copy_start += mod_info->always_copy_delta;
+ 	  gcc_assert (always_copy_start >= 0);
+ 	}
+-
+-      gcc_assert (!ci || always_copy_start >= (int) old_nargs);
+       for (unsigned i = always_copy_start; i < old_nargs; i++)
+ 	vargs.safe_push (gimple_call_arg (stmt, i));
+     }
+@@ -1022,11 +1005,7 @@ ipa_param_adjustments::modify_call (cgraph_edge *cs,
+       print_gimple_stmt (dump_file, gsi_stmt (gsi), 0);
+     }
+ 
+-  gcall *new_stmt;
+-  if (cs->callback && cs->callee->assume_function)
+-    new_stmt = gimple_build_call_internal_vec (IFN_ASSUME, vargs);
+-  else
+-    new_stmt = gimple_build_call_vec (callee_decl, vargs);
++  gcall *new_stmt = gimple_build_call_vec (callee_decl, vargs);
+ 
+   hash_set <tree> *ssas_to_remove = NULL;
+   if (tree lhs = gimple_call_lhs (stmt))
+@@ -2245,18 +2224,6 @@ ipa_param_body_adjustments::modify_call_stmt (gcall **stmt_p,
+   bool recreate = false;
+   gcc_assert (m_sorted_replacements_p);
+ 
+-  callback_info *ci = NULL;
+-  if (callback_ifn_assume_call_p (orig_stmt))
+-    {
+-      cgraph_edge *cbei = cgraph_node::get (m_fndecl)->get_edge (orig_stmt);
+-      if (cbei)
+-	{
+-	  gcc_checking_assert (cbei->callback);
+-	  ci = callback_info_sum->get (cbei);
+-	  gcc_assert (ci);
+-	}
+-    }
+-
+   for (unsigned i = 0; i < gimple_call_num_args (stmt); i++)
+     {
+       tree t = gimple_call_arg (stmt, i);
+@@ -2382,16 +2349,7 @@ ipa_param_body_adjustments::modify_call_stmt (gcall **stmt_p,
+ 	      if (m_replacements[j].unit_offset < agg_arg_offset)
+ 		continue;
+ 	      pass_through_split_map pt_map;
+-	      /* The base index wouldn't match for callback calls, as the
+-		 analysis is done on their remapped indices.  */
+-	      if (ci)
+-		{
+-		  int remapped_idx = ci->inverted_mapping[i];
+-		  gcc_checking_assert (remapped_idx != -1);
+-		  pt_map.base_index = remapped_idx;
+-		}
+-	      else
+-		pt_map.base_index = i;
++	      pt_map.base_index = i;
+ 	      pt_map.unit_offset
+ 		= m_replacements[j].unit_offset - agg_arg_offset;
+ 	      pt_map.new_index = new_arg_idx;
+@@ -2421,11 +2379,7 @@ ipa_param_body_adjustments::modify_call_stmt (gcall **stmt_p,
+ 	}
+     }
+ 
+-  gcall *new_stmt;
+-  if (callback_ifn_assume_call_p (orig_stmt))
+-    new_stmt = gimple_build_call_internal_vec (IFN_ASSUME, vargs);
+-  else
+-    new_stmt = gimple_build_call_vec (gimple_call_fn (stmt), vargs);
++  gcall *new_stmt = gimple_build_call_vec (gimple_call_fn (stmt), vargs);
+   if (gimple_has_location (stmt))
+     gimple_set_location (new_stmt, gimple_location (stmt));
+   gimple_call_set_chain (new_stmt, gimple_call_chain (stmt));
+diff --git a/gcc/ipa-polymorphic-call.cc b/gcc/ipa-polymorphic-call.cc
+index 3f2d413a73a..addb52561c7 100644
+--- a/gcc/ipa-polymorphic-call.cc
++++ b/gcc/ipa-polymorphic-call.cc
+@@ -23,7 +23,6 @@ along with GCC; see the file COPYING3.  If not see
+ #include "coretypes.h"
+ #include "backend.h"
+ #include "rtl.h"
+-#include "tree-core.h"
+ #include "tree.h"
+ #include "gimple.h"
+ #include "tree-pass.h"
+@@ -42,8 +41,6 @@ along with GCC; see the file COPYING3.  If not see
+ #include "alloc-pool.h"
+ #include "symbol-summary.h"
+ #include "symtab-thunks.h"
+-#include "attr-callback.h"
+-#include "callback-info.h"
+ 
+ /* Return true when TYPE contains an polymorphic type and thus is interesting
+    for devirtualization machinery.  */
+@@ -1587,11 +1584,6 @@ ipa_polymorphic_call_context::get_dynamic_type (tree instance,
+   if (!instance)
+     return false;
+ 
+-  /* Bail to avoid segfaults for IFN_ASSUME internal calls.  They are not
+-     polymorphic anyway.  */
+-  if (is_gimple_call (call) && gimple_call_internal_p (call, IFN_ASSUME))
+-    return false;
+-
+   if (otr_type)
+     otr_type = TYPE_MAIN_VARIANT (otr_type);
+ 
+diff --git a/gcc/ipa-prop.cc b/gcc/ipa-prop.cc
+index c614ddccbbb..b4f08fb23de 100644
+--- a/gcc/ipa-prop.cc
++++ b/gcc/ipa-prop.cc
+@@ -2492,8 +2492,7 @@ ipa_compute_jump_functions_for_edge (struct ipa_func_body_info *fbi,
+   ipa_node_params *info = ipa_node_params_sum->get (cs->caller);
+   ipa_edge_args *args = ipa_edge_args_sum->get_create (cs);
+   gcall *call = cs->call_stmt;
+-  callback_info *ci = callback_info_sum->get (cs);
+-  int n, arg_num = callback_call_num_args_summary (call, ci);
++  int n, arg_num = gimple_call_num_args (call);
+   bool useful_context = false;
+ 
+   if (arg_num == 0 || args->jump_functions)
+@@ -2509,17 +2508,7 @@ ipa_compute_jump_functions_for_edge (struct ipa_func_body_info *fbi,
+   for (n = 0; n < arg_num; n++)
+     {
+       struct ipa_jump_func *jfunc = ipa_get_ith_jump_func (args, n);
+-      tree arg;
+-      if (cs->callback)
+-	{
+-	  gcc_assert (cs->callee->assume_function);
+-	  int remapped_idx = ci->arg_mapping[n];
+-	  if (remapped_idx == ARG_MAPPING_UNKNOWN_IDX)
+-	    continue;
+-	  arg = gimple_call_arg (call, remapped_idx);
+-	}
+-      else
+-	arg = gimple_call_arg (call, n);
++      tree arg = gimple_call_arg (call, n);
+       tree param_type = ipa_get_callee_param_type (cs, n);
+       if (flag_devirtualize && POINTER_TYPE_P (TREE_TYPE (arg)))
+ 	{
+@@ -3214,19 +3203,6 @@ ipa_analyze_call_uses (struct ipa_func_body_info *fbi, gcall *call)
+ {
+   tree target = gimple_call_fn (call);
+ 
+-  /* Internal .ASSUME call.  Create a callback edge to its body, calculate its
+-     jump functions and return.  This is done here as the main creation route in
+-     ipa_compute_jump_functions_for_edge doesn't analyze call statements.  */
+-  if (callback_ifn_assume_call_p (call))
+-    {
+-      tree callee_decl = TREE_OPERAND (gimple_call_arg (call, 0), 0);
+-      cgraph_node *target = cgraph_node::get_create (callee_decl);
+-      cgraph_edge *cbei
+-	= cgraph_edge::make_callback_internal (fbi->node, target, call);
+-      ipa_compute_jump_functions_for_edge (fbi, cbei);
+-      return;
+-    }
+-
+   if (!target
+       || (TREE_CODE (target) != SSA_NAME
+           && !virtual_method_call_p (target)))
+diff --git a/gcc/ipa-sra.cc b/gcc/ipa-sra.cc
+index 776c4675397..422bf367b97 100644
+--- a/gcc/ipa-sra.cc
++++ b/gcc/ipa-sra.cc
+@@ -87,8 +87,6 @@ along with GCC; see the file COPYING3.  If not see
+ #include "sreal.h"
+ #include "ipa-cp.h"
+ #include "ipa-prop.h"
+-#include "attr-callback.h"
+-#include "callback-info.h"
+ 
+ static void ipa_sra_summarize_function (cgraph_node *);
+ 
+@@ -691,19 +689,6 @@ ipa_sra_preliminary_function_checks (cgraph_node *node)
+       return false;
+     }
+ 
+-  /* A special case.  If the callback edge pointing to the assume body is not
+-     created before ipa-sra analysis is run, the newly created edge won't be
+-     analyzed and will thus lack the appropriate summaries.  Be conservative and
+-     skip the function entirely.  We aren't missing anything, because we can't
+-     use an unsummarized call anyway.  */
+-  if (node->assume_function && !node->callers)
+-    {
+-      if (dump_file)
+-	fprintf (dump_file,
+-		 "Assume body without a callback edge, skipping. \n");
+-      return false;
+-    }
+-
+   return true;
+ }
+ 
+@@ -1135,11 +1120,10 @@ ptr_parm_has_nonarg_uses (cgraph_node *node, function *fun, tree parm,
+ 	}
+       else if (is_gimple_call (stmt))
+ 	{
+-	  gcall *call = as_a<gcall *> (stmt);
+-	  unsigned arg_count = gimple_call_num_args (call);
+-	  if ((gimple_call_internal_p (call)
+-	       && !callback_ifn_assume_call_with_edge_p (node, stmt))
+-	      || arg_count == 0)
++	  gcall *call = as_a <gcall *> (stmt);
++	  unsigned arg_count;
++	  if (gimple_call_internal_p (call)
++	      || (arg_count = gimple_call_num_args (call)) == 0)
+ 	    {
+ 	      ret = true;
+ 	      break;
+@@ -2072,8 +2056,7 @@ scan_function (cgraph_node *node, struct function *fun)
+ 		unsigned argument_count = gimple_call_num_args (stmt);
+ 		isra_scan_context ctx = ISRA_CTX_ARG;
+ 		scan_call_info call_info, *call_info_p = &call_info;
+-		if (gimple_call_internal_p (stmt)
+-		    && !callback_ifn_assume_call_with_edge_p (node, stmt))
++		if (gimple_call_internal_p (stmt))
+ 		  {
+ 		    call_info_p = NULL;
+ 		    ctx = ISRA_CTX_LOAD;
+@@ -2265,11 +2248,6 @@ isra_analyze_call (cgraph_edge *cs)
+ 	  BITMAP_FREE (analyzed);
+ 	}
+     }
+-
+-  /* The return value of an ASSUME body is not ignored, but we cannot detect
+-     this, as the function is never called directly.  */
+-  else if (cs->callee && cs->callee->assume_function)
+-    csum->m_return_ignored = false;
+   /* Don't set m_return_ignored for musttail calls.  The tailc/musttail passes
+      compare the returned value against the IPA-VRP return value range if
+      it is a singleton, but if the call is changed to something which doesn't
+@@ -2575,11 +2553,8 @@ process_scan_results (cgraph_node *node, struct function *fun,
+ 	       * param_size_limit);
+ 	}
+ 
+-      /* Assume functions have no real replacements, no calls to them will make
+-	 it into the binary, so limits don't matter.  */
+-      if (!node->assume_function
+-	  && (nonarg_acc_size > optimistic_limit
+-	      || (!desc->by_ref && nonarg_acc_size == param_size_limit)))
++      if (nonarg_acc_size > optimistic_limit
++	  || (!desc->by_ref && nonarg_acc_size == param_size_limit))
+ 	{
+ 	  disqualify_split_candidate (desc, "Would result into a too big set "
+ 				      "of replacements even in best "
+@@ -2803,7 +2778,6 @@ ipa_sra_generate_summary (void)
+     = (new (ggc_alloc_no_dtor <ipa_sra_function_summaries> ())
+        ipa_sra_function_summaries (symtab, true));
+   call_sums = new ipa_sra_call_summaries (symtab);
+-  callback_info_sum_t::check_create_info_sum ();
+ 
+   FOR_EACH_FUNCTION_WITH_GIMPLE_BODY (node)
+     ipa_sra_summarize_function (node);
+@@ -3146,9 +3120,7 @@ ipa_sra_dump_all_summaries (FILE *f, bool hints)
+ static bool
+ ipa_sra_ipa_function_checks (cgraph_node *node)
+ {
+-  /* Assume bodies cannot be local, because their address is taken, but we want
+-     to consider them anyway.  */
+-  if (!node->can_be_local_p () && !node->assume_function)
++  if (!node->can_be_local_p ())
+     {
+       if (dump_file)
+ 	fprintf (dump_file, "Function %s disqualified because it cannot be "
+@@ -3423,21 +3395,11 @@ param_removal_cross_scc_edge (cgraph_edge *cs)
+ 
+   for (unsigned i = 0; i < args_count; i++)
+     {
+-      bool unused_in_callee = false;
+-
+-      isra_param_desc *descriptor = NULL;
+-      if (cs->callback)
+-	{
+-	  callback_info *ci = callback_info_sum->get (cs);
+-	  int remapped_idx = ci->inverted_mapping[i];
+-	  if (remapped_idx != ARG_MAPPING_UNKNOWN_IDX)
+-	    descriptor = &(*to_ifs->m_parameters)[remapped_idx];
+-	}
+-      else if (i < param_count)
+-	descriptor = &(*to_ifs->m_parameters)[i];
+-
+-      if (descriptor)
+-	unused_in_callee = descriptor->locally_unused;
++      bool unused_in_callee;
++      if (i < param_count)
++	unused_in_callee = (*to_ifs->m_parameters)[i].locally_unused;
++      else
++	unused_in_callee = false;
+ 
+       if (!unused_in_callee)
+ 	{
+@@ -3552,22 +3514,7 @@ propagate_param_hints_accross_call (cgraph_edge *cs, isra_func_summary *to_ifs)
+ 
+       if (desc->by_ref)
+ 	{
+-	  unsigned idx = i;
+-	  if (cs->callback)
+-	    {
+-	      gcc_assert (cs->callee->assume_function);
+-	      callback_info *ci = callback_info_sum->get (cs);
+-	      int remapped = ci->arg_mapping[i];
+-	      if (remapped == ARG_MAPPING_UNKNOWN_IDX)
+-		/* In the case of assume outlined functions, the only skipped
+-		   argument is the address to be called, which is fine.  In
+-		   other cases, if they ever arise, processing of the call to
+-		   callback dispatching functions will need to handle unmapped
+-		   arguments as necessary.  */
+-		continue;
+-	      idx = (unsigned) remapped;
+-	    }
+-	  isra_param_flow *ipf = &csum->m_arg_flow[idx];
++	  isra_param_flow *ipf = &csum->m_arg_flow[i];
+ 
+ 	  if (!ipf->constructed_for_calls)
+ 	    desc->not_specially_constructed = true;
+@@ -3607,11 +3554,7 @@ propagate_hints_to_all_callees (cgraph_node *node, isra_func_summary *from_ifs,
+       enum availability availability;
+       cgraph_node *callee = cs->callee->function_symbol (&availability);
+       isra_func_summary *to_ifs = func_sums->get (callee);
+-      /* Skip over regular callbacks, as we cannot perform SRA on them.  We
+-	 don't zap them early on, because the callback call might get optimized
+-	 out, so don't want to miss that opportunity.  Skipping them here is OK,
+-	 as they will get disqualified later on in the IPA stage.  */
+-      if (!from_ifs || (cs->callback && !cs->callee->assume_function))
++      if (!from_ifs)
+ 	{
+ 	  if (flip_all_param_hints_pessimistic (to_ifs)
+ 	      && ipa_edge_within_scc (cs))
+@@ -3646,25 +3589,8 @@ propagate_used_across_scc_edge (cgraph_edge *cs, vec<cgraph_node *> *stack)
+     ? vec_safe_length (to_ifs->m_parameters) : 0;
+   for (unsigned i = 0; i < args_count; i++)
+     {
+-      unsigned idx = i;
+-
+-      if (cs->callback)
+-	{
+-	  gcc_assert (cs->callee->assume_function);
+-	  callback_info *ci = callback_info_sum->get (cs);
+-	  int remapped = ci->inverted_mapping[i];
+-	  if (remapped == ARG_MAPPING_UNKNOWN_IDX)
+-	    /* In the case of assume outlined functions, the only skipped
+-	       argument is the address to be called, which is fine.  In other
+-	       cases, if they ever arise, processing of the call to callback
+-	       dispatching functions will need to handle unmapped arguments as
+-	       necessary.  */
+-	    continue;
+-	  idx = (unsigned) remapped;
+-	}
+-
+-      if (idx < param_count
+-	  && (*to_ifs->m_parameters)[idx].locally_unused)
++      if (i < param_count
++	  && (*to_ifs->m_parameters)[i].locally_unused)
+ 	    continue;
+ 
+       /* The argument is needed in the callee it, we must mark the parameter as
+@@ -3884,14 +3810,7 @@ param_splitting_across_edge (cgraph_edge *cs)
+     = ipcp_get_transformation_summary (cs->caller);
+ 
+   isra_call_summary *csum = call_sums->get (cs);
+-  /* The summary may not exist if the edge is a callback edge created after SRA
+-     summaries are generated (when ipa-cp is disabled for example).  Bail if
+-     that happens.  */
+-  if (!csum)
+-    {
+-      gcc_checking_assert (callback_ifn_assume_call_p (cs->call_stmt));
+-      return false;
+-    }
++  gcc_checking_assert (csum);
+   unsigned args_count = csum->m_arg_flow.length ();
+   isra_func_summary *to_ifs = func_sums->get (callee);
+   unsigned param_count
+@@ -3907,22 +3826,7 @@ param_splitting_across_edge (cgraph_edge *cs)
+   for (i = 0; (i < args_count) && (i < param_count); i++)
+     {
+       isra_param_desc *arg_desc = &(*to_ifs->m_parameters)[i];
+-      unsigned ipf_idx = i;
+-      if (cs->callback)
+-	{
+-	  gcc_assert (cs->callee->assume_function);
+-	  callback_info *ci = callback_info_sum->get (cs);
+-	  int remapped = ci->arg_mapping[i];
+-	  if (remapped == ARG_MAPPING_UNKNOWN_IDX)
+-	    /* In the case of assume outlined functions, the only skipped
+-	       argument is the address to be called, which is fine.  In other
+-	       cases, if they ever arise, processing of the call to callback
+-	       dispatching functions will need to handle unmapped arguments as
+-	       necessary.  */
+-	    continue;
+-	  ipf_idx = (unsigned) remapped;
+-	}
+-      isra_param_flow *ipf = &csum->m_arg_flow[ipf_idx];
++      isra_param_flow *ipf = &csum->m_arg_flow[i];
+ 
+       if (arg_desc->locally_unused)
+ 	{
+@@ -4124,11 +4028,6 @@ retval_used_p (cgraph_node *node, void *)
+ 	    return true;
+     }
+ 
+-  /* Keep the return value, even though it's not used in the code directly,
+-     because it's used by vrp later.  */
+-  if (node->assume_function)
+-    return true;
+-
+   return false;
+ }
+ 
+@@ -4465,10 +4364,7 @@ adjust_parameter_descriptions (cgraph_node *node, isra_func_summary *ifs)
+ 			      param_ipa_sra_ptrwrap_growth_factor);
+ 	      desc->param_size_limit = extra_factor * desc->param_size_limit;
+ 	    }
+-	  /* Don't disqualify assume bodies, as they don't make into the final
+-	     binary anyway.  */
+-	  if (!node->assume_function
+-	      && size_would_violate_limit_p (desc, desc->size_reached))
++	  if (size_would_violate_limit_p (desc, desc->size_reached))
+ 	    desc->split_candidate = false;
+ 	}
+ 
+diff --git a/gcc/lto-cgraph.cc b/gcc/lto-cgraph.cc
+index b3644e47bec..bffe35f2353 100644
+--- a/gcc/lto-cgraph.cc
++++ b/gcc/lto-cgraph.cc
+@@ -561,7 +561,6 @@ lto_output_node (struct lto_simple_output_block *ob, struct cgraph_node *node,
+   bp_pack_value (&bp, node->tm_clone, 1);
+   bp_pack_value (&bp, node->calls_comdat_local, 1);
+   bp_pack_value (&bp, node->icf_merged, 1);
+-  bp_pack_value (&bp, node->assume_function, 1);
+   bp_pack_value (&bp, node->nonfreeing_fn, 1);
+   bp_pack_value (&bp, node->merged_comdat, 1);
+   bp_pack_value (&bp, node->merged_extern_inline, 1);
+@@ -1300,7 +1299,6 @@ input_overwrite_node (struct lto_file_decl_data *file_data,
+   node->tm_clone = bp_unpack_value (bp, 1);
+   node->calls_comdat_local = bp_unpack_value (bp, 1);
+   node->icf_merged = bp_unpack_value (bp, 1);
+-  node->assume_function = bp_unpack_value (bp, 1);
+   node->nonfreeing_fn = bp_unpack_value (bp, 1);
+   node->merged_comdat = bp_unpack_value (bp, 1);
+   node->merged_extern_inline = bp_unpack_value (bp, 1);
+diff --git a/gcc/testsuite/g++.dg/ipa/ipa-cp-assume-2.C b/gcc/testsuite/g++.dg/ipa/ipa-cp-assume-2.C
+deleted file mode 100644
+index d9f7af46ec9..00000000000
+--- a/gcc/testsuite/g++.dg/ipa/ipa-cp-assume-2.C
++++ /dev/null
+@@ -1,40 +0,0 @@
+-/* { dg-do compile } */
+-/* { dg-options "-O3 -fdump-ipa-cp-details -fdump-tree-optimized" } */
+-
+-/* Should propagate in chain baz -> foo -> assume and fold body of foo
+-   accordingly.  Works because bar can be inlined (otherwise we can't derive the
+-   value range for x).  */
+-
+-void do_something ();
+-
+-inline bool
+-bar (int x, int y)
+-{
+-  return x < y;
+-}
+-
+-static bool __attribute__ ((noinline))
+-foo (int x, int a)
+-{
+-  [[assume (bar (x, a))]];
+-  bool ret = x < 42;
+-
+-  if (!__builtin_constant_p (ret))
+-    __builtin_abort ();
+-
+-  return ret;
+-}
+-
+-void
+-baz (int x)
+-{
+-  bool should_do_something = false;
+-  for (int i = 0; i < 1000000; i++)
+-    should_do_something = foo (x, 42);
+-
+-  if (!should_do_something)
+-    do_something ();
+-}
+-
+-/* { dg-final { scan-ipa-dump-times "replacing param #1 a with const 42" 2 "cp" } } */
+-/* { dg-final { scan-tree-dump-not "abort" "optimized" } } */
+diff --git a/gcc/testsuite/g++.dg/ipa/ipa-cp-assume-3.C b/gcc/testsuite/g++.dg/ipa/ipa-cp-assume-3.C
+deleted file mode 100644
+index 4b79480b4f3..00000000000
+--- a/gcc/testsuite/g++.dg/ipa/ipa-cp-assume-3.C
++++ /dev/null
+@@ -1,51 +0,0 @@
+-/* { dg-do compile } */
+-/* { dg-options "-O3 -fdump-ipa-cp-details -fdump-ipa-sra-details -fdump-tree-optimized" } */
+-
+-/* Should propagate baz -> foo -> assume, split the parameter, derive the range
+-   for s->x and fold foo accordingly.  */
+-
+-void something ();
+-
+-struct S
+-{
+-  int x, y;
+-};
+-
+-inline bool
+-bar (int x, int y)
+-{
+-  return x < y;
+-}
+-
+-static bool __attribute__ ((noinline))
+-foo (struct S *s)
+-{
+-  [[assume (bar (s->x, s->y))]];
+-  bool ret = s->x < 42;
+-  bool ahoj = s->x < s->y;
+-
+-  if (!__builtin_constant_p (ret))
+-    __builtin_abort ();
+-
+-  if (!__builtin_constant_p (ahoj))
+-    __builtin_abort ();
+-
+-  return ret;
+-}
+-
+-void
+-baz (int x)
+-{
+-  struct S s;
+-  s.x = x;
+-  s.y = 42;
+-  bool shouldnt_do_something = foo (&s);
+-
+-  if (!shouldnt_do_something)
+-    something ();
+-}
+-
+-/* { dg-final { scan-ipa-dump "Aggregate replacements: 0\\\[4]=42" "cp" } } */
+-/* { dg-final { scan-ipa-dump ".*assume.*constprop.* Will split parameter 0" "sra" } } */
+-/* { dg-final { scan-ipa-dump "assume.*constprop\\.isra" "sra" } } */
+-/* { dg-final { scan-tree-dump-not "abort" "optimized" } } */
+diff --git a/gcc/testsuite/g++.dg/ipa/ipa-cp-assume.C b/gcc/testsuite/g++.dg/ipa/ipa-cp-assume.C
+deleted file mode 100644
+index 6eeebd4ad5c..00000000000
+--- a/gcc/testsuite/g++.dg/ipa/ipa-cp-assume.C
++++ /dev/null
+@@ -1,26 +0,0 @@
+-/* { dg-do compile } */
+-/* { dg-options "-O3 -fdump-ipa-cp-details -fdump-tree-optimized" } */
+-
+-/* Should propagate 'a' into the assume body and fold foo.  */
+-
+-inline bool
+-bar (int x, int y)
+-{
+-  return x < y;
+-}
+-
+-bool
+-foo (int x)
+-{
+-  int a = 42;
+-  [[assume (bar (x, a))]];
+-  bool ret = x < 42;
+-
+-  if (!__builtin_constant_p (ret))
+-    __builtin_abort ();
+-
+-  return ret;
+-}
+-
+-/* { dg-final { scan-ipa-dump "replacing param #1 a with const 42" "cp" } } */
+-/* { dg-final { scan-tree-dump-not "abort" "optimized" } } */
+diff --git a/gcc/testsuite/g++.dg/ipa/ipa-sra-assume-2.C b/gcc/testsuite/g++.dg/ipa/ipa-sra-assume-2.C
+deleted file mode 100644
+index 009b315ac42..00000000000
+--- a/gcc/testsuite/g++.dg/ipa/ipa-sra-assume-2.C
++++ /dev/null
+@@ -1,33 +0,0 @@
+-/* Test that the assume can be copied before creating the edges.  */
+-
+-/* { dg-do compile } */
+-/* { dg-options "-O3" } */
+-
+-struct S
+-{
+-  int x, y;
+-};
+-
+-inline bool
+-baz (S x)
+-{
+-  return x.x < 42;
+-}
+-
+-inline bool
+-qux (S x, int h)
+-{
+-  [[assume (baz (x))]];
+-  return x.x < 42 && x.y > 52 && h < 50;
+-}
+-
+-void
+-corge (S x, S y, S z, bool *p)
+-{
+-  for (int i = 0; i < x.x + x.y; i++)
+-    {
+-      p[0] = qux (x, 41);
+-      p[1] = qux (y, 60);
+-      p[2] = qux (z, 20);
+-    }
+-}
+diff --git a/gcc/testsuite/g++.dg/ipa/ipa-sra-assume-3.C b/gcc/testsuite/g++.dg/ipa/ipa-sra-assume-3.C
+deleted file mode 100644
+index fd15c957794..00000000000
+--- a/gcc/testsuite/g++.dg/ipa/ipa-sra-assume-3.C
++++ /dev/null
+@@ -1,34 +0,0 @@
+-/* Test that the assume can be copied after creating the edges.  */
+-
+-/* { dg-do compile } */
+-/* { dg-options "-O3 -fno-early-inlining" } */
+-
+-struct S
+-{
+-  int x, y;
+-};
+-
+-inline bool
+-baz (S x)
+-{
+-  return x.x < 42;
+-}
+-
+-[[gnu::always_inline]]
+-inline bool
+-qux (S x, int h)
+-{
+-  [[assume (baz (x))]];
+-  return x.x < 42 && x.y > 52 && h < 50;
+-}
+-
+-void
+-corge (S x, S y, S z, bool *p)
+-{
+-  for (int i = 0; i < x.x + x.y; i++)
+-    {
+-      p[0] = qux (x, 41);
+-      p[1] = qux (y, 60);
+-      p[2] = qux (z, 20);
+-    }
+-}
+diff --git a/gcc/testsuite/g++.dg/ipa/ipa-sra-assume.C b/gcc/testsuite/g++.dg/ipa/ipa-sra-assume.C
+deleted file mode 100644
+index 91b6366eb6a..00000000000
+--- a/gcc/testsuite/g++.dg/ipa/ipa-sra-assume.C
++++ /dev/null
+@@ -1,37 +0,0 @@
+-/* Test that ipa-sra can  work with .ASSUME outlined bodies.  */
+-
+-/* { dg-do compile } */
+-/* { dg-options "-O2 -fipa-sra -fdump-ipa-sra-details -fdump-tree-optimized" } */
+-
+-struct S
+-{
+-  bool x;
+-  int y;
+-};
+-
+-void
+-split_struct (struct S s)
+-{
+-  [[assume (!s.x)]];
+-  if (s.x)
+-    __builtin_abort ();
+-}
+-
+-void
+-remove_ptr (bool *x)
+-{
+-  [[assume (!*x)]];
+-  if (*x)
+-    __builtin_abort ();
+-}
+-
+-void
+-two_values (struct S s)
+-{
+-  [[assume (s.y == 3 || s.y == 4)]];
+-  if (s.y == 5)
+-    __builtin_abort ();
+-}
+-
+-/* { dg-final { scan-ipa-dump-times "Will split parameter 0" 3 "sra" } } */
+-/* { dg-final { scan-tree-dump-not "abort" "optimized" } } */
+diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume-1_0.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume-1_0.C
+deleted file mode 100644
+index 1111087d800..00000000000
+--- a/gcc/testsuite/g++.dg/lto/ipa-cp-assume-1_0.C
++++ /dev/null
+@@ -1,16 +0,0 @@
+-/* { dg-lto-do link } */
+-/* { dg-lto-options {{ -O3 -fdump-ipa-cp-details -fdump-tree-optimized -flto }} } */
+-
+-#include "../ipa/ipa-cp-assume.C"
+-
+-int
+-main ()
+-{
+-  int x;
+-  __builtin_scanf ("%d", &x);
+-  foo (x);
+-  return 0;
+-}
+-
+-/* { dg-final { scan-wpa-ipa-dump "replacing param #1 int with const 42" "cp" } } */
+-/* { dg-final { scan-ltrans-tree-dump-not "abort" "optimized" } } */
+diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume-2_0.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume-2_0.C
+deleted file mode 100644
+index caafb9c3c93..00000000000
+--- a/gcc/testsuite/g++.dg/lto/ipa-cp-assume-2_0.C
++++ /dev/null
+@@ -1,16 +0,0 @@
+-/* { dg-lto-do link } */
+-/* { dg-lto-options {{ -O3 -fdump-ipa-cp-details -fdump-tree-optimized -flto }} } */
+-
+-#include "../ipa/ipa-cp-assume-2.C"
+-
+-int
+-main ()
+-{
+-  int x;
+-  __builtin_scanf ("%d", &x);
+-  baz (x);
+-  return 0;
+-}
+-
+-/* { dg-final { scan-wpa-ipa-dump-times "replacing param #1 int with const 42" 2 "cp" } } */
+-/* { dg-final { scan-ltrans-tree-dump-not "abort" "optimized" } } */
+diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume-3_0.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume-3_0.C
+deleted file mode 100644
+index 8ca3c99d8aa..00000000000
+--- a/gcc/testsuite/g++.dg/lto/ipa-cp-assume-3_0.C
++++ /dev/null
+@@ -1,18 +0,0 @@
+-/* { dg-lto-do link } */
+-/* { dg-lto-options  {{ -O3 -fdump-ipa-cp-details -fdump-ipa-sra-details -fdump-tree-optimized -flto }} } */
+-
+-#include "../ipa/ipa-cp-assume-3.C"
+-
+-int
+-main ()
+-{
+-  int x;
+-  __builtin_scanf ("%d", &x);
+-  baz (x);
+-  return 0;
+-}
+-
+-/* { dg-final { scan-wpa-ipa-dump "Aggregate replacements: 0\\\[4]=42" "cp" } } */
+-/* { dg-final { scan-wpa-ipa-dump ".*assume.*constprop.* Will split parameter 0" "sra" } } */
+-/* { dg-final { scan-wpa-ipa-dump "assume.*constprop\\.isra" "sra" } } */
+-/* { dg-final { scan-ltrans-tree-dump-not "abort" "optimized" } } */
+diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C
+deleted file mode 100644
+index 3f69250f33b..00000000000
+--- a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C
++++ /dev/null
+@@ -1,27 +0,0 @@
+-/* { dg-lto-options {{ -O3 -flto -fdump-tree-optimized }} } */
+-/* { dg-lto-do link } */
+-
+-/* The point of this test is to propagate the constant into the assume body in
+-   the other file, infer the value range for 'x', evaluate bar to 0, meaning
+-   that the loop will never run and the abort would never be executed.  */
+-
+-int bar (int, int);
+-
+-void
+-foo (int x, int y)
+-{
+-  int c = bar (x, y);
+-  for (int i = 0; i < c; i++)
+-    __builtin_abort ();
+-}
+-
+-int
+-main ()
+-{
+-  int x;
+-  __builtin_scanf ("%d", &x);
+-  foo (x, 67);
+-  return 0;
+-}
+-
+-/* { dg-final { scan-ltrans-tree-dump-not "__builtin_abort" "optimized" } } */
+diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_1.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume_1.C
+deleted file mode 100644
+index 4ac52422d37..00000000000
+--- a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_1.C
++++ /dev/null
+@@ -1,13 +0,0 @@
+-inline bool
+-baz (int x, int y)
+-{
+-  return x < y;
+-}
+-
+-int
+-bar (int x, int y)
+-{
+-  [[assume (baz (x, y))]];
+-  __builtin_printf ("%d %d", x, y);
+-  return x > y;
+-}
+diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C
+deleted file mode 100644
+index 5d55efa4497..00000000000
+--- a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C
++++ /dev/null
+@@ -1,22 +0,0 @@
+-/* { dg-lto-do link } */
+-/* { dg-lto-options {{ -O2 -fno-inline -fipa-sra -fdump-ipa-sra-details -fdump-tree-optimized -flto }} } */
+-
+-#include "../ipa/ipa-sra-assume.C"
+-
+-int
+-main ()
+-{
+-  int x, y, z;
+-  __builtin_scanf ("%d %d %d", &x, &y, &z);
+-
+-  struct S s = {.x = (bool) x, .y = y};
+-  bool a = z;
+-
+-  split_struct (s);
+-  remove_ptr (&a);
+-  two_values (s);
+-  return 0;
+-}
+-
+-/* { dg-final { scan-wpa-ipa-dump-times "Will split parameter 0" 6 "sra" } } */
+-/* { dg-final { scan-ltrans-tree-dump-not "abort" "optimized" } } */
+diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-2_0.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume-2_0.C
+deleted file mode 100644
+index d3d0251ce5d..00000000000
+--- a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-2_0.C
++++ /dev/null
+@@ -1,6 +0,0 @@
+-/* Test that the assume can be copied before creating the edges.  */
+-
+-/* { dg-lto-do assemble } */
+-/* { dg-lto-options  {{ -O3 -flto }} } */
+-
+-#include "../ipa/ipa-sra-assume-2.C"
+diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-3_0.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume-3_0.C
+deleted file mode 100644
+index 432cfcfd5f3..00000000000
+--- a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-3_0.C
++++ /dev/null
+@@ -1,6 +0,0 @@
+-/* Test that the assume can be copied after creating the edges.  */
+-
+-/* { dg-lto-do assemble } */
+-/* { dg-lto-options  {{ -O3 -fno-early-inlining -flto }} } */
+-
+-#include "../ipa/ipa-sra-assume-3.C"
+diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume_0.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume_0.C
+deleted file mode 100644
+index c4de5f86d3c..00000000000
+--- a/gcc/testsuite/g++.dg/lto/ipa-sra-assume_0.C
++++ /dev/null
+@@ -1,28 +0,0 @@
+-/* { dg-lto-options {{ -O3 -flto -fdump-tree-optimized }} } */
+-/* { dg-lto-do link } */
+-
+-struct S
+-{
+-  int x;
+-};
+-
+-int bar (struct S);
+-
+-void
+-foo (struct S s)
+-{
+-  int c = bar (s);
+-  for (int i = 0; i < c; i++)
+-    __builtin_abort ();
+-}
+-
+-int
+-main ()
+-{
+-  int x;
+-  __builtin_scanf ("%d", &x);
+-  foo ({x});
+-  return 0;
+-}
+-
+-/* { dg-final { scan-ltrans-tree-dump-not "__builtin_abort" "optimized" } } */
+diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume_1.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume_1.C
+deleted file mode 100644
+index a33ed888a32..00000000000
+--- a/gcc/testsuite/g++.dg/lto/ipa-sra-assume_1.C
++++ /dev/null
+@@ -1,11 +0,0 @@
+-struct S
+-{
+-  int x;
+-};
+-
+-int
+-bar (struct S s)
+-{
+-  [[assume (s.x < 0)]];
+-  return s.x;
+-}
+diff --git a/gcc/tree-inline.cc b/gcc/tree-inline.cc
+index 01d66537d42..8162b1f5051 100644
+--- a/gcc/tree-inline.cc
++++ b/gcc/tree-inline.cc
+@@ -2896,7 +2896,6 @@ initialize_cfun (tree new_fndecl, tree callee_fndecl, profile_count count)
+   cfun->can_delete_dead_exceptions = src_cfun->can_delete_dead_exceptions;
+   cfun->returns_struct = src_cfun->returns_struct;
+   cfun->returns_pcc_struct = src_cfun->returns_pcc_struct;
+-  cfun->assume_function = src_cfun->assume_function;
+ 
+   init_empty_tree_cfg ();
+ 
+-- 
+2.55.0
+
