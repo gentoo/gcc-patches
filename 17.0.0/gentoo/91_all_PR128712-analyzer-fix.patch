@@ -1,0 +1,28 @@
+commit 1393e3b8d3bee95b61d89c2f4272beb7d0329356 (HEAD)
+Author: David Malcolm <dmalcolm@redhat.com>
+Date:   Sat Nov 14 10:43:39 2026 -0500
+
+    analyzer: add template instantiation
+    
+    gcc/analyzer/ChangeLog:
+            * symbolic-scalars.cc
+            (scalar<integer_with_unit<units::bit>>::is_unknown_p): Explicitly
+            instantiate template for this type.
+    
+    Signed-off-by: David Malcolm <dmalcolm@redhat.com>
+
+diff --git a/gcc/analyzer/symbolic-scalars.cc b/gcc/analyzer/symbolic-scalars.cc
+index 97bb0329730..19185fcda8c 100644
+--- a/gcc/analyzer/symbolic-scalars.cc
++++ b/gcc/analyzer/symbolic-scalars.cc
+@@ -86,6 +86,10 @@ scalar<ConcreteValueType>::is_unknown_p () const
+   return false;
+ }
+ 
++template
++bool
++scalar<integer_with_unit<units::bit>>::is_unknown_p () const;
++
+ template<typename ConcreteValueType>
+ void
+ scalar<ConcreteValueType>::print_dump_widget_label (pretty_printer *pp) const
