@@ -1,4 +1,5 @@
-From d644dcbc4b77d2fa8d5e70fbf908c17e757eeffa Mon Sep 17 00:00:00 2001
+From a1133d2c51e92ede8360541cd086dee9bb385682 Mon Sep 17 00:00:00 2001
+Message-ID: <a1133d2c51e92ede8360541cd086dee9bb385682.1794645494.git.sam@gentoo.org>
 From: Kostadin Shishmanov <kostadinshishmanov@protonmail.com>
 Date: Thu, 29 Oct 2026 21:40:42 +0200
 Subject: [PATCH] Revert IPA support for outlined .ASSUME bodies
@@ -16,43 +17,45 @@ Signed-off-by: Kostadin Shishmanov <kostadinshishmanov@protonmail.com>
  gcc/attr-callback.h                           |   5 -
  gcc/callback-info.cc                          | 132 ++---------
  gcc/callback-info.h                           |  33 +--
- gcc/cgraph.cc                                 | 215 +++++++-----------
+ gcc/cgraph.cc                                 | 223 +++++++-----------
  gcc/cgraph.h                                  |  29 +--
  gcc/cgraphclones.cc                           |   1 -
  gcc/cgraphunit.cc                             |  15 +-
  gcc/gimple-low.cc                             |  16 +-
- gcc/ipa-cp.cc                                 |  26 +--
+ gcc/ipa-cp.cc                                 |  26 +-
  gcc/ipa-fnsummary.cc                          |  17 +-
  gcc/ipa-icf.cc                                |  11 +-
  gcc/ipa-param-manipulation.cc                 |  58 +----
  gcc/ipa-polymorphic-call.cc                   |   8 -
  gcc/ipa-prop.cc                               |  28 +--
- gcc/ipa-sra.cc                                | 144 ++----------
+ gcc/ipa-sra.cc                                | 144 ++---------
  gcc/lto-cgraph.cc                             |   2 -
  gcc/testsuite/g++.dg/ipa/ipa-cp-assume-2.C    |  40 ----
- gcc/testsuite/g++.dg/ipa/ipa-cp-assume-3.C    |  51 -----
- gcc/testsuite/g++.dg/ipa/ipa-cp-assume.C      |  26 ---
+ gcc/testsuite/g++.dg/ipa/ipa-cp-assume-3.C    |  51 ----
+ gcc/testsuite/g++.dg/ipa/ipa-cp-assume.C      |  26 --
  gcc/testsuite/g++.dg/ipa/ipa-sra-assume-2.C   |  33 ---
  gcc/testsuite/g++.dg/ipa/ipa-sra-assume-3.C   |  34 ---
  gcc/testsuite/g++.dg/ipa/ipa-sra-assume.C     |  37 ---
+ gcc/testsuite/g++.dg/ipa/pr128226.C           |  22 --
  gcc/testsuite/g++.dg/lto/ipa-cp-assume-1_0.C  |  16 --
  gcc/testsuite/g++.dg/lto/ipa-cp-assume-2_0.C  |  16 --
  gcc/testsuite/g++.dg/lto/ipa-cp-assume-3_0.C  |  18 --
  gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C    |  27 ---
- gcc/testsuite/g++.dg/lto/ipa-cp-assume_1.C    |  13 --
+ gcc/testsuite/g++.dg/lto/ipa-cp-assume_1.C    |  13 -
  gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C |  22 --
  gcc/testsuite/g++.dg/lto/ipa-sra-assume-2_0.C |   6 -
  gcc/testsuite/g++.dg/lto/ipa-sra-assume-3_0.C |   6 -
  gcc/testsuite/g++.dg/lto/ipa-sra-assume_0.C   |  28 ---
  gcc/testsuite/g++.dg/lto/ipa-sra-assume_1.C   |  11 -
  gcc/tree-inline.cc                            |   1 -
- 34 files changed, 153 insertions(+), 986 deletions(-)
+ 35 files changed, 157 insertions(+), 1012 deletions(-)
  delete mode 100644 gcc/testsuite/g++.dg/ipa/ipa-cp-assume-2.C
  delete mode 100644 gcc/testsuite/g++.dg/ipa/ipa-cp-assume-3.C
  delete mode 100644 gcc/testsuite/g++.dg/ipa/ipa-cp-assume.C
  delete mode 100644 gcc/testsuite/g++.dg/ipa/ipa-sra-assume-2.C
  delete mode 100644 gcc/testsuite/g++.dg/ipa/ipa-sra-assume-3.C
  delete mode 100644 gcc/testsuite/g++.dg/ipa/ipa-sra-assume.C
+ delete mode 100644 gcc/testsuite/g++.dg/ipa/pr128226.C
  delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-cp-assume-1_0.C
  delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-cp-assume-2_0.C
  delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-cp-assume-3_0.C
@@ -65,7 +68,7 @@ Signed-off-by: Kostadin Shishmanov <kostadinshishmanov@protonmail.com>
  delete mode 100644 gcc/testsuite/g++.dg/lto/ipa-sra-assume_1.C
 
 diff --git a/gcc/attr-callback.cc b/gcc/attr-callback.cc
-index 6496844738f..376a17e82b4 100644
+index 6496844738f5..376a17e82b40 100644
 --- a/gcc/attr-callback.cc
 +++ b/gcc/attr-callback.cc
 @@ -24,7 +24,6 @@
@@ -94,7 +97,7 @@ index 6496844738f..376a17e82b4 100644
 -  gimple_call_set_arg (e->call_stmt, ci->fn_idx, new_addr);
 -}
 diff --git a/gcc/attr-callback.h b/gcc/attr-callback.h
-index b969b713a20..baefa8701b9 100644
+index b969b713a20d..baefa8701b9e 100644
 --- a/gcc/attr-callback.h
 +++ b/gcc/attr-callback.h
 @@ -76,9 +76,4 @@ bool callback_edge_useful_p (cgraph_edge *e);
@@ -108,7 +111,7 @@ index b969b713a20..baefa8701b9 100644
 -
  #endif /* ATTR_CALLBACK_H  */
 diff --git a/gcc/callback-info.cc b/gcc/callback-info.cc
-index f72339bf83e..b277f37154e 100644
+index f72339bf83ef..b277f37154e0 100644
 --- a/gcc/callback-info.cc
 +++ b/gcc/callback-info.cc
 @@ -33,58 +33,21 @@
@@ -286,7 +289,7 @@ index f72339bf83e..b277f37154e 100644
 -  return cbei != nullptr;
 -}
 diff --git a/gcc/callback-info.h b/gcc/callback-info.h
-index 2a75647ab43..3eecbf6f9af 100644
+index 2a75647ab434..3eecbf6f9af5 100644
 --- a/gcc/callback-info.h
 +++ b/gcc/callback-info.h
 @@ -35,17 +35,10 @@ public:
@@ -344,9 +347,24 @@ index 2a75647ab43..3eecbf6f9af 100644
 -
  #endif /* CALLBACK_INFO_H  */
 diff --git a/gcc/cgraph.cc b/gcc/cgraph.cc
-index 3448bc37714..8e349189724 100644
+index 748fe579a22f..8e3491897248 100644
 --- a/gcc/cgraph.cc
 +++ b/gcc/cgraph.cc
+@@ -870,10 +870,10 @@ cgraph_add_edge_to_call_site_hash (cgraph_edge *e)
+      one indirect); always hash the direct one.  */
+   if (e->speculative && e->indirect_unknown_callee)
+     return;
+-  /* Callback edges share the call statement of the carrying edge, so hash
+-     the carrying edge instead.  Internal callback edges have no carrying
+-     edge, so hash the callback edge directly.  */
+-  if (e->callback_with_carrying_edge_p ())
++  /* We always want to hash the carrying edge of a callback, not the edges
++     pointing to the callbacks themselves, as their call statement doesn't
++     exist.  */
++  if (e->callback)
+     return;
+   cgraph_edge **slot = e->caller->call_site_hash->find_slot_with_hash
+       (e->call_stmt, cgraph_edge_hasher::hash (e->call_stmt), INSERT);
 @@ -934,7 +934,7 @@ cgraph_node::get_edge (gimple *call_stmt)
       comes to callback edges, a call statement might have multiple callback
       edges attached to it.  These can be easily obtained from the carrying edge
@@ -643,7 +661,7 @@ index 3448bc37714..8e349189724 100644
  	    {
  	      error ("edge %s->%s has no corresponding call_stmt",
 diff --git a/gcc/cgraph.h b/gcc/cgraph.h
-index cad7fb3c127..d9f3d4815b0 100644
+index e1341343fdd3..7e03b8f69d70 100644
 --- a/gcc/cgraph.h
 +++ b/gcc/cgraph.h
 @@ -939,8 +939,8 @@ struct GTY((tag ("SYMTAB_FUNCTION"))) cgraph_node : public symtab_node
@@ -717,7 +735,7 @@ index cad7fb3c127..d9f3d4815b0 100644
       Note that the edges might be in arbitrary order.  Must be called on a
       callback or callback-carrying edge.  */
 diff --git a/gcc/cgraphclones.cc b/gcc/cgraphclones.cc
-index c5aead0c3b8..b5f2ce5ff2f 100644
+index c5aead0c3b8c..b5f2ce5ff2f3 100644
 --- a/gcc/cgraphclones.cc
 +++ b/gcc/cgraphclones.cc
 @@ -452,7 +452,6 @@ cgraph_node::create_clone (tree new_decl, profile_count prof_count,
@@ -729,7 +747,7 @@ index c5aead0c3b8..b5f2ce5ff2f 100644
    new_node->unit_id = unit_id;
    new_node->merged_comdat = merged_comdat;
 diff --git a/gcc/cgraphunit.cc b/gcc/cgraphunit.cc
-index b77f082757b..7a7278ace5a 100644
+index 61944a9d6610..10ef3f44576c 100644
 --- a/gcc/cgraphunit.cc
 +++ b/gcc/cgraphunit.cc
 @@ -445,10 +445,9 @@ symtab_node::referred_to_p (bool include_self)
@@ -785,7 +803,7 @@ index b77f082757b..7a7278ace5a 100644
  
  /* Analyze the function scheduled to be output.  */
 diff --git a/gcc/gimple-low.cc b/gcc/gimple-low.cc
-index f5e175387fc..ed752429854 100644
+index a022022e7908..360c35fdb5e7 100644
 --- a/gcc/gimple-low.cc
 +++ b/gcc/gimple-low.cc
 @@ -302,7 +302,18 @@ create_assumption_fn (location_t loc)
@@ -819,10 +837,10 @@ index f5e175387fc..ed752429854 100644
    for (unsigned i = 0; i < sz; ++i)
      {
 diff --git a/gcc/ipa-cp.cc b/gcc/ipa-cp.cc
-index 76d3b0decda..4ae6c7516ef 100644
+index b07476afe403..5a7bfd2674bc 100644
 --- a/gcc/ipa-cp.cc
 +++ b/gcc/ipa-cp.cc
-@@ -3459,35 +3459,15 @@ good_cloning_opportunity_p (struct cgraph_node *node, sreal time_benefit,
+@@ -3457,35 +3457,15 @@ good_cloning_opportunity_p (struct cgraph_node *node, sreal time_benefit,
    gcc_assert (count_sum.ipa () == count_sum);
    if (count_sum.quality () == AFDO)
      count_sum = count_sum.force_nonzero ();
@@ -862,7 +880,7 @@ index 76d3b0decda..4ae6c7516ef 100644
        return false;
      }
 diff --git a/gcc/ipa-fnsummary.cc b/gcc/ipa-fnsummary.cc
-index d3225a08483..09f50846903 100644
+index d3225a084836..09f508469038 100644
 --- a/gcc/ipa-fnsummary.cc
 +++ b/gcc/ipa-fnsummary.cc
 @@ -90,8 +90,6 @@ along with GCC; see the file COPYING3.  If not see
@@ -906,7 +924,7 @@ index d3225a08483..09f50846903 100644
  
  	  /* TODO: When conditional jump or switch is known to be constant, but
 diff --git a/gcc/ipa-icf.cc b/gcc/ipa-icf.cc
-index 7aa2554f8a7..7b524bdf16b 100644
+index 3a7e99da378a..383672fc12a2 100644
 --- a/gcc/ipa-icf.cc
 +++ b/gcc/ipa-icf.cc
 @@ -295,7 +295,6 @@ sem_function::get_hash (void)
@@ -942,7 +960,7 @@ index 7aa2554f8a7..7b524bdf16b 100644
  
    /* Fill-up label dictionary.  */
 diff --git a/gcc/ipa-param-manipulation.cc b/gcc/ipa-param-manipulation.cc
-index fd70274e9b8..0f384848ce5 100644
+index fd70274e9b89..0f384848ce55 100644
 --- a/gcc/ipa-param-manipulation.cc
 +++ b/gcc/ipa-param-manipulation.cc
 @@ -50,9 +50,7 @@ along with GCC; see the file COPYING3.  If not see
@@ -1075,7 +1093,7 @@ index fd70274e9b8..0f384848ce5 100644
      gimple_set_location (new_stmt, gimple_location (stmt));
    gimple_call_set_chain (new_stmt, gimple_call_chain (stmt));
 diff --git a/gcc/ipa-polymorphic-call.cc b/gcc/ipa-polymorphic-call.cc
-index 3f2d413a73a..addb52561c7 100644
+index 3f2d413a73ac..addb52561c70 100644
 --- a/gcc/ipa-polymorphic-call.cc
 +++ b/gcc/ipa-polymorphic-call.cc
 @@ -23,7 +23,6 @@ along with GCC; see the file COPYING3.  If not see
@@ -1108,10 +1126,10 @@ index 3f2d413a73a..addb52561c7 100644
      otr_type = TYPE_MAIN_VARIANT (otr_type);
  
 diff --git a/gcc/ipa-prop.cc b/gcc/ipa-prop.cc
-index c614ddccbbb..b4f08fb23de 100644
+index 69628bf962a0..fdb41271858d 100644
 --- a/gcc/ipa-prop.cc
 +++ b/gcc/ipa-prop.cc
-@@ -2492,8 +2492,7 @@ ipa_compute_jump_functions_for_edge (struct ipa_func_body_info *fbi,
+@@ -2520,8 +2520,7 @@ ipa_compute_jump_functions_for_edge (struct ipa_func_body_info *fbi,
    ipa_node_params *info = ipa_node_params_sum->get (cs->caller);
    ipa_edge_args *args = ipa_edge_args_sum->get_create (cs);
    gcall *call = cs->call_stmt;
@@ -1121,7 +1139,7 @@ index c614ddccbbb..b4f08fb23de 100644
    bool useful_context = false;
  
    if (arg_num == 0 || args->jump_functions)
-@@ -2509,17 +2508,7 @@ ipa_compute_jump_functions_for_edge (struct ipa_func_body_info *fbi,
+@@ -2537,17 +2536,7 @@ ipa_compute_jump_functions_for_edge (struct ipa_func_body_info *fbi,
    for (n = 0; n < arg_num; n++)
      {
        struct ipa_jump_func *jfunc = ipa_get_ith_jump_func (args, n);
@@ -1140,7 +1158,7 @@ index c614ddccbbb..b4f08fb23de 100644
        tree param_type = ipa_get_callee_param_type (cs, n);
        if (flag_devirtualize && POINTER_TYPE_P (TREE_TYPE (arg)))
  	{
-@@ -3214,19 +3203,6 @@ ipa_analyze_call_uses (struct ipa_func_body_info *fbi, gcall *call)
+@@ -3242,19 +3231,6 @@ ipa_analyze_call_uses (struct ipa_func_body_info *fbi, gcall *call)
  {
    tree target = gimple_call_fn (call);
  
@@ -1161,7 +1179,7 @@ index c614ddccbbb..b4f08fb23de 100644
        || (TREE_CODE (target) != SSA_NAME
            && !virtual_method_call_p (target)))
 diff --git a/gcc/ipa-sra.cc b/gcc/ipa-sra.cc
-index 776c4675397..422bf367b97 100644
+index 3aef7f1f92bf..56069294456a 100644
 --- a/gcc/ipa-sra.cc
 +++ b/gcc/ipa-sra.cc
 @@ -87,8 +87,6 @@ along with GCC; see the file COPYING3.  If not see
@@ -1209,7 +1227,7 @@ index 776c4675397..422bf367b97 100644
  	    {
  	      ret = true;
  	      break;
-@@ -2072,8 +2056,7 @@ scan_function (cgraph_node *node, struct function *fun)
+@@ -2079,8 +2063,7 @@ scan_function (cgraph_node *node, struct function *fun)
  		unsigned argument_count = gimple_call_num_args (stmt);
  		isra_scan_context ctx = ISRA_CTX_ARG;
  		scan_call_info call_info, *call_info_p = &call_info;
@@ -1219,7 +1237,7 @@ index 776c4675397..422bf367b97 100644
  		  {
  		    call_info_p = NULL;
  		    ctx = ISRA_CTX_LOAD;
-@@ -2265,11 +2248,6 @@ isra_analyze_call (cgraph_edge *cs)
+@@ -2272,11 +2255,6 @@ isra_analyze_call (cgraph_edge *cs)
  	  BITMAP_FREE (analyzed);
  	}
      }
@@ -1231,7 +1249,7 @@ index 776c4675397..422bf367b97 100644
    /* Don't set m_return_ignored for musttail calls.  The tailc/musttail passes
       compare the returned value against the IPA-VRP return value range if
       it is a singleton, but if the call is changed to something which doesn't
-@@ -2575,11 +2553,8 @@ process_scan_results (cgraph_node *node, struct function *fun,
+@@ -2582,11 +2560,8 @@ process_scan_results (cgraph_node *node, struct function *fun,
  	       * param_size_limit);
  	}
  
@@ -1245,7 +1263,7 @@ index 776c4675397..422bf367b97 100644
  	{
  	  disqualify_split_candidate (desc, "Would result into a too big set "
  				      "of replacements even in best "
-@@ -2803,7 +2778,6 @@ ipa_sra_generate_summary (void)
+@@ -2810,7 +2785,6 @@ ipa_sra_generate_summary (void)
      = (new (ggc_alloc_no_dtor <ipa_sra_function_summaries> ())
         ipa_sra_function_summaries (symtab, true));
    call_sums = new ipa_sra_call_summaries (symtab);
@@ -1253,7 +1271,7 @@ index 776c4675397..422bf367b97 100644
  
    FOR_EACH_FUNCTION_WITH_GIMPLE_BODY (node)
      ipa_sra_summarize_function (node);
-@@ -3146,9 +3120,7 @@ ipa_sra_dump_all_summaries (FILE *f, bool hints)
+@@ -3153,9 +3127,7 @@ ipa_sra_dump_all_summaries (FILE *f, bool hints)
  static bool
  ipa_sra_ipa_function_checks (cgraph_node *node)
  {
@@ -1264,7 +1282,7 @@ index 776c4675397..422bf367b97 100644
      {
        if (dump_file)
  	fprintf (dump_file, "Function %s disqualified because it cannot be "
-@@ -3423,21 +3395,11 @@ param_removal_cross_scc_edge (cgraph_edge *cs)
+@@ -3430,21 +3402,11 @@ param_removal_cross_scc_edge (cgraph_edge *cs)
  
    for (unsigned i = 0; i < args_count; i++)
      {
@@ -1291,7 +1309,7 @@ index 776c4675397..422bf367b97 100644
  
        if (!unused_in_callee)
  	{
-@@ -3552,22 +3514,7 @@ propagate_param_hints_accross_call (cgraph_edge *cs, isra_func_summary *to_ifs)
+@@ -3559,22 +3521,7 @@ propagate_param_hints_accross_call (cgraph_edge *cs, isra_func_summary *to_ifs)
  
        if (desc->by_ref)
  	{
@@ -1315,7 +1333,7 @@ index 776c4675397..422bf367b97 100644
  
  	  if (!ipf->constructed_for_calls)
  	    desc->not_specially_constructed = true;
-@@ -3607,11 +3554,7 @@ propagate_hints_to_all_callees (cgraph_node *node, isra_func_summary *from_ifs,
+@@ -3614,11 +3561,7 @@ propagate_hints_to_all_callees (cgraph_node *node, isra_func_summary *from_ifs,
        enum availability availability;
        cgraph_node *callee = cs->callee->function_symbol (&availability);
        isra_func_summary *to_ifs = func_sums->get (callee);
@@ -1328,7 +1346,7 @@ index 776c4675397..422bf367b97 100644
  	{
  	  if (flip_all_param_hints_pessimistic (to_ifs)
  	      && ipa_edge_within_scc (cs))
-@@ -3646,25 +3589,8 @@ propagate_used_across_scc_edge (cgraph_edge *cs, vec<cgraph_node *> *stack)
+@@ -3653,25 +3596,8 @@ propagate_used_across_scc_edge (cgraph_edge *cs, vec<cgraph_node *> *stack)
      ? vec_safe_length (to_ifs->m_parameters) : 0;
    for (unsigned i = 0; i < args_count; i++)
      {
@@ -1356,7 +1374,7 @@ index 776c4675397..422bf367b97 100644
  	    continue;
  
        /* The argument is needed in the callee it, we must mark the parameter as
-@@ -3884,14 +3810,7 @@ param_splitting_across_edge (cgraph_edge *cs)
+@@ -3891,14 +3817,7 @@ param_splitting_across_edge (cgraph_edge *cs)
      = ipcp_get_transformation_summary (cs->caller);
  
    isra_call_summary *csum = call_sums->get (cs);
@@ -1372,7 +1390,7 @@ index 776c4675397..422bf367b97 100644
    unsigned args_count = csum->m_arg_flow.length ();
    isra_func_summary *to_ifs = func_sums->get (callee);
    unsigned param_count
-@@ -3907,22 +3826,7 @@ param_splitting_across_edge (cgraph_edge *cs)
+@@ -3914,22 +3833,7 @@ param_splitting_across_edge (cgraph_edge *cs)
    for (i = 0; (i < args_count) && (i < param_count); i++)
      {
        isra_param_desc *arg_desc = &(*to_ifs->m_parameters)[i];
@@ -1396,7 +1414,7 @@ index 776c4675397..422bf367b97 100644
  
        if (arg_desc->locally_unused)
  	{
-@@ -4124,11 +4028,6 @@ retval_used_p (cgraph_node *node, void *)
+@@ -4131,11 +4035,6 @@ retval_used_p (cgraph_node *node, void *)
  	    return true;
      }
  
@@ -1408,7 +1426,7 @@ index 776c4675397..422bf367b97 100644
    return false;
  }
  
-@@ -4465,10 +4364,7 @@ adjust_parameter_descriptions (cgraph_node *node, isra_func_summary *ifs)
+@@ -4472,10 +4371,7 @@ adjust_parameter_descriptions (cgraph_node *node, isra_func_summary *ifs)
  			      param_ipa_sra_ptrwrap_growth_factor);
  	      desc->param_size_limit = extra_factor * desc->param_size_limit;
  	    }
@@ -1421,7 +1439,7 @@ index 776c4675397..422bf367b97 100644
  	}
  
 diff --git a/gcc/lto-cgraph.cc b/gcc/lto-cgraph.cc
-index b3644e47bec..bffe35f2353 100644
+index b3644e47becb..bffe35f2353d 100644
 --- a/gcc/lto-cgraph.cc
 +++ b/gcc/lto-cgraph.cc
 @@ -561,7 +561,6 @@ lto_output_node (struct lto_simple_output_block *ob, struct cgraph_node *node,
@@ -1442,7 +1460,7 @@ index b3644e47bec..bffe35f2353 100644
    node->merged_extern_inline = bp_unpack_value (bp, 1);
 diff --git a/gcc/testsuite/g++.dg/ipa/ipa-cp-assume-2.C b/gcc/testsuite/g++.dg/ipa/ipa-cp-assume-2.C
 deleted file mode 100644
-index d9f7af46ec9..00000000000
+index d9f7af46ec9f..000000000000
 --- a/gcc/testsuite/g++.dg/ipa/ipa-cp-assume-2.C
 +++ /dev/null
 @@ -1,40 +0,0 @@
@@ -1488,7 +1506,7 @@ index d9f7af46ec9..00000000000
 -/* { dg-final { scan-tree-dump-not "abort" "optimized" } } */
 diff --git a/gcc/testsuite/g++.dg/ipa/ipa-cp-assume-3.C b/gcc/testsuite/g++.dg/ipa/ipa-cp-assume-3.C
 deleted file mode 100644
-index 4b79480b4f3..00000000000
+index 4b79480b4f3b..000000000000
 --- a/gcc/testsuite/g++.dg/ipa/ipa-cp-assume-3.C
 +++ /dev/null
 @@ -1,51 +0,0 @@
@@ -1545,7 +1563,7 @@ index 4b79480b4f3..00000000000
 -/* { dg-final { scan-tree-dump-not "abort" "optimized" } } */
 diff --git a/gcc/testsuite/g++.dg/ipa/ipa-cp-assume.C b/gcc/testsuite/g++.dg/ipa/ipa-cp-assume.C
 deleted file mode 100644
-index 6eeebd4ad5c..00000000000
+index 6eeebd4ad5c8..000000000000
 --- a/gcc/testsuite/g++.dg/ipa/ipa-cp-assume.C
 +++ /dev/null
 @@ -1,26 +0,0 @@
@@ -1577,7 +1595,7 @@ index 6eeebd4ad5c..00000000000
 -/* { dg-final { scan-tree-dump-not "abort" "optimized" } } */
 diff --git a/gcc/testsuite/g++.dg/ipa/ipa-sra-assume-2.C b/gcc/testsuite/g++.dg/ipa/ipa-sra-assume-2.C
 deleted file mode 100644
-index 009b315ac42..00000000000
+index 009b315ac42b..000000000000
 --- a/gcc/testsuite/g++.dg/ipa/ipa-sra-assume-2.C
 +++ /dev/null
 @@ -1,33 +0,0 @@
@@ -1616,7 +1634,7 @@ index 009b315ac42..00000000000
 -}
 diff --git a/gcc/testsuite/g++.dg/ipa/ipa-sra-assume-3.C b/gcc/testsuite/g++.dg/ipa/ipa-sra-assume-3.C
 deleted file mode 100644
-index fd15c957794..00000000000
+index fd15c957794a..000000000000
 --- a/gcc/testsuite/g++.dg/ipa/ipa-sra-assume-3.C
 +++ /dev/null
 @@ -1,34 +0,0 @@
@@ -1656,7 +1674,7 @@ index fd15c957794..00000000000
 -}
 diff --git a/gcc/testsuite/g++.dg/ipa/ipa-sra-assume.C b/gcc/testsuite/g++.dg/ipa/ipa-sra-assume.C
 deleted file mode 100644
-index 91b6366eb6a..00000000000
+index 91b6366eb6af..000000000000
 --- a/gcc/testsuite/g++.dg/ipa/ipa-sra-assume.C
 +++ /dev/null
 @@ -1,37 +0,0 @@
@@ -1697,9 +1715,37 @@ index 91b6366eb6a..00000000000
 -
 -/* { dg-final { scan-ipa-dump-times "Will split parameter 0" 3 "sra" } } */
 -/* { dg-final { scan-tree-dump-not "abort" "optimized" } } */
+diff --git a/gcc/testsuite/g++.dg/ipa/pr128226.C b/gcc/testsuite/g++.dg/ipa/pr128226.C
+deleted file mode 100644
+index ec5f437500f9..000000000000
+--- a/gcc/testsuite/g++.dg/ipa/pr128226.C
++++ /dev/null
+@@ -1,22 +0,0 @@
+-/* { dg-do compile } */
+-/* { dg-options "-O1" } */
+-
+-/* The 100 calls alone do not cross the call_site_hash construction threshold
+-   in cgraph_node::get_edge, but together with the internal callback edges
+-   created for the assumes, they do.  We are testing whether the internal
+-   callback edges are added to call_site_hash.  */
+-
+-#define CALL(x) (x) ()
+-#define CALL5(x) CALL (x), CALL (x), CALL (x), CALL (x), CALL (x)
+-#define CALL25(x) CALL5 (x), CALL5 (x), CALL5 (x), CALL5 (x), CALL5 (x)
+-#define CALL100(x) CALL25 (x), CALL25 (x), CALL25 (x), CALL25 (x)
+-
+-bool foo ();
+-
+-void
+-bar ()
+-{
+-  __attribute__ ((assume (foo ())));
+-  __attribute__ ((assume (foo ())));
+-  CALL100 (foo);
+-}
 diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume-1_0.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume-1_0.C
 deleted file mode 100644
-index 1111087d800..00000000000
+index 1111087d8006..000000000000
 --- a/gcc/testsuite/g++.dg/lto/ipa-cp-assume-1_0.C
 +++ /dev/null
 @@ -1,16 +0,0 @@
@@ -1721,7 +1767,7 @@ index 1111087d800..00000000000
 -/* { dg-final { scan-ltrans-tree-dump-not "abort" "optimized" } } */
 diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume-2_0.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume-2_0.C
 deleted file mode 100644
-index caafb9c3c93..00000000000
+index caafb9c3c93f..000000000000
 --- a/gcc/testsuite/g++.dg/lto/ipa-cp-assume-2_0.C
 +++ /dev/null
 @@ -1,16 +0,0 @@
@@ -1743,7 +1789,7 @@ index caafb9c3c93..00000000000
 -/* { dg-final { scan-ltrans-tree-dump-not "abort" "optimized" } } */
 diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume-3_0.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume-3_0.C
 deleted file mode 100644
-index 8ca3c99d8aa..00000000000
+index 8ca3c99d8aa2..000000000000
 --- a/gcc/testsuite/g++.dg/lto/ipa-cp-assume-3_0.C
 +++ /dev/null
 @@ -1,18 +0,0 @@
@@ -1767,7 +1813,7 @@ index 8ca3c99d8aa..00000000000
 -/* { dg-final { scan-ltrans-tree-dump-not "abort" "optimized" } } */
 diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C
 deleted file mode 100644
-index 3f69250f33b..00000000000
+index 3f69250f33b3..000000000000
 --- a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C
 +++ /dev/null
 @@ -1,27 +0,0 @@
@@ -1800,7 +1846,7 @@ index 3f69250f33b..00000000000
 -/* { dg-final { scan-ltrans-tree-dump-not "__builtin_abort" "optimized" } } */
 diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_1.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume_1.C
 deleted file mode 100644
-index 4ac52422d37..00000000000
+index 4ac52422d372..000000000000
 --- a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_1.C
 +++ /dev/null
 @@ -1,13 +0,0 @@
@@ -1819,7 +1865,7 @@ index 4ac52422d37..00000000000
 -}
 diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C
 deleted file mode 100644
-index 5d55efa4497..00000000000
+index 5d55efa44975..000000000000
 --- a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C
 +++ /dev/null
 @@ -1,22 +0,0 @@
@@ -1847,7 +1893,7 @@ index 5d55efa4497..00000000000
 -/* { dg-final { scan-ltrans-tree-dump-not "abort" "optimized" } } */
 diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-2_0.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume-2_0.C
 deleted file mode 100644
-index d3d0251ce5d..00000000000
+index d3d0251ce5da..000000000000
 --- a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-2_0.C
 +++ /dev/null
 @@ -1,6 +0,0 @@
@@ -1859,7 +1905,7 @@ index d3d0251ce5d..00000000000
 -#include "../ipa/ipa-sra-assume-2.C"
 diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-3_0.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume-3_0.C
 deleted file mode 100644
-index 432cfcfd5f3..00000000000
+index 432cfcfd5f35..000000000000
 --- a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-3_0.C
 +++ /dev/null
 @@ -1,6 +0,0 @@
@@ -1871,7 +1917,7 @@ index 432cfcfd5f3..00000000000
 -#include "../ipa/ipa-sra-assume-3.C"
 diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume_0.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume_0.C
 deleted file mode 100644
-index c4de5f86d3c..00000000000
+index c4de5f86d3c3..000000000000
 --- a/gcc/testsuite/g++.dg/lto/ipa-sra-assume_0.C
 +++ /dev/null
 @@ -1,28 +0,0 @@
@@ -1905,7 +1951,7 @@ index c4de5f86d3c..00000000000
 -/* { dg-final { scan-ltrans-tree-dump-not "__builtin_abort" "optimized" } } */
 diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume_1.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume_1.C
 deleted file mode 100644
-index a33ed888a32..00000000000
+index a33ed888a32f..000000000000
 --- a/gcc/testsuite/g++.dg/lto/ipa-sra-assume_1.C
 +++ /dev/null
 @@ -1,11 +0,0 @@
@@ -1921,10 +1967,10 @@ index a33ed888a32..00000000000
 -  return s.x;
 -}
 diff --git a/gcc/tree-inline.cc b/gcc/tree-inline.cc
-index 01d66537d42..8162b1f5051 100644
+index 6a3ba7b84839..0ca45a988e99 100644
 --- a/gcc/tree-inline.cc
 +++ b/gcc/tree-inline.cc
-@@ -2896,7 +2896,6 @@ initialize_cfun (tree new_fndecl, tree callee_fndecl, profile_count count)
+@@ -2891,7 +2891,6 @@ initialize_cfun (tree new_fndecl, tree callee_fndecl, profile_count count)
    cfun->can_delete_dead_exceptions = src_cfun->can_delete_dead_exceptions;
    cfun->returns_struct = src_cfun->returns_struct;
    cfun->returns_pcc_struct = src_cfun->returns_pcc_struct;
@@ -1932,6 +1978,8 @@ index 01d66537d42..8162b1f5051 100644
  
    init_empty_tree_cfg ();
  
+
+base-commit: 8463cbc0c69c8a42ac67d74e8de7fe059d2efde6
 -- 
-2.55.0
+2.56.1
 
