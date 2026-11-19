@@ -1,0 +1,109 @@
+Since r17-6284-g610d42e09ff844 ("Fold ancestor and arithmetic aggregate
+jump functions after inlining"), update_jump_functions_after_inlining
+asks ipa_get_callee_param_type for a parameter type whenever it folds a
+constant into an ancestor jump function.  It does this for every outgoing
+edge of the inlined callee, including indirect ones.  Without a callee,
+ipa_get_callee_param_type takes the type from the edge's call statement,
+but at WPA the function bodies aren't loaded and call_stmt is NULL, so
+gimple_call_fntype dereferences NULL.
+
+Return NULL, as for a callee whose parameter types aren't known, when the
+edge has neither a callee nor a call statement.  The caller then folds the
+constant without checking it against a parameter type, as it already does
+for a callee without a prototype, and IPA-CP still checks the value
+against the parameter type of the eventual callee before using it.
+
+	PR ipa/128825
+
+gcc/ChangeLog:
+
+	* ipa-prop.cc (ipa_get_callee_param_type): Return NULL for an
+	edge that has neither a callee nor a call statement.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.dg/lto/pr128825_0.c: New test.
+	* gcc.dg/lto/pr128825_1.c: New test.
+
+Assisted-by: LLM
+Signed-off-by: Adam W. Willis <return.of.octobot@gmail.com>
+---
+Bootstrapped and regtested (C and C++) on x86_64-pc-linux-gnu with no
+regressions.  Without the patch, the new test ICEs in lto1 at WPA on
+x86_64-pc-linux-gnu and on an aarch64-linux-gnu cross; an aarch64 Linux
+kernel LTO build that hit the ICE now links and boots.
+
+ gcc/ipa-prop.cc                       |  4 ++++
+ gcc/testsuite/gcc.dg/lto/pr128825_0.c | 29 +++++++++++++++++++++++++++
+ gcc/testsuite/gcc.dg/lto/pr128825_1.c |  9 +++++++++
+ 3 files changed, 42 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.dg/lto/pr128825_0.c
+ create mode 100644 gcc/testsuite/gcc.dg/lto/pr128825_1.c
+
+diff --git a/gcc/ipa-prop.cc b/gcc/ipa-prop.cc
+index 61b2dbd5d6..aed689b982 100644
+--- a/gcc/ipa-prop.cc
++++ b/gcc/ipa-prop.cc
+@@ -2529,6 +2529,10 @@ tree
+ ipa_get_callee_param_type (struct cgraph_edge *e, int i)
+ {
+   int n;
++  /* An indirect edge has no call statement when the body of its caller isn't
++     loaded, e.g. at WPA, which leaves nothing to take the type from.  */
++  if (!e->callee && !e->call_stmt)
++    return NULL;
+   tree type = (e->callee
+ 	       ? TREE_TYPE (e->callee->decl)
+ 	       : gimple_call_fntype (e->call_stmt));
+diff --git a/gcc/testsuite/gcc.dg/lto/pr128825_0.c b/gcc/testsuite/gcc.dg/lto/pr128825_0.c
+new file mode 100644
+index 0000000000..49b63c11a8
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/lto/pr128825_0.c
+@@ -0,0 +1,29 @@
++/* PR ipa/128825 */
++/* An indirect call that is passed the address of a member of a parameter,
++   in a function inlined at WPA into a caller that passes a constant.  */
++/* { dg-lto-do run } */
++/* { dg-lto-options { { -O2 -flto } } } */
++
++struct S { long pad; int y; };
++
++extern void (*fp) (const int *);
++extern void call (const struct S *);
++
++static const struct S cs = { 1, 2 };
++static int seen;
++
++static void
++check (const int *p)
++{
++  seen = *p;
++}
++
++int
++main (void)
++{
++  fp = check;
++  call (&cs);
++  if (seen != 2)
++    __builtin_abort ();
++  return 0;
++}
+diff --git a/gcc/testsuite/gcc.dg/lto/pr128825_1.c b/gcc/testsuite/gcc.dg/lto/pr128825_1.c
+new file mode 100644
+index 0000000000..16f1118de9
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/lto/pr128825_1.c
+@@ -0,0 +1,9 @@
++struct S { long pad; int y; };
++
++void (*fp) (const int *);
++
++void
++call (const struct S *s)
++{
++  fp (&s->y);
++}
+-- 
+2.53.0
