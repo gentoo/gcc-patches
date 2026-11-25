@@ -1811,39 +1811,6 @@ index 8ca3c99d8aa2..000000000000
 -/* { dg-final { scan-wpa-ipa-dump ".*assume.*constprop.* Will split parameter 0" "sra" } } */
 -/* { dg-final { scan-wpa-ipa-dump "assume.*constprop\\.isra" "sra" } } */
 -/* { dg-final { scan-ltrans-tree-dump-not "abort" "optimized" } } */
-diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C
-deleted file mode 100644
-index 3f69250f33b3..000000000000
---- a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C
-+++ /dev/null
-@@ -1,27 +0,0 @@
--/* { dg-lto-options {{ -O3 -flto -fdump-tree-optimized }} } */
--/* { dg-lto-do link } */
--
--/* The point of this test is to propagate the constant into the assume body in
--   the other file, infer the value range for 'x', evaluate bar to 0, meaning
--   that the loop will never run and the abort would never be executed.  */
--
--int bar (int, int);
--
--void
--foo (int x, int y)
--{
--  int c = bar (x, y);
--  for (int i = 0; i < c; i++)
--    __builtin_abort ();
--}
--
--int
--main ()
--{
--  int x;
--  __builtin_scanf ("%d", &x);
--  foo (x, 67);
--  return 0;
--}
--
--/* { dg-final { scan-ltrans-tree-dump-not "__builtin_abort" "optimized" } } */
 diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_1.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume_1.C
 deleted file mode 100644
 index 4ac52422d372..000000000000
@@ -1863,34 +1830,6 @@ index 4ac52422d372..000000000000
 -  __builtin_printf ("%d %d", x, y);
 -  return x > y;
 -}
-diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C
-deleted file mode 100644
-index 5d55efa44975..000000000000
---- a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C
-+++ /dev/null
-@@ -1,22 +0,0 @@
--/* { dg-lto-do link } */
--/* { dg-lto-options {{ -O2 -fno-inline -fipa-sra -fdump-ipa-sra-details -fdump-tree-optimized -flto }} } */
--
--#include "../ipa/ipa-sra-assume.C"
--
--int
--main ()
--{
--  int x, y, z;
--  __builtin_scanf ("%d %d %d", &x, &y, &z);
--
--  struct S s = {.x = (bool) x, .y = y};
--  bool a = z;
--
--  split_struct (s);
--  remove_ptr (&a);
--  two_values (s);
--  return 0;
--}
--
--/* { dg-final { scan-wpa-ipa-dump-times "Will split parameter 0" 6 "sra" } } */
--/* { dg-final { scan-ltrans-tree-dump-not "abort" "optimized" } } */
 diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-2_0.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume-2_0.C
 deleted file mode 100644
 index d3d0251ce5da..000000000000
@@ -1983,3 +1922,66 @@ base-commit: 8463cbc0c69c8a42ac67d74e8de7fe059d2efde6
 -- 
 2.56.1
 
+diff --git a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C b/gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C
+deleted file mode 100644
+index 055739ec5d90..000000000000
+--- a/gcc/testsuite/g++.dg/lto/ipa-cp-assume_0.C
++++ /dev/null
+@@ -1,28 +0,0 @@
+-/* { dg-lto-options {{ -O3 -flto -fdump-tree-optimized }} } */
+-/* { dg-lto-do link } */
+-/* { dg-require-linker-plugin "" } */
+-
+-/* The point of this test is to propagate the constant into the assume body in
+-   the other file, infer the value range for 'x', evaluate bar to 0, meaning
+-   that the loop will never run and the abort would never be executed.  */
+-
+-int bar (int, int);
+-
+-void
+-foo (int x, int y)
+-{
+-  int c = bar (x, y);
+-  for (int i = 0; i < c; i++)
+-    __builtin_abort ();
+-}
+-
+-int
+-main ()
+-{
+-  int x;
+-  __builtin_scanf ("%d", &x);
+-  foo (x, 67);
+-  return 0;
+-}
+-
+-/* { dg-final { scan-ltrans-tree-dump-not "__builtin_abort" "optimized" } } */
+diff --git a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C b/gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C
+deleted file mode 100644
+index b74e498984bc..000000000000
+--- a/gcc/testsuite/g++.dg/lto/ipa-sra-assume-1_0.C
++++ /dev/null
+@@ -1,23 +0,0 @@
+-/* { dg-lto-do link } */
+-/* { dg-lto-options {{ -O2 -fno-inline -fipa-sra -fdump-ipa-sra-details -fdump-tree-optimized -flto }} } */
+-/* { dg-require-linker-plugin "" } */
+-
+-#include "../ipa/ipa-sra-assume.C"
+-
+-int
+-main ()
+-{
+-  int x, y, z;
+-  __builtin_scanf ("%d %d %d", &x, &y, &z);
+-
+-  struct S s = {.x = (bool) x, .y = y};
+-  bool a = z;
+-
+-  split_struct (s);
+-  remove_ptr (&a);
+-  two_values (s);
+-  return 0;
+-}
+-
+-/* { dg-final { scan-wpa-ipa-dump-times "Will split parameter 0" 6 "sra" } } */
+-/* { dg-final { scan-ltrans-tree-dump-not "abort" "optimized" } } */
